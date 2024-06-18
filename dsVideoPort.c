@@ -1,5 +1,5 @@
 /*
- * If not stated otherwise in this file or this component's Licenses.txt file the
+ * If not stated otherwise in this file or this component's LICENSE file the
  * following copyright and licenses apply:
  *
  * Copyright 2017 RDK Management
@@ -506,11 +506,10 @@ static uint32_t dsGetHdmiMode(dsVideoPortResolution_t *resolution)
  * @param [in] handle         Handle of the video port.
  * @param [in] *resolution    The address of a structure containing the video port
  *                            resolution settings.
- * @oaram [in] persist        enable/disable flag for persistence storage
  * @return    Error Code.
  * @retval    ::dsError_t
  */
-dsError_t  dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution, bool persist)
+dsError_t  dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 {
 	/* Auto Select uses 720p. Should be converted to dsVideoPortResolution_t = 720p in DS-VOPConfig, not here */
                 printf("Inside dsSetResolution\n");
