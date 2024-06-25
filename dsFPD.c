@@ -70,6 +70,8 @@ void setValue (int pin, int value)
 
 dsError_t dsFPInit(void)
 {
+// These changes were added for Traffic light LED support in RPI3. Not relevant otherwise.
+#if 0
     exportPins (LED_RED);
     exportPins (LED_YELLOW);
     exportPins (LED_GREEN);
@@ -77,6 +79,7 @@ dsError_t dsFPInit(void)
     setDirection (LED_RED);
     setDirection (LED_YELLOW);
     setDirection (LED_GREEN);
+#endif
     return dsERR_NONE;
 }
 
@@ -92,6 +95,8 @@ dsError_t dsSetFPBlink (dsFPDIndicator_t eIndicator, unsigned int uBlinkDuration
 
 dsError_t dsSetFPBrightness (dsFPDIndicator_t eIndicator, dsFPDBrightness_t eBrightness)
 {
+// These changes were added for Traffic light LED support in RPI3. Not relevant otherwise.
+#if 0
     int gpio_pin = LED_RED;
 
     if (eIndicator == dsFPD_INDICATOR_POWER)
@@ -102,7 +107,7 @@ dsError_t dsSetFPBrightness (dsFPDIndicator_t eIndicator, dsFPDBrightness_t eBri
         gpio_pin = LED_GREEN;
 
     setValue (gpio_pin, eBrightness);
-
+#endif
     return dsERR_NONE;
 }
 
