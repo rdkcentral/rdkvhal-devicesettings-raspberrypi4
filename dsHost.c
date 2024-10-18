@@ -163,3 +163,7 @@ dsError_t dsHostTerm()
 
     return ret;
 }
+
+dsError_t dsGetHostEDID(unsigned char *edid, int *length) {
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
