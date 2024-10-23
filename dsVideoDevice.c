@@ -55,3 +55,53 @@ dsError_t  dsVideoDeviceTerm()
 	dsError_t ret = dsERR_NONE;
 	return ret;
 }
+dsError_t dsGetHDRCapabilities(intptr_t handle, int *capabilities)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsGetSupportedVideoCodingFormats(intptr_t handle, unsigned int * supported_formats)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsGetVideoCodecInfo(intptr_t handle, dsVideoCodingFormat_t codec, dsVideoCodecInfo_t * info)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsForceDisableHDRSupport(intptr_t handle, bool disable)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsSetFRFMode(intptr_t handle, int frfmode)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsGetFRFMode(intptr_t handle, int *frfmode)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsGetCurrentDisplayframerate(intptr_t handle, char *framerate)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsSetDisplayframerate(intptr_t handle, char *framerate)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsRegisterFrameratePreChangeCB(dsRegisterFrameratePreChangeCB_t CBFunc)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsRegisterFrameratePostChangeCB(dsRegisterFrameratePostChangeCB_t CBFunc)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
