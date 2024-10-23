@@ -613,3 +613,288 @@ bool dsCheckSurroundSupport()
 
     return status;
 }
+dsError_t  dsGetAudioFormat(intptr_t handle, dsAudioFormat_t *audioFormat)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsGetDialogEnhancement(intptr_t handle, int *level)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsGetDolbyVolumeMode(intptr_t handle, bool *mode)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsSetDolbyVolumeMode(intptr_t handle, bool mode)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsGetIntelligentEqualizerMode(intptr_t handle, int *mode)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsSetIntelligentEqualizerMode(intptr_t handle, int mode)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsGetVolumeLeveller(intptr_t handle, dsVolumeLeveller_t* volLeveller)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsSetVolumeLeveller(intptr_t handle, dsVolumeLeveller_t volLeveller)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsGetBassEnhancer(intptr_t handle, int *boost)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsSetBassEnhancer(intptr_t handle, int boost)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsIsSurroundDecoderEnabled(intptr_t handle, bool *enabled)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsEnableSurroundDecoder(intptr_t handle, bool enabled)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsGetDRCMode(intptr_t handle, int *mode)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsSetDRCMode(intptr_t handle, int mode)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsGetSurroundVirtualizer(intptr_t handle, dsSurroundVirtualizer_t *virtualizer)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsSetSurroundVirtualizer(intptr_t handle, dsSurroundVirtualizer_t virtualizer)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsGetMISteering(intptr_t handle, bool *enabled)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsSetMISteering(intptr_t handle, bool enabled)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsGetGraphicEqualizerMode(intptr_t handle, int *mode)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsSetGraphicEqualizerMode(intptr_t handle, int mode)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsGetMS12AudioProfileList(intptr_t handle, dsMS12AudioProfileList_t* profiles)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsGetMS12AudioProfile(intptr_t handle, char *profile)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsGetSupportedARCTypes(intptr_t handle, int *types)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsAudioSetSAD(intptr_t handle, dsAudioSADList_t sad_list)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsAudioEnableARC(intptr_t handle, dsAudioARCStatus_t arcStatus)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsGetAudioDelay(intptr_t handle, uint32_t *audioDelayMs)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsSetAudioDelay(intptr_t handle, const uint32_t audioDelayMs)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsGetAudioDelayOffset(intptr_t handle, uint32_t *audioDelayOffsetMs)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsSetAudioDelayOffset(intptr_t handle, const uint32_t audioDelayOffsetMs)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsSetAudioAtmosOutputMode(intptr_t handle, bool enable)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsGetSinkDeviceAtmosCapability(intptr_t handle, dsATMOSCapability_t *capability)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsEnableMS12Config(intptr_t handle, dsMS12FEATURE_t feature,const bool enable)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsEnableLEConfig(intptr_t handle, const bool enable)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsGetLEConfig(intptr_t handle, bool *enable)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsSetMS12AudioProfile(intptr_t handle, const char* profile)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsSetAudioDucking(intptr_t handle, dsAudioDuckingAction_t action, dsAudioDuckingType_t type, const unsigned char level)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsIsAudioMS12Decode(intptr_t handle, bool *hasMS12Decode)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsAudioOutIsConnected(intptr_t handle, bool* isConnected)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsAudioOutRegisterConnectCB(dsAudioOutPortConnectCB_t CBFunc)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsAudioFormatUpdateRegisterCB(dsAudioFormatUpdateCB_t cbFun)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsAudioAtmosCapsChangeRegisterCB (dsAtmosCapsChangeCB_t cbFun)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsGetAudioCapabilities(intptr_t handle, int *capabilities)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsGetMS12Capabilities(intptr_t handle, int *capabilities)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsResetDialogEnhancement(intptr_t handle)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsResetBassEnhancer(intptr_t handle)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsResetSurroundVirtualizer(intptr_t handle)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsResetVolumeLeveller(intptr_t handle)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsSetAssociatedAudioMixing(intptr_t handle, bool mixing)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsGetAssociatedAudioMixing(intptr_t handle, bool *mixing)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsSetFaderControl(intptr_t handle, int mixerbalance)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsGetFaderControl(intptr_t handle, int* mixerbalance)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsSetPrimaryLanguage(intptr_t handle, const char* pLang)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsGetPrimaryLanguage(intptr_t handle, char* pLang)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsSetSecondaryLanguage(intptr_t handle, const char* sLang)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t  dsGetSecondaryLanguage(intptr_t handle, char* sLang)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsGetHDMIARCPortId(int *portId)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
+dsError_t dsSetAudioMixerLevels (intptr_t handle, dsAudioInput_t aInput, int volume)
+{
+        dsError_t ret = dsERR_NONE;
+        return ret;
+}
