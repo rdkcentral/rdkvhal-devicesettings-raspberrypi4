@@ -172,4 +172,33 @@ dsError_t dsGetFPColor (dsFPDIndicator_t eIndicator, dsFPDColor_t *pColor)
 {
     return dsERR_GENERAL;
 }
+dsError_t dsGetFPState (dsFPDIndicator_t eIndicator, dsFPDState_t* state)
+{
+    return dsERR_NONE;
+}
+dsError_t dsSetFPTimeFormat (dsFPDTimeFormat_t eTimeFormat)
+{
+    return dsERR_NONE;
+}
+dsError_t dsGetFPTimeFormat (dsFPDTimeFormat_t *pTimeFormat)
+{
+    return dsERR_NONE;
+}
+dsError_t dsSetFPDMode (dsFPDMode_t eMode)
+{
+    return dsERR_NONE;
+}
+dsError_t dsFPGetLEDState (dsFPDLedState_t* state)
+{
+    return dsERR_NONE;
+}
+dsError_t dsFPSetLEDState (dsFPDLedState_t state)
+{
+    return dsERR_NONE;
+}
+dsError_t dsFPGetSupportedLEDStates (unsigned int* states)
+{
+    return dsERR_NONE;
+}
+
 
