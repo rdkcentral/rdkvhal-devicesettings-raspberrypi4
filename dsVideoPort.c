@@ -734,3 +734,119 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
     printf("%s resolutions= %x \r\n",__FUNCTION__,*resolutions);
     return ret;
 }
+dsError_t  dsIsDisplaySurround(intptr_t handle, bool *surround)
+{
+    dsError_t ret = dsERR_NONE;
+    return ret;
+}
+dsError_t  dsGetSurroundMode(intptr_t handle, int *surround)
+{
+    dsError_t ret = dsERR_NONE;
+    return ret;
+}
+dsError_t dsVideoFormatUpdateRegisterCB (dsVideoFormatUpdateCB_t cb)
+{
+    dsError_t ret = dsERR_NONE;
+    return ret;
+}
+dsError_t dsSetActiveSource(intptr_t handle)
+{
+    dsError_t ret = dsERR_NONE;
+    return ret;
+}
+dsError_t dsGetHDCPStatus (intptr_t handle, dsHdcpStatus_t *status)
+{
+    dsError_t ret = dsERR_NONE;
+    return ret;
+}
+dsError_t dsSetForceDisable4KSupport(intptr_t handle, bool disable)
+{
+    dsError_t ret = dsERR_NONE;
+    return ret;
+}
+
+dsError_t dsGetForceDisable4KSupport(intptr_t handle, bool *disable)
+{
+    dsError_t ret = dsERR_NONE;
+    return ret;
+}
+dsError_t dsGetVideoEOTF(intptr_t handle, dsHDRStandard_t *video_eotf)
+{
+    dsError_t ret = dsERR_NONE;
+    return ret;
+}
+dsError_t dsGetMatrixCoefficients(intptr_t handle, dsDisplayMatrixCoefficients_t *matrix_coefficients)
+{
+    dsError_t ret = dsERR_NONE;
+    return ret;
+}
+dsError_t dsGetColorDepth(intptr_t handle, unsigned int* color_depth)
+{
+    dsError_t ret = dsERR_NONE;
+    return ret;
+}
+dsError_t dsGetColorSpace(intptr_t handle, dsDisplayColorSpace_t* color_space)
+{
+    dsError_t ret = dsERR_NONE;
+    return ret;
+}
+dsError_t dsGetQuantizationRange(intptr_t handle, dsDisplayQuantizationRange_t* quantization_range)
+{
+    dsError_t ret = dsERR_NONE;
+    return ret;
+}
+dsError_t dsGetCurrentOutputSettings(intptr_t handle, dsHDRStandard_t* video_eotf, dsDisplayMatrixCoefficients_t* matrix_coefficients, dsDisplayColorSpace_t* color_space, unsigned int* color_depth, dsDisplayQuantizationRange_t* quantization_range)
+{
+    dsError_t ret = dsERR_NONE;
+    return ret;
+}
+dsError_t dsIsOutputHDR(intptr_t handle, bool* hdr)
+{
+    dsError_t ret = dsERR_NONE;
+    return ret;
+}
+dsError_t dsResetOutputToSDR()
+{
+    dsError_t ret = dsERR_NONE;
+    return ret;
+}
+dsError_t dsSetHdmiPreference(intptr_t handle, dsHdcpProtocolVersion_t *hdcpCurrentProtocol)
+{
+    dsError_t ret = dsERR_NONE;
+    return ret;
+}
+dsError_t dsGetHdmiPreference(intptr_t handle, dsHdcpProtocolVersion_t *hdcpCurrentProtocol)
+{
+    dsError_t ret = dsERR_NONE;
+    return ret;
+}
+dsError_t dsGetIgnoreEDIDStatus(intptr_t handle, bool* status)
+{
+    dsError_t ret = dsERR_NONE;
+    return ret;
+}
+dsError_t dsSetBackgroundColor(intptr_t handle, dsVideoBackgroundColor_t color)
+{
+    dsError_t ret = dsERR_NONE;
+    return ret;
+}
+dsError_t dsSetForceHDRMode(intptr_t handle, dsHDRStandard_t mode)
+{
+    dsError_t ret = dsERR_NONE;
+    return ret;
+}
+dsError_t dsColorDepthCapabilities(intptr_t handle, unsigned int *colorDepthCapability )
+{
+    dsError_t ret = dsERR_NONE;
+    return ret;
+}
+dsError_t dsGetPreferredColorDepth(intptr_t handle, dsDisplayColorDepth_t *colorDepth)
+{
+    dsError_t ret = dsERR_NONE;
+    return ret;
+}
+dsError_t dsSetPreferredColorDepth(intptr_t handle,dsDisplayColorDepth_t colorDepth)
+{
+    dsError_t ret = dsERR_NONE;
+    return ret;
+}
