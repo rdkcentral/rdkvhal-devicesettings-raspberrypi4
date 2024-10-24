@@ -169,7 +169,7 @@ dsError_t dsGetHostEDID(unsigned char *edid, int *length) {
 }
 dsError_t dsGetSocIDFromSDK(char *socID)
 {
-    dsError_t ret = dsERR_NONE;
+    dsError_t ret = dsERR_OPERATION_NOT_SUPPORTED;
     return ret;
 }
 
