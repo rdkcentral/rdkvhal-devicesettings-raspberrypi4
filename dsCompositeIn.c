@@ -61,4 +61,3 @@ dsError_t dsCompositeInRegisterStatusChangeCB (dsCompositeInStatusChangeCB_t CBF
 {
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
-
