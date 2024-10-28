@@ -196,3 +196,17 @@ void fill_edid_struct(unsigned char *edidBytes, dsDisplayEDID_t *displayEdidInfo
            parse_cea_block(x, displayEdidInfo);
     }
 }
+static intptr_t _handles[dsAUDIOPORT_TYPE_MAX][2] = {
+};
+bool dsIsValidHandle(intptr_t uHandle)
+{
+    size_t index ;
+    bool retValue = false;
+    for (index = 0; index < dsAUDIOPORT_TYPE_MAX; index++) {
+        if ((intptr_t)&_handles[index][0] == uHandle) {
+            retValue = true;
+            break;
+        }
+    }
+    return retValue;
+}
