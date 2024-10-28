@@ -23,6 +23,8 @@
 static uint16_t initialised = 0;
 VCHI_INSTANCE_T    vchi_instance;
 VCHI_CONNECTION_T *vchi_connection;
+static intptr_t _handles[dsAUDIOPORT_TYPE_MAX][2] = {
+};
 
 int vchi_tv_init()
 {
@@ -196,8 +198,6 @@ void fill_edid_struct(unsigned char *edidBytes, dsDisplayEDID_t *displayEdidInfo
            parse_cea_block(x, displayEdidInfo);
     }
 }
-static intptr_t _handles[dsAUDIOPORT_TYPE_MAX][2] = {
-};
 bool dsIsValidHandle(intptr_t uHandle)
 {
     size_t index ;
