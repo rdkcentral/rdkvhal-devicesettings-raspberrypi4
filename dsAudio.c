@@ -52,19 +52,6 @@ static dsAudioStereoMode_t _stereoModeHDMI = dsAUDIO_STEREO_STEREO;
 
 static void dsGetdBRange();
 
-bool dsIsValidHandle(intptr_t uHandle)
-{
-    size_t index ;
-    bool retValue = false;
-    for (index = 0; index < dsAUDIOPORT_TYPE_MAX; index++) {
-        if ((intptr_t)&_handles[index][0] == uHandle) {
-            retValue = true;
-            break;
-        }
-    }
-    return retValue;
-}
-
 static int8_t initAlsa(const char *selemname, const char *s_card, snd_mixer_elem_t **element)
 {
         int ret = 0;
