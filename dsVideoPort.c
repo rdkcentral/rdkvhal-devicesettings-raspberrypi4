@@ -734,3 +734,142 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
     printf("%s resolutions= %x \r\n",__FUNCTION__,*resolutions);
     return ret;
 }
+ 
+dsError_t  dsIsDisplaySurround(intptr_t handle, bool *surround)
+{
+    if(!dsIsValidHandle(handle) ||surround == NULL )
+        return dsERR_INVALID_PARAM;
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsGetSurroundMode(intptr_t handle, int *surround)
+{
+    if(!dsIsValidHandle(handle)|| surround == NULL)
+        return dsERR_INVALID_PARAM;
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsVideoFormatUpdateRegisterCB (dsVideoFormatUpdateCB_t cb)
+{
+    if(cb == NULL)
+        return dsERR_INVALID_PARAM;
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsSetActiveSource(intptr_t handle)
+{
+    if(!dsIsValidHandle(handle))
+        return dsERR_INVALID_PARAM;
+    return dsERR_OPERATION_NOT_SUPPORTED;    
+}
+dsError_t dsGetHDCPStatus (intptr_t handle, dsHdcpStatus_t *status)
+{
+    if(status == NULL || !dsIsValidHandle(handle))
+        return dsERR_INVALID_PARAM;
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsSetForceDisable4KSupport(intptr_t handle, bool disable)
+{
+    if(!dsIsValidHandle(handle))
+        return dsERR_INVALID_PARAM;
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsGetForceDisable4KSupport(intptr_t handle, bool *disable)
+{
+    if(!dsIsValidHandle(handle) || disable == NULL)
+        return dsERR_INVALID_PARAM;
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsGetVideoEOTF(intptr_t handle, dsHDRStandard_t *video_eotf)
+{
+    if(video_eotf == NULL ||!dsIsValidHandle(handle))
+        return dsERR_INVALID_PARAM;
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsGetMatrixCoefficients(intptr_t handle, dsDisplayMatrixCoefficients_t *matrix_coefficients)
+{
+    if(matrix_coefficients == NULL ||!dsIsValidHandle(handle))
+        return dsERR_INVALID_PARAM;
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsGetColorDepth(intptr_t handle, unsigned int* color_depth)
+{
+    if(color_depth == NULL || !dsIsValidHandle(handle))
+        return dsERR_INVALID_PARAM;
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsGetColorSpace(intptr_t handle, dsDisplayColorSpace_t* color_space)
+{
+    if(color_space == NULL || !dsIsValidHandle(handle))
+        return dsERR_INVALID_PARAM;
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsGetQuantizationRange(intptr_t handle, dsDisplayQuantizationRange_t* quantization_range)
+{
+    if(quantization_range == NULL ||!dsIsValidHandle(handle))
+        return dsERR_INVALID_PARAM;
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsGetCurrentOutputSettings(intptr_t handle, dsHDRStandard_t* video_eotf, dsDisplayMatrixCoefficients_t* matrix_coefficients, dsDisplayColorSpace_t* color_space, unsigned int* color_depth, dsDisplayQuantizationRange_t* quantization_range)
+{
+	if(video_eotf == NULL ||matrix_coefficients == NULL||color_space == NULL ||color_depth == NULL ||quantization_range == NULL || !dsIsValidHandle(handle))
+        	return dsERR_INVALID_PARAM;
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsIsOutputHDR(intptr_t handle, bool* hdr)
+{
+    if(hdr == NULL || !dsIsValidHandle(handle))
+        return dsERR_INVALID_PARAM;
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsResetOutputToSDR()
+{
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsSetHdmiPreference(intptr_t handle, dsHdcpProtocolVersion_t *hdcpCurrentProtocol)
+{
+    if(hdcpCurrentProtocol == NULL ||!dsIsValidHandle(handle))
+        return dsERR_INVALID_PARAM;
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsGetHdmiPreference(intptr_t handle, dsHdcpProtocolVersion_t *hdcpCurrentProtocol)
+{
+    if(hdcpCurrentProtocol == NULL || !dsIsValidHandle(handle))
+        return dsERR_INVALID_PARAM;
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsGetIgnoreEDIDStatus(intptr_t handle, bool* status)
+{
+    if(!dsIsValidHandle(handle) || status == NULL)
+        return dsERR_INVALID_PARAM;
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsSetBackgroundColor(intptr_t handle, dsVideoBackgroundColor_t color)
+{
+    if(!dsIsValidHandle(handle))
+        return dsERR_INVALID_PARAM;
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsSetForceHDRMode(intptr_t handle, dsHDRStandard_t mode)
+{
+    if(!dsIsValidHandle(handle))
+        return dsERR_INVALID_PARAM;
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsColorDepthCapabilities(intptr_t handle, unsigned int *colorDepthCapability )
+{
+    if(colorDepthCapabitlity == NULL ||!dsIsValidHandle(handle))
+        return dsERR_INVALID_PARAM;
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsGetPreferredColorDepth(intptr_t handle, dsDisplayColorDepth_t *colorDepth)
+{
+    if(colorDepth == NULL ||!dsIsValidHandle(handle)
+        return dsERR_INVALID_PARAM;
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsSetPreferredColorDepth(intptr_t handle,dsDisplayColorDepth_t colorDepth)
+{
+    if(!dsIsValidHandle(handle))
+        return dsERR_INVALID_PARAM;
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+ 
