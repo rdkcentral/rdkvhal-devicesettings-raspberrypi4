@@ -376,7 +376,10 @@ dsError_t dsGetAudioLevel(intptr_t handle, float *level)
                 }
                 if(!snd_mixer_selem_get_playback_volume(mixer_elem, SND_MIXER_SCHN_FRONT_LEFT, &vol_value)) {
 	                snd_mixer_selem_get_playback_volume_range(mixer_elem, &min, &max);
-                        *level = (float)((vol_value - min)*100/(max - min));
+			if(min != vol_value){
+				min=min/2;
+			}
+                        *level = round((float)((vol_value - min)*100.0/(max - min)));
                 }
 
         }
@@ -562,6 +565,9 @@ dsError_t dsSetAudioLevel(intptr_t handle, float level)
                         return dsERR_GENERAL;
                 }
                 snd_mixer_selem_get_playback_volume_range(mixer_elem, &min, &max);
+		if(level != 0){
+			min=min/2;
+		}
                 vol_value = (long)(((level / 100.0) * (max - min)) + min);
                 if(snd_mixer_selem_set_playback_volume_all(mixer_elem, vol_value)) {
                     printf("Failed to set Audio level\n");
