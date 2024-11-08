@@ -9,8 +9,6 @@
 #include "dsCompositeInTypes.h"
 #include "dsCompositeIn.h"
 
-extern bool dsIsValidHandle(intptr_t handle);
-
 dsError_t dsCompositeInInit (void)
 {
         return dsERR_OPERATION_NOT_SUPPORTED;
