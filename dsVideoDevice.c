@@ -122,17 +122,9 @@ dsError_t dsSetDisplayframerate(intptr_t handle, char *framerate)
 }
 dsError_t dsRegisterFrameratePreChangeCB(dsRegisterFrameratePreChangeCB_t CBFunc)
 {
-	if(CBFunc == NULL)
-        {
-                return dsERR_INVALID_PARAM;
-        }
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
 dsError_t dsRegisterFrameratePostChangeCB(dsRegisterFrameratePostChangeCB_t CBFunc)
 {
-	if(CBFunc == NULL)
-        {
-                return dsERR_INVALID_PARAM;
-        }
         return dsERR_OPERATION_NOT_SUPPORTED;
 }

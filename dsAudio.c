@@ -51,6 +51,18 @@ static bool  _isms11Enabled = false;
 static dsAudioStereoMode_t _stereoModeHDMI = dsAUDIO_STEREO_STEREO;
 
 static void dsGetdBRange();
+bool dsIsValidHandle(intptr_t uHandle)
+{
+    size_t index ;
+    bool retValue = false;
+    for (index = 0; index < dsAUDIOPORT_TYPE_MAX; index++) {
+        if ((intptr_t)&_handles[index][0] == uHandle) {
+            retValue = true;
+            break;
+        }
+    }
+    return retValue;
+}
 
 static int8_t initAlsa(const char *selemname, const char *s_card, snd_mixer_elem_t **element)
 {
@@ -664,7 +676,7 @@ dsError_t  dsGetVolumeLeveller(intptr_t handle, dsVolumeLeveller_t* volLeveller)
 }
 dsError_t  dsSetVolumeLeveller(intptr_t handle, dsVolumeLeveller_t volLeveller)
 {
-	if(volLeveller.mode < 0 || volLeveller.mode > 2 || volLeveller.level < 0 || volLeveller.level > 10 || !dsIsValidHandle(handle))
+	if(!dsIsValidHandle(handle))
         {
                 return dsERR_INVALID_PARAM;
         }
@@ -792,8 +804,9 @@ dsError_t dsGetSupportedARCTypes(intptr_t handle, int *types)
 }
 dsError_t dsAudioSetSAD(intptr_t handle, dsAudioSADList_t sad_list)
 {
-	if (!dsIsValidHandle(handle)) {
-        return dsERR_INVALID_PARAM; 
+	if (!dsIsValidHandle(handle)) 
+	{
+        	return dsERR_INVALID_PARAM; 
     	}
 	return dsERR_OPERATION_NOT_SUPPORTED;
 }
@@ -815,7 +828,7 @@ dsError_t dsGetAudioDelay(intptr_t handle, uint32_t *audioDelayMs)
 }
 dsError_t dsSetAudioDelay(intptr_t handle, const uint32_t audioDelayMs)
 {
-	if(!dsIsValidHandle(handle) || audioDelayMs < 0)
+	if(!dsIsValidHandle(handle) || audioDelayMs > 200)
         {
                 return dsERR_INVALID_PARAM;
         }
@@ -831,7 +844,7 @@ dsError_t dsGetAudioDelayOffset(intptr_t handle, uint32_t *audioDelayOffsetMs)
 }
 dsError_t dsSetAudioDelayOffset(intptr_t handle, const uint32_t audioDelayOffsetMs)
 {
-	if(audioDelayOffsetMs < 0 || !dsIsValidHandle(handle))
+	if(!dsIsValidHandle(handle))
         {
                 return dsERR_INVALID_PARAM;
         }
@@ -887,7 +900,7 @@ dsError_t  dsSetMS12AudioProfile(intptr_t handle, const char* profile)
 }
 dsError_t  dsSetAudioDucking(intptr_t handle, dsAudioDuckingAction_t action, dsAudioDuckingType_t type, const unsigned char level)
 {
-	if(!dsIsValidHandle(handle) || level < 0 || level > 100)
+	if(!dsIsValidHandle(handle) || level > 100)
         {
                 return dsERR_INVALID_PARAM;
         }
@@ -911,26 +924,14 @@ dsError_t dsAudioOutIsConnected(intptr_t handle, bool* isConnected)
 }
 dsError_t dsAudioOutRegisterConnectCB(dsAudioOutPortConnectCB_t CBFunc)
 {
-	if(CBFunc == NULL)
-        {
-                return dsERR_INVALID_PARAM;
-        }
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
 dsError_t dsAudioFormatUpdateRegisterCB(dsAudioFormatUpdateCB_t cbFun)
 {      
-	if(cbFun == NULL)
-        {
-                return dsERR_INVALID_PARAM;
-        }
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
 dsError_t dsAudioAtmosCapsChangeRegisterCB (dsAtmosCapsChangeCB_t cbFun)
 {
-	if(cbFun == NULL)
-        {
-                return dsERR_INVALID_PARAM;
-        }
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
 dsError_t dsGetAudioCapabilities(intptr_t handle, int *capabilities)
