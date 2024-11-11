@@ -51,7 +51,6 @@ static bool  _isms11Enabled = false;
 static dsAudioStereoMode_t _stereoModeHDMI = dsAUDIO_STEREO_STEREO;
 
 static void dsGetdBRange();
-
 bool dsIsValidHandle(intptr_t uHandle)
 {
     size_t index ;
@@ -389,7 +388,10 @@ dsError_t dsGetAudioLevel(intptr_t handle, float *level)
                 }
                 if(!snd_mixer_selem_get_playback_volume(mixer_elem, SND_MIXER_SCHN_FRONT_LEFT, &vol_value)) {
 	                snd_mixer_selem_get_playback_volume_range(mixer_elem, &min, &max);
-                        *level = (float)((vol_value - min)*100/(max - min));
+			if(min != vol_value){
+				min=min/2;
+			}
+                        *level = round((float)((vol_value - min)*100.0/(max - min)));
                 }
 
         }
@@ -575,6 +577,9 @@ dsError_t dsSetAudioLevel(intptr_t handle, float level)
                         return dsERR_GENERAL;
                 }
                 snd_mixer_selem_get_playback_volume_range(mixer_elem, &min, &max);
+		if(level != 0){
+			min=min/2;
+		}
                 vol_value = (long)(((level / 100.0) * (max - min)) + min);
                 if(snd_mixer_selem_set_playback_volume_all(mixer_elem, vol_value)) {
                     printf("Failed to set Audio level\n");
@@ -612,4 +617,448 @@ bool dsCheckSurroundSupport()
         status = true;
 
     return status;
+}
+dsError_t  dsGetAudioFormat(intptr_t handle, dsAudioFormat_t *audioFormat)
+{
+	if(audioFormat == NULL || !dsIsValidHandle(handle))
+	{
+        	return dsERR_INVALID_PARAM;
+	}
+   	return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsGetDialogEnhancement(intptr_t handle, int *level)
+{
+	if(level == NULL || !dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsGetDolbyVolumeMode(intptr_t handle, bool *mode)
+{
+	if(mode == NULL || !dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsSetDolbyVolumeMode(intptr_t handle, bool mode)
+{
+	if(!dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsGetIntelligentEqualizerMode(intptr_t handle, int *mode)
+{
+	if(mode == NULL || !dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsSetIntelligentEqualizerMode(intptr_t handle, int mode)
+{
+        if (!dsIsValidHandle(handle) || mode < 0 || mode > 6) 
+	{
+        	return dsERR_INVALID_PARAM; 
+    	}
+	return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsGetVolumeLeveller(intptr_t handle, dsVolumeLeveller_t* volLeveller)
+{
+	if(volLeveller == NULL || !dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsSetVolumeLeveller(intptr_t handle, dsVolumeLeveller_t volLeveller)
+{
+	if(!dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsGetBassEnhancer(intptr_t handle, int *boost)
+{
+	if(boost == NULL || !dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsSetBassEnhancer(intptr_t handle, int boost)
+{       
+	if(boost < 0 || boost > 100 || !dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsIsSurroundDecoderEnabled(intptr_t handle, bool *enabled)
+{
+	if(enabled == NULL || !dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsEnableSurroundDecoder(intptr_t handle, bool enabled)
+{
+	if(!dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsGetDRCMode(intptr_t handle, int *mode)
+{
+	if(mode == NULL || !dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsSetDRCMode(intptr_t handle, int mode)
+{
+	if(mode < 0 || mode > 1 || !dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsGetSurroundVirtualizer(intptr_t handle, dsSurroundVirtualizer_t *virtualizer)
+{
+	if(virtualizer == NULL || !dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsSetSurroundVirtualizer(intptr_t handle, dsSurroundVirtualizer_t virtualizer)
+{
+	if(!dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsGetMISteering(intptr_t handle, bool *enabled)
+{
+	if(enabled == NULL || !dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsSetMISteering(intptr_t handle, bool enabled)
+{
+	if(!dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsGetGraphicEqualizerMode(intptr_t handle, int *mode)
+{
+	if(mode == NULL || !dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsSetGraphicEqualizerMode(intptr_t handle, int mode)
+{
+	if(!dsIsValidHandle(handle) || mode < 0 || mode > 3)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsGetMS12AudioProfileList(intptr_t handle, dsMS12AudioProfileList_t* profiles)
+{
+	if(profiles == NULL || !dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsGetMS12AudioProfile(intptr_t handle, char *profile)
+{
+	if(profile == NULL || !dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsGetSupportedARCTypes(intptr_t handle, int *types)
+{
+	if(types == NULL|| !dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsAudioSetSAD(intptr_t handle, dsAudioSADList_t sad_list)
+{
+	if (!dsIsValidHandle(handle)) 
+	{
+        	return dsERR_INVALID_PARAM; 
+    	}
+	return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsAudioEnableARC(intptr_t handle, dsAudioARCStatus_t arcStatus)
+{
+	if(!dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsGetAudioDelay(intptr_t handle, uint32_t *audioDelayMs)
+{
+	if(audioDelayMs == NULL || !dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsSetAudioDelay(intptr_t handle, const uint32_t audioDelayMs)
+{
+	if(!dsIsValidHandle(handle) || audioDelayMs > 200)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsGetAudioDelayOffset(intptr_t handle, uint32_t *audioDelayOffsetMs)
+{
+	if(audioDelayOffsetMs == NULL || !dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsSetAudioDelayOffset(intptr_t handle, const uint32_t audioDelayOffsetMs)
+{
+	if(!dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsSetAudioAtmosOutputMode(intptr_t handle, bool enable)
+{
+	if(!dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsGetSinkDeviceAtmosCapability(intptr_t handle, dsATMOSCapability_t *capability)
+{
+	if(capability == NULL || !dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsEnableMS12Config(intptr_t handle, dsMS12FEATURE_t feature,const bool enable)
+{
+	if(!dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsEnableLEConfig(intptr_t handle, const bool enable)
+{
+	if(!dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsGetLEConfig(intptr_t handle, bool *enable)
+{
+	if(!dsIsValidHandle(handle) || enable == NULL)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsSetMS12AudioProfile(intptr_t handle, const char* profile)
+{
+	if(!dsIsValidHandle(handle) || profile == NULL)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsSetAudioDucking(intptr_t handle, dsAudioDuckingAction_t action, dsAudioDuckingType_t type, const unsigned char level)
+{
+	if(!dsIsValidHandle(handle) || level > 100)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsIsAudioMS12Decode(intptr_t handle, bool *hasMS12Decode)
+{       
+	if(!dsIsValidHandle(handle) || hasMS12Decode == NULL)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsAudioOutIsConnected(intptr_t handle, bool* isConnected)
+{
+	if(!dsIsValidHandle(handle) || isConnected == NULL)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsAudioOutRegisterConnectCB(dsAudioOutPortConnectCB_t CBFunc)
+{
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsAudioFormatUpdateRegisterCB(dsAudioFormatUpdateCB_t cbFun)
+{      
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsAudioAtmosCapsChangeRegisterCB (dsAtmosCapsChangeCB_t cbFun)
+{
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsGetAudioCapabilities(intptr_t handle, int *capabilities)
+{       
+	if(!dsIsValidHandle(handle) || capabilities == NULL)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsGetMS12Capabilities(intptr_t handle, int *capabilities)
+{      
+	if(!dsIsValidHandle(handle) || capabilities == NULL)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsResetDialogEnhancement(intptr_t handle)
+{
+	if(!dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsResetBassEnhancer(intptr_t handle)
+{
+	if(!dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsResetSurroundVirtualizer(intptr_t handle)
+{
+	if(!dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsResetVolumeLeveller(intptr_t handle)
+{      
+	if(!dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsSetAssociatedAudioMixing(intptr_t handle, bool mixing)
+{
+	if(!dsIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsGetAssociatedAudioMixing(intptr_t handle, bool *mixing)
+{
+	if(!dsIsValidHandle(handle) || mixing == NULL)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsSetFaderControl(intptr_t handle, int mixerbalance)
+{
+	if(!dsIsValidHandle(handle) ||  mixerbalance < -32 || mixerbalance > 32)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsGetFaderControl(intptr_t handle, int* mixerbalance)
+{
+	if(!dsIsValidHandle(handle) ||  mixerbalance == NULL)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsSetPrimaryLanguage(intptr_t handle, const char* pLang)
+{
+	if(!dsIsValidHandle(handle) ||  pLang == NULL)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsGetPrimaryLanguage(intptr_t handle, char* pLang)
+{
+	if(!dsIsValidHandle(handle)  ||  pLang == NULL)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsSetSecondaryLanguage(intptr_t handle, const char* sLang)
+{
+	if(!dsIsValidHandle(handle) ||  sLang == NULL)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t  dsGetSecondaryLanguage(intptr_t handle, char* sLang)
+{
+	if(!dsIsValidHandle(handle) ||  sLang == NULL)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsGetHDMIARCPortId(int *portId)
+{
+	if(portId == NULL)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsSetAudioMixerLevels (intptr_t handle, dsAudioInput_t aInput, int volume)
+{
+	if(!dsIsValidHandle(handle) || volume < 0 || volume > 100)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
 }

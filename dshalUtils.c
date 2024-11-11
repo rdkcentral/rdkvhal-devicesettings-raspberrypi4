@@ -196,3 +196,4 @@ void fill_edid_struct(unsigned char *edidBytes, dsDisplayEDID_t *displayEdidInfo
            parse_cea_block(x, displayEdidInfo);
     }
 }
+
