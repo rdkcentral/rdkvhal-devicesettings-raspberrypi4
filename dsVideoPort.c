@@ -889,7 +889,7 @@ dsError_t dsSetForceHDRMode(intptr_t handle, dsHDRStandard_t mode)
 }
 dsError_t dsColorDepthCapabilities(intptr_t handle, unsigned int *colorDepthCapability )
 {
-    if(colorDepthCapabitlity == NULL ||!dsIsValidHandle(handle))
+    if(colorDepthCapability == NULL ||!dsIsValidHandle(handle))
     {
         return dsERR_INVALID_PARAM;
     }
@@ -897,7 +897,7 @@ dsError_t dsColorDepthCapabilities(intptr_t handle, unsigned int *colorDepthCapa
 }
 dsError_t dsGetPreferredColorDepth(intptr_t handle, dsDisplayColorDepth_t *colorDepth)
 {
-    if(colorDepth == NULL ||!dsIsValidHandle(handle)
+    if(colorDepth == NULL ||!dsIsValidHandle(handle))
     {
         return dsERR_INVALID_PARAM;
     }

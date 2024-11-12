@@ -39,10 +39,12 @@ dsError_t dsCompositeInSelectPort (dsCompositeInPort_t Port)
 }
 dsError_t dsCompositeInScaleVideo (int32_t x, int32_t y, int32_t width, int32_t height)
 {
-        if (width <= 0 || height <= 0) {
+        if (width <= 0 || height <= 0)
+        {
                 return dsERR_INVALID_PARAM; // Width and height must be positive
         }
-        if (x < 0 || y < 0) {
+        if (x < 0 || y < 0) 
+        {
                 return dsERR_INVALID_PARAM; // x and y must be non-negative
         }
         return dsERR_OPERATION_NOT_SUPPORTED;
