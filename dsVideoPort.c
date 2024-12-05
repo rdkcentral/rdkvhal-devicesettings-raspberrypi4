@@ -33,6 +33,7 @@
 #include "dshalUtils.h"
 
 static bool isBootup = true;
+static bool _bIsVideoPortInitialized = false;
 static bool isValidVopHandle(intptr_t handle);
 static const char* dsVideoGetResolution(uint32_t mode);
 static uint32_t dsGetHdmiMode(dsVideoPortResolution_t *resolution);
@@ -102,8 +103,11 @@ dsError_t dsRegisterHdcpStatusCallback(intptr_t handle, dsHDCPStatusCallback_t c
 dsError_t  dsVideoPortInit()
 {
 	dsError_t ret = dsERR_NONE;
-    int rc;
-
+    	int rc;
+	if(true == _bIsVideoPortInitialized)
+        {
+           	return dsERR_ALREADY_INITIALIZED;
+   	}
 	/*
 	 * Video Port configuration for HDMI and Analog ports. 
 	 */
@@ -129,7 +133,8 @@ dsError_t  dsVideoPortInit()
         if (rc != 0)
         {
              printf("Failed to initialise tv service\n");
-         } 
+         }
+	_bIsVideoPortInitialized = true;
 	return ret;
 }
 
@@ -149,9 +154,13 @@ dsError_t  dsVideoPortInit()
 dsError_t  dsGetVideoPort(dsVideoPortType_t type, int index, intptr_t *handle)
 {
 	dsError_t ret = dsERR_NONE;
+	if(false == _bIsVideoPortInitialized)
+	{
+	    	return dsERR_NOT_INITIALIZED;
+	}
 	
-	if (index != 0 || !dsVideoPortType_isValid(type)) {
-		ret = dsERR_NONE;
+	if (index != 0 || !dsVideoPortType_isValid(type) || NULL == handle) {
+		ret = dsERR_INVALID_PARAM;
 	}
 	if (ret == dsERR_NONE) {
 		*handle = (intptr_t)&_handles[type][index];
@@ -195,11 +204,15 @@ dsError_t dsIsVideoPortEnabled(intptr_t handle, bool *enabled)
 {
 	dsError_t ret = dsERR_NONE;
 	VOPHandle_t *vopHandle = (VOPHandle_t *) handle;
-
+	if(false == _bIsVideoPortInitialized)
+	{
+	    	return dsERR_NOT_INITIALIZED;
+	}
 		
-	if (!isValidVopHandle(handle)) {
-     return dsERR_INVALID_PARAM;
-    }
+	if (!isValidVopHandle(handle) || NULL == enabled) 
+	{
+     		return dsERR_INVALID_PARAM;
+    	}
 
 	if(vopHandle->m_vType == dsVIDEOPORT_TYPE_COMPONENT)
 	{
@@ -235,10 +248,15 @@ dsError_t  dsEnableVideoPort(intptr_t handle, bool enabled)
 	VOPHandle_t *vopHandle = (VOPHandle_t *) handle;
         SDTV_OPTIONS_T options;
         int res = 0, rc = 0;
+	if(false == _bIsVideoPortInitialized)
+	{
+	    	return dsERR_NOT_INITIALIZED;
+	}
 
-	if (!isValidVopHandle(handle)) {
-         return dsERR_INVALID_PARAM;
-    }
+	if (!isValidVopHandle(handle))
+	{
+         	return dsERR_INVALID_PARAM;
+    	}
 
 	if(vopHandle->m_vType == dsVIDEOPORT_TYPE_BB)
 	{
@@ -321,12 +339,17 @@ dsError_t  dsIsDisplayConnected(intptr_t handle, bool *connected)
 	dsError_t ret = dsERR_NONE;
 	VOPHandle_t *vopHandle = (VOPHandle_t *) handle;
         TV_DISPLAY_STATE_T tvstate;
+	if(false == _bIsVideoPortInitialized)
+	{
+	    return dsERR_NOT_INITIALIZED;
+	}
+	if (!isValidVopHandle(handle) || NULL == connected)
+	{
+         	return dsERR_INVALID_PARAM;
+    	}
 	/*Default is false*/
 	 *connected = false;
-    if (!isValidVopHandle(handle)) {
-         return dsERR_INVALID_PARAM;
-    }
-
+    	
 	if(vopHandle->m_vType == dsVIDEOPORT_TYPE_BB)
 	{
 		*connected = true;
@@ -369,14 +392,15 @@ return ret;
  */
 dsError_t  dsEnableDTCP(intptr_t handle, bool contentProtect)
 {
-	dsError_t ret = dsERR_NONE;
-	
-	if (isValidVopHandle(handle)) 
+	if(false == _bIsVideoPortInitialized)
 	{
-		ret = dsERR_NONE;
+	    return dsERR_NOT_INITIALIZED;
 	}
-
-	return ret;
+	if (!isValidVopHandle(handle)) 
+	{
+	    return dsERR_INVALID_PARAM;
+	}
+	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
@@ -393,8 +417,15 @@ dsError_t  dsEnableDTCP(intptr_t handle, bool contentProtect)
  */
 dsError_t  dsEnableHDCP(intptr_t handle, bool contentProtect, char *hdcpKey, size_t keySize)
 {
-	dsError_t ret = dsERR_NONE;
-	return ret;
+	if(false == _bIsVideoPortInitialized)
+	{
+	    return dsERR_NOT_INITIALIZED;
+	}
+	if (!isValidVopHandle(handle) || NULL == hdcpKey || keySize >= HDCP_KEY_MAX_SIZE ) 
+	{
+	    return dsERR_INVALID_PARAM;
+	}
+	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
@@ -409,6 +440,14 @@ dsError_t  dsEnableHDCP(intptr_t handle, bool contentProtect, char *hdcpKey, siz
  */
 dsError_t  dsIsDTCPEnabled (intptr_t handle, bool* pContentProtected)
 {
+	if(false == _bIsVideoPortInitialized)
+	{
+	    return dsERR_NOT_INITIALIZED;
+	}
+	if (!isValidVopHandle(handle) || NULL == pContentProtected) 
+	{
+	    return dsERR_INVALID_PARAM;
+	}
 	*pContentProtected = false;
 	return dsERR_OPERATION_NOT_SUPPORTED;
 }
@@ -425,13 +464,15 @@ dsError_t  dsIsDTCPEnabled (intptr_t handle, bool* pContentProtected)
  */
 dsError_t  dsIsHDCPEnabled (intptr_t handle, bool* pContentProtected)
 {
-    dsError_t ret = dsERR_NONE;
-
-    if (!isValidVopHandle(handle)){
-         *pContentProtected = false;
+    if(false == _bIsVideoPortInitialized)
+    {
+	return dsERR_NOT_INITIALIZED;
+    }
+    if (!isValidVopHandle(handle) || NULL == pContentProtected){
          return dsERR_INVALID_PARAM;
     }
-	return ret;
+    *pContentProtected = false;
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 
@@ -452,20 +493,25 @@ dsError_t  dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 	const char *resolution_name = NULL;
 	TV_DISPLAY_STATE_T tvstate; 
 	uint32_t hdmi_mode;
+	if(false == _bIsVideoPortInitialized)
+	{
+		return dsERR_NOT_INITIALIZED;
+	}
 
-    if (!isValidVopHandle(handle)) {
-        return dsERR_INVALID_PARAM;
-    }
-    if( vc_tv_get_display_state( &tvstate ) == 0) {
-        resolution_name = dsVideoGetResolution(tvstate.display.hdmi.mode);
-    }
-    if(resolution_name == NULL) {
-         hdmi_mode = dsGetHdmiMode(resolution);
-	 resolution_name = dsVideoGetResolution(hdmi_mode);
-    }
-    if (resolution_name) 
-        strncpy(resolution->name, resolution_name, strlen(resolution_name)); 
-    return ret; 
+	if (!isValidVopHandle(handle) || NULL == resolution) 
+	{
+		return dsERR_INVALID_PARAM;
+	}
+	if( vc_tv_get_display_state( &tvstate ) == 0) {
+		resolution_name = dsVideoGetResolution(tvstate.display.hdmi.mode);
+	}
+	if(resolution_name == NULL) {
+	 	hdmi_mode = dsGetHdmiMode(resolution);
+	 	resolution_name = dsVideoGetResolution(hdmi_mode);
+	}
+	if (resolution_name) 
+		strncpy(resolution->name, resolution_name, strlen(resolution_name)); 
+	return ret; 
 }
 
 static const char* dsVideoGetResolution(uint32_t hdmiMode)
@@ -512,12 +558,17 @@ static uint32_t dsGetHdmiMode(dsVideoPortResolution_t *resolution)
 dsError_t  dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 {
 	/* Auto Select uses 720p. Should be converted to dsVideoPortResolution_t = 720p in DS-VOPConfig, not here */
-                printf("Inside dsSetResolution\n");
+        printf("Inside dsSetResolution\n");
 	dsError_t ret = dsERR_NONE;
         VOPHandle_t *vopHandle = (VOPHandle_t *) handle;
         int res = 0;
-        if (!isValidVopHandle(handle)) {
-            return dsERR_INVALID_PARAM;
+	if(false == _bIsVideoPortInitialized)
+	{
+		return dsERR_NOT_INITIALIZED;
+	}
+        if (!isValidVopHandle(handle) || NULL == resolution) 
+	{
+        	return dsERR_INVALID_PARAM;
         }
         if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
                 char command[512];
@@ -569,9 +620,14 @@ dsError_t  dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 
 dsError_t  dsVideoPortTerm()
 {
-    dsError_t ret = dsERR_NONE;
-    vchi_tv_uninit();
-    return ret;
+    	dsError_t ret = dsERR_NONE;
+	if(false == _bIsVideoPortInitialized)
+    	{
+		return dsERR_NOT_INITIALIZED;
+    	}
+    	vchi_tv_uninit();
+	_bIsVideoPortInitialized = false;
+    	return ret;
 }
 
 
@@ -609,13 +665,16 @@ dsError_t dsIsVideoPortActive(intptr_t handle, bool *active)
 	dsError_t ret = dsERR_NONE;
 	VOPHandle_t *vopHandle = (VOPHandle_t *) handle;
         TV_DISPLAY_STATE_T tvstate;
+	if(false == _bIsVideoPortInitialized)
+    	{
+		return dsERR_NOT_INITIALIZED;
+    	}
+	if (!isValidVopHandle(handle) || NULL == active)
+	{
+         	return dsERR_INVALID_PARAM;
+    	}
 	/* Default to false */
 	*active = false;
-
-    if (!isValidVopHandle(handle)){
-         *active =  false;
-         return dsERR_INVALID_PARAM;
-    }
 
 	if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
                 if( vc_tv_get_display_state( &tvstate ) == 0) {
@@ -632,33 +691,64 @@ dsError_t dsIsVideoPortActive(intptr_t handle, bool *active)
 
 dsError_t dsGetHDCPProtocol (intptr_t handle, dsHdcpProtocolVersion_t *protocolVersion)
 {
-    dsError_t ret = dsERR_NONE;
-    return ret;
+	if(false == _bIsVideoPortInitialized)
+	{
+		return dsERR_NOT_INITIALIZED;
+	}
+	if (!isValidVopHandle(handle) || NULL == protocolVersion)
+	{
+	 	return dsERR_INVALID_PARAM;
+	}
+	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 dsError_t dsGetHDCPReceiverProtocol (intptr_t handle, dsHdcpProtocolVersion_t *protocolVersion)
 {
-    dsError_t ret = dsERR_NONE;
-    return ret;
+	if(false == _bIsVideoPortInitialized)
+	{
+		return dsERR_NOT_INITIALIZED;
+	}
+	if (!isValidVopHandle(handle) || NULL == protocolVersion)
+	{
+	 	return dsERR_INVALID_PARAM;
+	}
+	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 dsError_t dsGetHDCPCurrentProtocol (intptr_t handle, dsHdcpProtocolVersion_t *protocolVersion)
 {
-    dsError_t ret = dsERR_NONE;
-    return ret;
-
+	if(false == _bIsVideoPortInitialized)
+	{
+		return dsERR_NOT_INITIALIZED;
+	}
+	if (!isValidVopHandle(handle) || NULL == protocolVersion)
+	{
+	 	return dsERR_INVALID_PARAM;
+	}
+	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 dsError_t dsGetTVHDRCapabilities(intptr_t handle, int *capabilities)
 {
-    dsError_t ret = dsERR_NONE;
-    return ret;
+	if(false == _bIsVideoPortInitialized)
+	{
+		return dsERR_NOT_INITIALIZED;
+	}
+	if (!isValidVopHandle(handle) || NULL == capabilities)
+	{
+	 	return dsERR_INVALID_PARAM;
+	}
+	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
 {
     dsError_t ret = dsERR_NONE;
     VOPHandle_t *vopHandle = (VOPHandle_t *) handle;
+    if(false == _bIsVideoPortInitialized)
+    {
+	return dsERR_NOT_INITIALIZED;
+    }
 
     if (resolutions != NULL && isValidVopHandle(handle) && vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
         TV_SUPPORTED_MODE_NEW_T modeSupported[MAX_HDMI_MODE_ID];
@@ -737,6 +827,10 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
  
 dsError_t  dsIsDisplaySurround(intptr_t handle, bool *surround)
 {
+    if(false == _bIsVideoPortInitialized)
+    {
+	return dsERR_NOT_INITIALIZED;
+    }
     if(!dsIsValidHandle(handle) ||surround == NULL )
     {
         return dsERR_INVALID_PARAM;
@@ -745,6 +839,10 @@ dsError_t  dsIsDisplaySurround(intptr_t handle, bool *surround)
 }
 dsError_t  dsGetSurroundMode(intptr_t handle, int *surround)
 {
+    if(false == _bIsVideoPortInitialized)
+    {
+	return dsERR_NOT_INITIALIZED;
+    }
     if(!dsIsValidHandle(handle)|| surround == NULL)
     {
         return dsERR_INVALID_PARAM;
@@ -757,6 +855,10 @@ dsError_t dsVideoFormatUpdateRegisterCB (dsVideoFormatUpdateCB_t cb)
 }
 dsError_t dsSetActiveSource(intptr_t handle)
 {
+    if(false == _bIsVideoPortInitialized)
+    {
+	return dsERR_NOT_INITIALIZED;
+    }
     if(!dsIsValidHandle(handle))
     {
         return dsERR_INVALID_PARAM;
@@ -765,6 +867,10 @@ dsError_t dsSetActiveSource(intptr_t handle)
 }
 dsError_t dsGetHDCPStatus (intptr_t handle, dsHdcpStatus_t *status)
 {
+    if(false == _bIsVideoPortInitialized)
+    {
+	return dsERR_NOT_INITIALIZED;
+    }
     if(status == NULL || !dsIsValidHandle(handle))
     {
         return dsERR_INVALID_PARAM;
@@ -773,6 +879,10 @@ dsError_t dsGetHDCPStatus (intptr_t handle, dsHdcpStatus_t *status)
 }
 dsError_t dsSetForceDisable4KSupport(intptr_t handle, bool disable)
 {
+    if(false == _bIsVideoPortInitialized)
+    {
+	return dsERR_NOT_INITIALIZED;
+    }
     if(!dsIsValidHandle(handle))
     {
         return dsERR_INVALID_PARAM;
@@ -781,6 +891,10 @@ dsError_t dsSetForceDisable4KSupport(intptr_t handle, bool disable)
 }
 dsError_t dsGetForceDisable4KSupport(intptr_t handle, bool *disable)
 {
+    if(false == _bIsVideoPortInitialized)
+    {
+	return dsERR_NOT_INITIALIZED;
+    }
     if(!dsIsValidHandle(handle) || disable == NULL)
     {
         return dsERR_INVALID_PARAM;
@@ -789,6 +903,10 @@ dsError_t dsGetForceDisable4KSupport(intptr_t handle, bool *disable)
 }
 dsError_t dsGetVideoEOTF(intptr_t handle, dsHDRStandard_t *video_eotf)
 {
+    if(false == _bIsVideoPortInitialized)
+    {
+	return dsERR_NOT_INITIALIZED;
+    }
     if(video_eotf == NULL ||!dsIsValidHandle(handle))
     {
         return dsERR_INVALID_PARAM;
@@ -797,6 +915,10 @@ dsError_t dsGetVideoEOTF(intptr_t handle, dsHDRStandard_t *video_eotf)
 }
 dsError_t dsGetMatrixCoefficients(intptr_t handle, dsDisplayMatrixCoefficients_t *matrix_coefficients)
 {
+    if(false == _bIsVideoPortInitialized)
+    {
+	return dsERR_NOT_INITIALIZED;
+    }
     if(matrix_coefficients == NULL ||!dsIsValidHandle(handle))
     {
         return dsERR_INVALID_PARAM;
@@ -805,6 +927,10 @@ dsError_t dsGetMatrixCoefficients(intptr_t handle, dsDisplayMatrixCoefficients_t
 }
 dsError_t dsGetColorDepth(intptr_t handle, unsigned int* color_depth)
 {
+    if(false == _bIsVideoPortInitialized)
+    {
+	return dsERR_NOT_INITIALIZED;
+    }
     if(color_depth == NULL || !dsIsValidHandle(handle))
     {
         return dsERR_INVALID_PARAM;
@@ -813,6 +939,10 @@ dsError_t dsGetColorDepth(intptr_t handle, unsigned int* color_depth)
 }
 dsError_t dsGetColorSpace(intptr_t handle, dsDisplayColorSpace_t* color_space)
 {
+    if(false == _bIsVideoPortInitialized)
+    {
+	return dsERR_NOT_INITIALIZED;
+    }
     if(color_space == NULL || !dsIsValidHandle(handle))
     {
         return dsERR_INVALID_PARAM;
@@ -821,6 +951,10 @@ dsError_t dsGetColorSpace(intptr_t handle, dsDisplayColorSpace_t* color_space)
 }
 dsError_t dsGetQuantizationRange(intptr_t handle, dsDisplayQuantizationRange_t* quantization_range)
 {
+    if(false == _bIsVideoPortInitialized)
+    {
+	return dsERR_NOT_INITIALIZED;
+    }
     if(quantization_range == NULL ||!dsIsValidHandle(handle))
     {
         return dsERR_INVALID_PARAM;
@@ -829,6 +963,10 @@ dsError_t dsGetQuantizationRange(intptr_t handle, dsDisplayQuantizationRange_t* 
 }
 dsError_t dsGetCurrentOutputSettings(intptr_t handle, dsHDRStandard_t* video_eotf, dsDisplayMatrixCoefficients_t* matrix_coefficients, dsDisplayColorSpace_t* color_space, unsigned int* color_depth, dsDisplayQuantizationRange_t* quantization_range)
 {
+	if(false == _bIsVideoPortInitialized)
+    	{
+		return dsERR_NOT_INITIALIZED;
+    	}
 	if(video_eotf == NULL ||matrix_coefficients == NULL||color_space == NULL ||color_depth == NULL ||quantization_range == NULL || !dsIsValidHandle(handle))
 	{
         	return dsERR_INVALID_PARAM;
@@ -837,6 +975,10 @@ dsError_t dsGetCurrentOutputSettings(intptr_t handle, dsHDRStandard_t* video_eot
 }
 dsError_t dsIsOutputHDR(intptr_t handle, bool* hdr)
 {
+    if(false == _bIsVideoPortInitialized)
+    {
+	return dsERR_NOT_INITIALIZED;
+    }
     if(hdr == NULL || !dsIsValidHandle(handle))
     {
         return dsERR_INVALID_PARAM;
@@ -845,10 +987,18 @@ dsError_t dsIsOutputHDR(intptr_t handle, bool* hdr)
 }
 dsError_t dsResetOutputToSDR()
 {
+    if(false == _bIsVideoPortInitialized)
+    {
+	return dsERR_NOT_INITIALIZED;
+    }
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 dsError_t dsSetHdmiPreference(intptr_t handle, dsHdcpProtocolVersion_t *hdcpCurrentProtocol)
 {
+    if(false == _bIsVideoPortInitialized)
+    {
+	return dsERR_NOT_INITIALIZED;
+    }
     if(hdcpCurrentProtocol == NULL ||!dsIsValidHandle(handle))
     {
         return dsERR_INVALID_PARAM;
@@ -857,6 +1007,10 @@ dsError_t dsSetHdmiPreference(intptr_t handle, dsHdcpProtocolVersion_t *hdcpCurr
 }
 dsError_t dsGetHdmiPreference(intptr_t handle, dsHdcpProtocolVersion_t *hdcpCurrentProtocol)
 {
+    if(false == _bIsVideoPortInitialized)
+    {
+	return dsERR_NOT_INITIALIZED;
+    }
     if(hdcpCurrentProtocol == NULL || !dsIsValidHandle(handle))
     {
         return dsERR_INVALID_PARAM;
@@ -865,6 +1019,10 @@ dsError_t dsGetHdmiPreference(intptr_t handle, dsHdcpProtocolVersion_t *hdcpCurr
 }
 dsError_t dsGetIgnoreEDIDStatus(intptr_t handle, bool* status)
 {
+    if(false == _bIsVideoPortInitialized)
+    {
+	return dsERR_NOT_INITIALIZED;
+    }
     if(!dsIsValidHandle(handle) || status == NULL)
     {
         return dsERR_INVALID_PARAM;
@@ -873,6 +1031,10 @@ dsError_t dsGetIgnoreEDIDStatus(intptr_t handle, bool* status)
 }
 dsError_t dsSetBackgroundColor(intptr_t handle, dsVideoBackgroundColor_t color)
 {
+    if(false == _bIsVideoPortInitialized)
+    {
+	return dsERR_NOT_INITIALIZED;
+    }
     if(!dsIsValidHandle(handle))
     {
         return dsERR_INVALID_PARAM;
@@ -881,6 +1043,10 @@ dsError_t dsSetBackgroundColor(intptr_t handle, dsVideoBackgroundColor_t color)
 }
 dsError_t dsSetForceHDRMode(intptr_t handle, dsHDRStandard_t mode)
 {
+    if(false == _bIsVideoPortInitialized)
+    {
+	return dsERR_NOT_INITIALIZED;
+    }
     if(!dsIsValidHandle(handle))
     {
         return dsERR_INVALID_PARAM;
@@ -889,6 +1055,10 @@ dsError_t dsSetForceHDRMode(intptr_t handle, dsHDRStandard_t mode)
 }
 dsError_t dsColorDepthCapabilities(intptr_t handle, unsigned int *colorDepthCapability )
 {
+    if(false == _bIsVideoPortInitialized)
+    {
+	return dsERR_NOT_INITIALIZED;
+    }
     if(colorDepthCapability == NULL ||!dsIsValidHandle(handle))
     {
         return dsERR_INVALID_PARAM;
@@ -897,6 +1067,10 @@ dsError_t dsColorDepthCapabilities(intptr_t handle, unsigned int *colorDepthCapa
 }
 dsError_t dsGetPreferredColorDepth(intptr_t handle, dsDisplayColorDepth_t *colorDepth)
 {
+    if(false == _bIsVideoPortInitialized)
+    {
+	return dsERR_NOT_INITIALIZED;
+    }
     if(colorDepth == NULL ||!dsIsValidHandle(handle))
     {
         return dsERR_INVALID_PARAM;
@@ -905,6 +1079,10 @@ dsError_t dsGetPreferredColorDepth(intptr_t handle, dsDisplayColorDepth_t *color
 }
 dsError_t dsSetPreferredColorDepth(intptr_t handle,dsDisplayColorDepth_t colorDepth)
 {
+    if(false == _bIsVideoPortInitialized)
+    {
+	return dsERR_NOT_INITIALIZED;
+    }
     if(!dsIsValidHandle(handle))
     {
         return dsERR_INVALID_PARAM;
