@@ -704,7 +704,7 @@ dsError_t dsSetAudioLevel(intptr_t handle, float level)
 	{
 		return dsERR_NOT_INITIALIZED;
 	}
-        if( ! dsIsValidHandle(handle)) {
+        if( ! dsIsValidHandle(handle) || level < 0.0 || level > 100.0) {
                 ret = dsERR_INVALID_PARAM;
         }
 
