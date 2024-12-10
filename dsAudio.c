@@ -802,7 +802,7 @@ dsError_t  dsSetDialogEnhancement(intptr_t handle, int level)
         {
 		return dsERR_NOT_INITIALIZED;
         }
-	if(!dsIsValidHandle(handle))
+	if(!dsIsValidHandle(handle) || level < 0 || level > 16)
         {
                 return dsERR_INVALID_PARAM;
         }
@@ -873,6 +873,13 @@ dsError_t  dsSetVolumeLeveller(intptr_t handle, dsVolumeLeveller_t volLeveller)
 	if (false == _bIsAudioInitialized)
         {
 		return dsERR_NOT_INITIALIZED;
+        }
+	if (volLeveller.mode < 0 ||
+        	volLeveller.mode > 2 ||
+                volLeveller.level < 0 ||
+                volLeveller.level > 10 )
+        {
+                return dsERR_INVALID_PARAM;
         }
 	if(!dsIsValidHandle(handle))
         {
@@ -1246,14 +1253,38 @@ dsError_t dsAudioOutIsConnected(intptr_t handle, bool* isConnected)
 }
 dsError_t dsAudioOutRegisterConnectCB(dsAudioOutPortConnectCB_t CBFunc)
 {
+	if (false == _bIsAudioInitialized)
+        {
+		return dsERR_NOT_INITIALIZED;
+        }
+	if(CBFunc == NULL)
+        {
+                return dsERR_INVALID_PARAM;
+        }
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
 dsError_t dsAudioFormatUpdateRegisterCB(dsAudioFormatUpdateCB_t cbFun)
 {      
+	if (false == _bIsAudioInitialized)
+        {
+		return dsERR_NOT_INITIALIZED;
+        }
+	if(cbFun == NULL)
+        {
+                return dsERR_INVALID_PARAM;
+        }
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
 dsError_t dsAudioAtmosCapsChangeRegisterCB (dsAtmosCapsChangeCB_t cbFun)
 {
+	if (false == _bIsAudioInitialized)
+        {
+		return dsERR_NOT_INITIALIZED;
+        }
+	if(cbFun == NULL)
+        {
+                return dsERR_INVALID_PARAM;
+        }
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
 dsError_t dsGetAudioCapabilities(intptr_t handle, int *capabilities)
