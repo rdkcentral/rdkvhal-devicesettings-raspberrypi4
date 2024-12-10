@@ -231,7 +231,7 @@ dsError_t dsRegisterDisplayEventCallback(intptr_t handle, dsDisplayEventCallback
     	{
 	    return dsERR_NOT_INITIALIZED;
     	}
-	if (vDispHandle == NULL)
+	if (vDispHandle == NULL || NULL == cb)
 	{
 	    return dsERR_INVALID_PARAM;
 	}
