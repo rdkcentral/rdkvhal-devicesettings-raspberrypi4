@@ -34,7 +34,7 @@
 dsDisplayEventCallback_t _halcallback = NULL;
 dsVideoPortResolution_t *HdmiSupportedResolution=NULL;
 static unsigned int numSupportedResn = 0;
-
+static bool _bDisplayInited = false;
 static bool isBootup = true;
 static dsError_t dsQueryHdmiResolution();
 TV_SUPPORTED_MODE_T dsVideoPortgetVideoFormatFromInfo(dsVideoResolution_t res,
@@ -97,6 +97,10 @@ dsError_t dsDisplayInit()
 
 	dsError_t ret = dsERR_NONE;
         int32_t res = 0;
+	if(true == _bDisplayInited)
+	{
+	    return dsERR_ALREADY_INITIALIZED;
+	}
 
 	_handles[dsVIDEOPORT_TYPE_HDMI][0].m_vType  = dsVIDEOPORT_TYPE_HDMI;
 	_handles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle = dsVIDEOPORT_TYPE_HDMI;
@@ -114,7 +118,7 @@ dsError_t dsDisplayInit()
     vc_tv_register_callback( &tvservice_callback, &_handles[dsVIDEOPORT_TYPE_HDMI][0] );
 	/*Query the HDMI Resolution */
     dsQueryHdmiResolution();
-
+    _bDisplayInited = true;
     return ret;
 }
 
@@ -130,16 +134,19 @@ dsError_t dsDisplayInit()
 dsError_t dsGetDisplay(dsVideoPortType_t m_vType, int index, intptr_t *handle)
 {
     dsError_t ret = dsERR_NONE;
-
-
-    if (index != 0 || !dsVideoPortType_isValid(m_vType)) {
-        ret = dsERR_NONE;
+    if(false == _bDisplayInited)
+    {
+        return dsERR_NOT_INITIALIZED;
     }
 
-    if (ret == dsERR_NONE) {
-        *handle = (intptr_t)&_handles[m_vType][index];
+    if (index != 0 || !dsVideoPortType_isValid(m_vType) || NULL == handle) 
+    {
+        ret = dsERR_INVALID_PARAM;
+    }
 
-    } else {
+    if (ret == dsERR_NONE) 
+    {
+        *handle = (intptr_t)&_handles[m_vType][index];
     }
 
     return ret;
@@ -161,10 +168,14 @@ dsError_t dsGetDisplayAspectRatio(intptr_t handle, dsVideoAspectRatio_t *aspect)
 	dsError_t ret = dsERR_NONE;
         TV_DISPLAY_STATE_T tvstate;
         VDISPHandle_t *vDispHandle = (VDISPHandle_t *) handle;
-	if (vDispHandle == NULL)
+	if(false == _bDisplayInited)
+    	{
+	    return dsERR_NOT_INITIALIZED;
+    	}
+	if (vDispHandle == NULL || NULL == aspect)
 	{
-		printf("DIsplay Handle is NULL .......... \r\n");
-		return ret;
+		printf("DIsplay Handle/aspect is NULL .......... \r\n");
+		return dsERR_INVALID_PARAM;
 	}
         	
         if( vc_tv_get_display_state( &tvstate ) == 0) {
@@ -215,6 +226,15 @@ dsError_t dsGetDisplayAspectRatio(intptr_t handle, dsVideoAspectRatio_t *aspect)
 dsError_t dsRegisterDisplayEventCallback(intptr_t handle, dsDisplayEventCallback_t cb)
 {
 	dsError_t ret = dsERR_NONE;
+	VDISPHandle_t *vDispHandle = (VDISPHandle_t *) handle;
+        if(false == _bDisplayInited)
+    	{
+	    return dsERR_NOT_INITIALIZED;
+    	}
+	if (vDispHandle == NULL || NULL == cb)
+	{
+	    return dsERR_INVALID_PARAM;
+	}
 	/* Register The call Back */
 	_halcallback = cb;
 	return ret;
@@ -233,12 +253,15 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
 {
 	dsError_t ret = dsERR_NONE;
 	VDISPHandle_t *vDispHandle = (VDISPHandle_t *) handle;
+	if(false == _bDisplayInited)
+    	{
+	    return dsERR_NOT_INITIALIZED;
+    	}
 
-	if (vDispHandle == NULL)
+	if (vDispHandle == NULL || NULL == edid)
 	{
-		ret = dsERR_NONE;
-		printf("DIsplay Handle is NULL .......... \r\n");
-		return ret;
+		printf("DIsplay Handle/edid is NULL .......... \r\n");
+		return dsERR_INVALID_PARAM;
 	}
         unsigned char *raw = NULL;
         int length = 0;
@@ -273,12 +296,17 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
 dsError_t dsDisplayTerm()
 {
     dsError_t res = dsERR_NONE;
+    if(false == _bDisplayInited)
+    {
+        return dsERR_NOT_INITIALIZED;
+    }
     vchi_tv_uninit();
     if(HdmiSupportedResolution)
     {
         free(HdmiSupportedResolution);
         HdmiSupportedResolution=NULL;
-    }    
+    }
+    _bDisplayInited = false;
     return res;
 }
 
@@ -456,8 +484,10 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
 	size_t offset = 0;
 	int i, extensions = 0;
 	VDISPHandle_t *vDispHandle = (VDISPHandle_t *) handle;
-	*length = 0;
-
+	if(false == _bDisplayInited)
+	{
+	    return dsERR_NOT_INITIALIZED;
+	}
 	if (edid == NULL || length == NULL) {
 		printf("[%s] invalid params\n", __FUNCTION__);
 		return dsERR_INVALID_PARAM;
@@ -467,6 +497,7 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
 		printf("[%s] invalid handle\n", __FUNCTION__);
 		return dsERR_INVALID_PARAM;
 	}
+	*length = 0;
 	int siz = vc_tv_hdmi_ddc_read(offset, sizeof (buffer), buffer);
 	offset += sizeof( buffer);
 	extensions = buffer[0x7e]; /* This tells you how many more blocks to read */
