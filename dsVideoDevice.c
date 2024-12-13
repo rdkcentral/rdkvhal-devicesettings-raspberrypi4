@@ -36,16 +36,15 @@ dsError_t  dsVideoDeviceInit()
 
 dsError_t  dsGetVideoDevice(int index, intptr_t *handle)
 {
-	dsError_t ret = dsERR_NONE;
 	if(false == _bVideoDeviceInited)
 	{
 		return dsERR_NOT_INITIALIZED;
 	}
 	if (index != 0 || NULL == handle)
 	{
-		ret = dsERR_INVALID_PARAM;
+		return = dsERR_INVALID_PARAM;
 	}
-	return ret;
+	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 dsError_t  dsSetDFC(intptr_t handle, dsVideoZoom_t dfc)
