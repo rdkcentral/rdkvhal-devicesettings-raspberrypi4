@@ -479,7 +479,6 @@ TV_SUPPORTED_MODE_T dsVideoPortgetVideoFormatFromInfo(dsVideoResolution_t res, u
  */
 dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
 {
-	dsError_t ret = dsERR_NONE;
 	uint8_t buffer[128];
 	size_t offset = 0;
 	int i, extensions = 0;
@@ -499,6 +498,10 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
 	}
 	*length = 0;
 	int siz = vc_tv_hdmi_ddc_read(offset, sizeof (buffer), buffer);
+	if (siz <= 0) {
+		printf("[%s] vc_tv_hdmi_ddc_read returned %d.\n", __FUNCTION__, siz);
+		return dsERR_GENERAL;
+	}
 	offset += sizeof( buffer);
 	extensions = buffer[0x7e]; /* This tells you how many more blocks to read */
 	memcpy(edid, (unsigned char *)buffer, sizeof(buffer));
@@ -508,6 +511,6 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
 		memcpy(edid+offset, (unsigned char *)buffer, sizeof(buffer));
 	}
 	*length = offset;
-    return ret;
+    return dsERR_NONE;
 }
 
