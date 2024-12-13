@@ -23,6 +23,8 @@
 #include "dsVideoDevice.h"
 #include "dshalUtils.h"
 
+static bool _bVideoDeviceInited = false;
+
 dsError_t  dsVideoDeviceInit()
 {
 	dsError_t ret = dsERR_NONE;
