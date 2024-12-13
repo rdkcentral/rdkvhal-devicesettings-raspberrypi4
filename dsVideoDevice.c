@@ -182,9 +182,17 @@ dsError_t dsSetDisplayframerate(intptr_t handle, char *framerate)
 }
 dsError_t dsRegisterFrameratePreChangeCB(dsRegisterFrameratePreChangeCB_t CBFunc)
 {
+	if (false == _bVideoDeviceInited)
+	{
+		 return dsERR_NOT_INITIALIZED;
+	}
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
 dsError_t dsRegisterFrameratePostChangeCB(dsRegisterFrameratePostChangeCB_t CBFunc)
 {
+	if (false == _bVideoDeviceInited)
+	{
+		 return dsERR_NOT_INITIALIZED;
+	}
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
