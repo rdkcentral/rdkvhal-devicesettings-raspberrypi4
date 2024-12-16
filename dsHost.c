@@ -29,13 +29,19 @@ extern "C" {
 #include "interface/vmcs_host/vc_vchi_gencmd.h"
 }
 static uint32_t version_num = 0x10000;
+static bool host_initialized = false;
 #define FILE_SIZE 50
 #define SIZE 10
 dsError_t dsHostInit()
 {
     dsError_t ret = dsERR_NONE;
-
-    return ret;
+    if (host_initialized) { 
+        dsError_t ret = dsERR_ALREADY_INITIALIZED;
+        return ret;
+    }
+    // Initialization code here
+    host_initialized = true;
+    return ret; 
 }
 
 dsError_t dsSetHostPowerMode(int newPower)
@@ -58,6 +64,15 @@ dsError_t dsGetCPUTemperature(float *cpuTemperature)
     char Temp_File[FILE_SIZE];
     char temp_value[SIZE];
     FILE *fp = NULL;
+    if (!host_initialized) {                                                                                                                                               
+    dsError_t ret = dsERR_NOT_INITIALIZED;                                                                                                                          
+    return ret;                                                                                                                                                     
+    }                                                                                                                                                                
+    if (cpuTemperature == NULL) {                                                                                                                                   
+    dsError_t ret = dsERR_INVALID_PARAM;                                                                                                                         
+    return ret;                                                                                                                                                  
+}   
+
     snprintf(Temp_File, FILE_SIZE, "/sys/class/thermal/thermal_zone0/temp");
     fp = fopen(Temp_File, "r");
     if (fread(temp_value, 1, SIZE, fp) <= 0) {
@@ -160,7 +175,11 @@ dsError_t dsGetTotalSystemGraphicsMemory(uint64_t* memory)
 dsError_t dsHostTerm()
 {
     dsError_t ret = dsERR_NONE;
-
+    if (!host_initialized) { 
+        dsError_t ret = dsERR_NOT_INITIALIZED;
+        return ret;
+    } 
+    host_initialized = false; 
     return ret;
 }
 
@@ -169,6 +188,9 @@ dsError_t dsGetHostEDID(unsigned char *edid, int *length) {
 }
 dsError_t dsGetSocIDFromSDK(char *socID)
 {
+    if (!host_initialized) {                                                                                                                                               
+    return dsERR_NOT_INITIALIZED;                                                                                                                                  
+    }  
     if (socID == NULL)
     {
       return dsERR_INVALID_PARAM;
