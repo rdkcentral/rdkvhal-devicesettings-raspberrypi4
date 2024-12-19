@@ -233,7 +233,7 @@ dsError_t dsRegisterDisplayEventCallback(intptr_t handle, dsDisplayEventCallback
     	}
 	if (vDispHandle == NULL || NULL == cb)
 	{
-	    return dsERR_INVALID_PARAM;
+	    ret = dsERR_INVALID_PARAM;
 	}
 	/* Register The call Back */
 	_halcallback = cb;
