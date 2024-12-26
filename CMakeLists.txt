@@ -27,12 +27,12 @@ target_link_libraries(${LIBNAME} vchostif vchiq_arm vcos asound)
 
 # Change resolution executable
 find_library(drm drm)
-add_executable(change_resolutions change_resolutions.c)
-target_link_libraries(change_resolutions drm)
+add_executable(change_resolutions_test change_resolution.c)
+target_link_libraries(change_resolutions_test drm)
 
 # Installation
 install(TARGETS ${LIBNAME} LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX})
-install(TARGETS change_resolutions RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX})
+install(TARGETS change_resolutions_test RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX})
 
 # Clean target
-set_directory_properties(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES "${CMAKE_BINARY_DIR}/*.so*;${CMAKE_BINARY_DIR}/*.o;${CMAKE_BINARY_DIR}/change_resolutions")
+set_directory_properties(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES "${CMAKE_BINARY_DIR}/*.so*;${CMAKE_BINARY_DIR}/*.o;${CMAKE_BINARY_DIR}/change_resolutions_test")
