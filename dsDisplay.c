@@ -212,32 +212,51 @@ dsError_t dsGetDisplayAspectRatio(intptr_t handle, dsVideoAspectRatio_t *aspect)
 }
 
 
-
 /**
- * @brief Register for a callback routine for HDMI Hotplug
+ * @brief Callback registration for display related events.
  *
- * This function is used to register for a call back for HDMI connection and disconnect events
+ * This function registers a callback for display events corresponding to
+ * the specified display device handle.
  *
- * @param [in] handle   Handle for the video display
- * @param [out] *edid   The callback rouutine
- * @return dsError_t Error code.
+ * @note Caller should install at most one callback function per handle.
+ * Multiple listeners are supported at Caller layer and thus not
+ * required in HAL implementation.
+ *
+ * @param[in] handle    - Handle of the display device
+ * @param[in] cb        - Display Event callback function. Please refer ::dsDisplayEventCallback_t
+ *
+ * @return dsError_t                        - Status
+ * @retval dsERR_NONE                       - Success
+ * @retval dsERR_NOT_INITIALIZED            - Module is not initialised
+ * @retval dsERR_INVALID_PARAM              - Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED    - The attempted operation is not supported
+ * @retval dsERR_GENERAL                    - Underlying undefined platform error
+ *
+ * @pre  dsDisplayInit() and dsGetDisplay() must be called before calling this API
+ *
+ * @warning  This API is Not thread safe
+ *
+ * @see dsDisplayEventCallback_t()
+ *
  */
-
 dsError_t dsRegisterDisplayEventCallback(intptr_t handle, dsDisplayEventCallback_t cb)
 {
-	dsError_t ret = dsERR_NONE;
-	VDISPHandle_t *vDispHandle = (VDISPHandle_t *) handle;
-        if(false == _bDisplayInited)
-    	{
-	    return dsERR_NOT_INITIALIZED;
-    	}
-	if (vDispHandle == NULL || NULL == cb)
-	{
-	    return dsERR_INVALID_PARAM;
-	}
-	/* Register The call Back */
-	_halcallback = cb;
-	return ret;
+    VDISPHandle_t *vDispHandle = (VDISPHandle_t *) handle;
+    // TODD: add handle validation
+    if (false == _bDisplayInited)
+    {
+        return dsERR_NOT_INITIALIZED;
+    }
+    if (NULL == cb)
+    {
+        return dsERR_INVALID_PARAM;
+    }
+    /* Register The call Back */
+    if (NULL != _halcallback) {
+        printf("Callback already registered; override with new one.\n");
+    }
+    _halcallback = cb;
+    return dsERR_NONE;
 }
 
 /**
