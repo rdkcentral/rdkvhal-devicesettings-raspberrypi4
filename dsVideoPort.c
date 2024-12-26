@@ -32,7 +32,7 @@
 #include "dsDisplay.h"
 #include "dshalUtils.h"
 
-#include "vc_hdmi.h"
+#include "interface/vmcs_host/vc_hdmi.h"
 
 static bool isBootup = true;
 static bool _bIsVideoPortInitialized = false;

@@ -20,10 +20,9 @@
 #ifndef __DSHALUTILS_H
 #define __DSHALUTILS_H
 
-extern "C" {
 #include "interface/vmcs_host/vc_tvservice.h"
 #include "interface/vmcs_host/vc_vchi_gencmd.h"
-}
+
 #include <stdbool.h>
 #include <stdint.h>
 #include "dsTypes.h"

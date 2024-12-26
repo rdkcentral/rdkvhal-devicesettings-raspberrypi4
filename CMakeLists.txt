@@ -17,7 +17,6 @@ file(GLOB SOURCES "*.c")
 
 # Include directories
 include_directories(/usr/include/interface/vmcs_host/linux)
-include_directories(/usr/include/interface/vmcs_host)
 
 # Compiler flags
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1y -g -fPIC -D_REENTRANT -Wall -DALSA_AUDIO_MASTER_CONTROL_ENABLE")
