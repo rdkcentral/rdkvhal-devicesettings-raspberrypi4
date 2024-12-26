@@ -27,9 +27,19 @@ add_library(${LIBNAME} SHARED ${SOURCES})
 target_link_libraries(${LIBNAME} vchostif vchiq_arm vcos asound)
 
 # Change resolution executable
-find_library(drm drm)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(LIBDRM REQUIRED libdrm)
+
+if (NOT LIBDRM_FOUND)
+    message(FATAL_ERROR "libdrm not found!")
+endif()
+
+include_directories(${LIBDRM_INCLUDE_DIRS})
+link_directories(${LIBDRM_LIBRARY_DIRS})
+add_definitions(${LIBDRM_CFLAGS_OTHER})
+
 add_executable(change_resolutions_test change_resolution.c)
-target_link_libraries(change_resolutions_test drm)
+target_link_libraries(change_resolutions_test ${LIBDRM_LIBRARIES})
 
 # Installation
 install(TARGETS ${LIBNAME} LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX})
