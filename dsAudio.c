@@ -187,7 +187,7 @@ dsError_t dsGetAudioEncoding(intptr_t handle, dsAudioEncoding_t *encoding)
         return ret;
 }
 
-dsError_t dsGetAudioCompression(intptr_t handle, dsAudioCompression_t *compression)
+dsError_t dsGetAudioCompression(intptr_t handle, int *compression)
 {
         if (false == _bIsAudioInitialized)
         {
@@ -335,7 +335,7 @@ dsError_t  dsEnableAudioPort(intptr_t handle, bool enabled)
     	if (!dsIsValidHandle(handle))
     	{
        		return dsERR_INVALID_PARAM;
-    	} 
+    	}
     	return dsSetAudioMute ( handle, !enabled );
 }
 
@@ -526,7 +526,7 @@ dsError_t dsSetAudioEncoding(intptr_t handle, dsAudioEncoding_t encoding)
 	{
 		return dsERR_NOT_INITIALIZED;
 	}
-	if( !dsIsValidHandle(handle)) 
+	if( !dsIsValidHandle(handle))
 	{
 		return dsERR_INVALID_PARAM;
 	}
@@ -534,7 +534,7 @@ dsError_t dsSetAudioEncoding(intptr_t handle, dsAudioEncoding_t encoding)
 	return ret;
 }
 
-dsError_t dsSetAudioCompression(intptr_t handle, dsAudioCompression_t compression)
+dsError_t dsSetAudioCompression(intptr_t handle, int compression)
 {
 	if (false == _bIsAudioInitialized)
 	{
@@ -554,7 +554,7 @@ dsError_t dsIsAudioMSDecode(intptr_t handle, bool *ms11Enabled)
 	{
 		return dsERR_NOT_INITIALIZED;
 	}
-	if( !dsIsValidHandle(handle) || NULL == ms11Enabled) 
+	if( !dsIsValidHandle(handle) || NULL == ms11Enabled)
 	{
 		return dsERR_INVALID_PARAM;
 	}
@@ -568,8 +568,8 @@ dsError_t dsSetStereoMode(intptr_t handle, dsAudioStereoMode_t mode)
 	{
 		return dsERR_NOT_INITIALIZED;
 	}
-	
-	if(!dsIsValidHandle(handle) || mode >= dsAUDIO_STEREO_MAX || mode <= dsAUDIO_STEREO_UNKNOWN ) 
+
+	if(!dsIsValidHandle(handle) || mode >= dsAUDIO_STEREO_MAX || mode <= dsAUDIO_STEREO_UNKNOWN )
         {
 		return dsERR_INVALID_PARAM;
         }
@@ -582,7 +582,7 @@ dsError_t dsSetStereoAuto (intptr_t handle, int autoMode)
 	{
 		return dsERR_NOT_INITIALIZED;
 	}
-	if(!dsIsValidHandle(handle) || autoMode < 0) 
+	if(!dsIsValidHandle(handle) || autoMode < 0)
         {
            	return dsERR_INVALID_PARAM;
         }
@@ -850,9 +850,9 @@ dsError_t  dsSetIntelligentEqualizerMode(intptr_t handle, int mode)
         {
 		return dsERR_NOT_INITIALIZED;
         }
-        if (!dsIsValidHandle(handle) || mode < 0 || mode > 6) 
+        if (!dsIsValidHandle(handle) || mode < 0 || mode > 6)
 	{
-        	return dsERR_INVALID_PARAM; 
+        	return dsERR_INVALID_PARAM;
     	}
 	return dsERR_OPERATION_NOT_SUPPORTED;
 }
@@ -900,7 +900,7 @@ dsError_t  dsGetBassEnhancer(intptr_t handle, int *boost)
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
 dsError_t  dsSetBassEnhancer(intptr_t handle, int boost)
-{       
+{
 	if (false == _bIsAudioInitialized)
         {
 		return dsERR_NOT_INITIALIZED;
@@ -1077,9 +1077,9 @@ dsError_t dsAudioSetSAD(intptr_t handle, dsAudioSADList_t sad_list)
         {
 		return dsERR_NOT_INITIALIZED;
         }
-	if (!dsIsValidHandle(handle)) 
+	if (!dsIsValidHandle(handle))
 	{
-        	return dsERR_INVALID_PARAM; 
+        	return dsERR_INVALID_PARAM;
     	}
 	return dsERR_OPERATION_NOT_SUPPORTED;
 }
@@ -1228,7 +1228,7 @@ dsError_t  dsSetAudioDucking(intptr_t handle, dsAudioDuckingAction_t action, dsA
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
 dsError_t  dsIsAudioMS12Decode(intptr_t handle, bool *hasMS12Decode)
-{       
+{
 	if (false == _bIsAudioInitialized)
         {
 		return dsERR_NOT_INITIALIZED;
@@ -1264,7 +1264,7 @@ dsError_t dsAudioOutRegisterConnectCB(dsAudioOutPortConnectCB_t CBFunc)
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
 dsError_t dsAudioFormatUpdateRegisterCB(dsAudioFormatUpdateCB_t cbFun)
-{      
+{
 	if (false == _bIsAudioInitialized)
         {
 		return dsERR_NOT_INITIALIZED;
@@ -1288,7 +1288,7 @@ dsError_t dsAudioAtmosCapsChangeRegisterCB (dsAtmosCapsChangeCB_t cbFun)
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
 dsError_t dsGetAudioCapabilities(intptr_t handle, int *capabilities)
-{       
+{
 	if (false == _bIsAudioInitialized)
         {
 		return dsERR_NOT_INITIALIZED;
@@ -1300,7 +1300,7 @@ dsError_t dsGetAudioCapabilities(intptr_t handle, int *capabilities)
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
 dsError_t dsGetMS12Capabilities(intptr_t handle, int *capabilities)
-{      
+{
 	if (false == _bIsAudioInitialized)
         {
 		return dsERR_NOT_INITIALIZED;
