@@ -25,16 +25,15 @@
 #include "dsTypes.h"
 #include "dsError.h"
 #include "dsHost.h"
-extern "C" {
 #include "interface/vmcs_host/vc_vchi_gencmd.h"
-}
+
 static uint32_t version_num = 0x10000;
 static bool host_initialized = false;
 #define FILE_SIZE 50
 #define SIZE 10
 dsError_t dsHostInit()
-{ 
-    if (host_initialized) { 
+{
+    if (host_initialized) {
         return dsERR_ALREADY_INITIALIZED;
     }
     // Initialization code here
@@ -62,12 +61,12 @@ dsError_t dsGetCPUTemperature(float *cpuTemperature)
     char Temp_File[FILE_SIZE];
     char temp_value[SIZE];
     FILE *fp = NULL;
-    if (!host_initialized) {                                                                                                                                                                                                                                                                        
-        return dsERR_NOT_INITIALIZED;                                                                                                                                                     
-    }                                                                                                                                                                
-    if (cpuTemperature == NULL) {                                                                                                                                                                                                                                                           
-        return  dsERR_INVALID_PARAM;                                                                                                                                                 
-    }   
+    if (!host_initialized) {
+        return dsERR_NOT_INITIALIZED;
+    }
+    if (cpuTemperature == NULL) {
+        return  dsERR_INVALID_PARAM;
+    }
     snprintf(Temp_File, FILE_SIZE, "/sys/class/thermal/thermal_zone0/temp");
     fp = fopen(Temp_File, "r");
     if (fread(temp_value, 1, SIZE, fp) <= 0) {
@@ -122,7 +121,7 @@ dsError_t dsGetFreeSystemGraphicsMemory(uint64_t* memory)
     buffer[sizeof(buffer) - 1] = '\0';
     /* Extract response after = */
     char* equal = strchr(buffer, '=');
-    if (equal != nullptr) {
+    if (equal != NULL) {
         equal++;
     }
     else {
@@ -154,7 +153,7 @@ dsError_t dsGetTotalSystemGraphicsMemory(uint64_t* memory)
     buffer[sizeof(buffer) - 1] = '\0';
     /* Extract response after = */
     char* equal = strchr(buffer, '=');
-    if (equal != nullptr) {
+    if (equal != NULL) {
         equal++;
     }
     else {
@@ -169,28 +168,28 @@ dsError_t dsGetTotalSystemGraphicsMemory(uint64_t* memory)
 
 dsError_t dsHostTerm()
 {
-    if (!host_initialized) { 
+    if (!host_initialized) {
         return dsERR_NOT_INITIALIZED;
-    } 
-    host_initialized = false; 
+    }
+    host_initialized = false;
     return dsERR_NONE;
 }
 
-dsError_t dsGetHostEDID(unsigned char *edid, int *length) 
+dsError_t dsGetHostEDID(unsigned char *edid, int *length)
 {
-    if (!host_initialized) {                                                                                                                                                                                                                                                                        
-        return dsERR_NOT_INITIALIZED;                                                                                                                                                     
-    }  
-    if (edid == NULL || length == NULL ) {                                                                                                                                                                                                                                                           
-        return  dsERR_INVALID_PARAM;                                                                                                                                                 
-    }   
+    if (!host_initialized) {
+        return dsERR_NOT_INITIALIZED;
+    }
+    if (edid == NULL || length == NULL ) {
+        return  dsERR_INVALID_PARAM;
+    }
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 dsError_t dsGetSocIDFromSDK(char *socID)
 {
-    if (!host_initialized) {                                                                                                                                               
-        return dsERR_NOT_INITIALIZED;                                                                                                                                  
-    }  
+    if (!host_initialized) {
+        return dsERR_NOT_INITIALIZED;
+    }
     if (socID == NULL){
         return dsERR_INVALID_PARAM;
     }
