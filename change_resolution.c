@@ -85,7 +85,7 @@ void change_resolution(int fd, drmModeConnector *connector, drmModeRes *resource
         create_dumb.height = mode.vdisplay;
         create_dumb.bpp = 32; // Bits per pixel
         if (drmIoctl(fd, DRM_IOCTL_MODE_CREATE_DUMB, &create_dumb) < 0) {
-            fprintf(stderr, "Failed to create dumb buffer: %s\n", strerror(errno));
+            fprintf(stderr, "Failed to create dumb buffer for mode %dx%d: %s\n", mode.hdisplay, mode.vdisplay, strerror(errno));
             drmModeFreeCrtc(crtc);
             continue;
         }
@@ -94,15 +94,18 @@ void change_resolution(int fd, drmModeConnector *connector, drmModeRes *resource
         struct drm_mode_map_dumb map_dumb = {0};
         map_dumb.handle = create_dumb.handle;
         if (drmIoctl(fd, DRM_IOCTL_MODE_MAP_DUMB, &map_dumb) < 0) {
-            fprintf(stderr, "Failed to map dumb buffer: %s\n", strerror(errno));
+            fprintf(stderr, "Failed to map dumb buffer for mode %dx%d: %s\n", mode.hdisplay, mode.vdisplay, strerror(errno));
             drmModeFreeCrtc(crtc);
+            struct drm_mode_destroy_dumb destroy_dumb = {0};
+            destroy_dumb.handle = create_dumb.handle;
+            drmIoctl(fd, DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_dumb);
             continue;
         }
 
         // Set the CRTC
         int ret = drmModeSetCrtc(fd, crtc->crtc_id, crtc->buffer_id, 0, 0, &connector->connector_id, 1, &mode);
         if (ret) {
-            fprintf(stderr, "Failed to set mode: %s\n", strerror(errno));
+            fprintf(stderr, "Failed to set mode %dx%d: %s\n", mode.hdisplay, mode.vdisplay, strerror(errno));
         } else {
             printf("Changed resolution to %dx%d\n", mode.hdisplay, mode.vdisplay);
             sleep(interval);
