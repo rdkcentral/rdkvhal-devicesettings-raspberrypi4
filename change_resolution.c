@@ -28,8 +28,48 @@
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
-void change_resolution(int fd, drmModeConnector *connector, drmModeRes *resources, int interval)
-{
+void print_edid(int fd, drmModeConnector *connector) {
+    if (connector->connection != DRM_MODE_CONNECTED) {
+        printf("HDMI is not connected.\n");
+        return;
+    }
+
+    drmModePropertyPtr property;
+    drmModePropertyBlobPtr edid_blob;
+    int has_edid = 0;
+
+    for (int i = 0; i < connector->count_props; i++) {
+        property = drmModeGetProperty(fd, connector->props[i]);
+        if (!property) {
+            continue;
+        }
+
+        if (strcmp(property->name, "EDID") == 0) {
+            has_edid = 1;
+            edid_blob = drmModeGetPropertyBlob(fd, connector->prop_values[i]);
+            if (edid_blob) {
+                printf("Host EDID:\n");
+                for (int j = 0; j < edid_blob->length; j++) {
+                    printf("%02x ", ((unsigned char*)edid_blob->data)[j]);
+                    if ((j + 1) % 16 == 0) {
+                        printf("\n");
+                    }
+                }
+                printf("\n");
+                drmModeFreePropertyBlob(edid_blob);
+            } else {
+                printf("EDID read error.\n");
+            }
+        }
+        drmModeFreeProperty(property);
+    }
+
+    if (!has_edid) {
+        printf("No EDID property found.\n");
+    }
+}
+
+void change_resolution(int fd, drmModeConnector *connector, drmModeRes *resources, int interval) {
     for (int i = 0; i < connector->count_modes; i++) {
         drmModeModeInfo mode = connector->modes[i];
         drmModeCrtc *crtc = drmModeGetCrtc(fd, resources->crtcs[0]);
@@ -39,6 +79,27 @@ void change_resolution(int fd, drmModeConnector *connector, drmModeRes *resource
             continue;
         }
 
+        // Create a dumb buffer
+        struct drm_mode_create_dumb create_dumb = {0};
+        create_dumb.width = mode.hdisplay;
+        create_dumb.height = mode.vdisplay;
+        create_dumb.bpp = 32; // Bits per pixel
+        if (drmIoctl(fd, DRM_IOCTL_MODE_CREATE_DUMB, &create_dumb) < 0) {
+            fprintf(stderr, "Failed to create dumb buffer: %s\n", strerror(errno));
+            drmModeFreeCrtc(crtc);
+            continue;
+        }
+
+        // Map the dumb buffer
+        struct drm_mode_map_dumb map_dumb = {0};
+        map_dumb.handle = create_dumb.handle;
+        if (drmIoctl(fd, DRM_IOCTL_MODE_MAP_DUMB, &map_dumb) < 0) {
+            fprintf(stderr, "Failed to map dumb buffer: %s\n", strerror(errno));
+            drmModeFreeCrtc(crtc);
+            continue;
+        }
+
+        // Set the CRTC
         int ret = drmModeSetCrtc(fd, crtc->crtc_id, crtc->buffer_id, 0, 0, &connector->connector_id, 1, &mode);
         if (ret) {
             fprintf(stderr, "Failed to set mode: %s\n", strerror(errno));
@@ -47,14 +108,17 @@ void change_resolution(int fd, drmModeConnector *connector, drmModeRes *resource
             sleep(interval);
         }
 
+        // Clean up
         drmModeFreeCrtc(crtc);
+        struct drm_mode_destroy_dumb destroy_dumb = {0};
+        destroy_dumb.handle = create_dumb.handle;
+        drmIoctl(fd, DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_dumb);
     }
 }
 
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
     if (argc != 3) {
-        fprintf(stderr, "Usage: %s <DRM_DEVICE> <INTERVAL(in sec)>\n", argv[0]);
+        fprintf(stderr, "Usage: %s <DRM_DEVICE> <INTERVAL>\n", argv[0]);
         return 1;
     }
 
@@ -86,6 +150,7 @@ int main(int argc, char *argv[])
         }
 
         if (connector->connection == DRM_MODE_CONNECTED && connector->count_modes > 0) {
+            print_edid(fd, connector);
             change_resolution(fd, connector, resources, interval);
         } else {
             fprintf(stderr, "Connector %d is not connected or has no modes\n", connector->connector_id);
