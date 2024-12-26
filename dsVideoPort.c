@@ -16,8 +16,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
- 
-#include <string.h> 
+
+#include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -31,6 +31,8 @@
 #include "dsVideoResolutionSettings.h"
 #include "dsDisplay.h"
 #include "dshalUtils.h"
+
+#include "vc_hdmi.h"
 
 static bool isBootup = true;
 static bool _bIsVideoPortInitialized = false;
@@ -109,7 +111,7 @@ dsError_t  dsVideoPortInit()
            	return dsERR_ALREADY_INITIALIZED;
    	}
 	/*
-	 * Video Port configuration for HDMI and Analog ports. 
+	 * Video Port configuration for HDMI and Analog ports.
 	 */
 
 	_handles[dsVIDEOPORT_TYPE_HDMI][0].m_vType  = dsVIDEOPORT_TYPE_HDMI;
@@ -140,7 +142,7 @@ dsError_t  dsVideoPortInit()
 
 /**
  * @brief Get the video port handle.
- * 
+ *
  * This function gets the handle for the type of video port requested. It must return
  * ::dsERR_OPERATION_NOT_SUPPORTED if the requested video port is unavailable.
  *
@@ -158,7 +160,7 @@ dsError_t  dsGetVideoPort(dsVideoPortType_t type, int index, intptr_t *handle)
 	{
 	    	return dsERR_NOT_INITIALIZED;
 	}
-	
+
 	if (index != 0 || !dsVideoPortType_isValid(type) || NULL == handle) {
 		ret = dsERR_INVALID_PARAM;
 	}
@@ -191,7 +193,7 @@ dsError_t  dsEnableAllVideoPort(bool enabled)
 
 /**
  * @brief Indicate whether a video port is enabled.
- * 
+ *
  * This function indicates whether the specified video port is enabled or not.
  *
  * @param [in]  handle      Handle of the video port.
@@ -208,8 +210,8 @@ dsError_t dsIsVideoPortEnabled(intptr_t handle, bool *enabled)
 	{
 	    	return dsERR_NOT_INITIALIZED;
 	}
-		
-	if (!isValidVopHandle(handle) || NULL == enabled) 
+
+	if (!isValidVopHandle(handle) || NULL == enabled)
 	{
      		return dsERR_INVALID_PARAM;
     	}
@@ -236,7 +238,7 @@ dsError_t dsIsVideoPortEnabled(intptr_t handle, bool *enabled)
  * This function enables or disables the specified video port.
  *
  * @param [in] handle      Handle of the video port.
- * @param [in] enabled     Flag to control the video port state 
+ * @param [in] enabled     Flag to control the video port state
  *                         (@a true to enable, @a false to disable)
  *
  * @return    Error Code.
@@ -325,7 +327,7 @@ dsError_t  dsEnableVideoPort(intptr_t handle, bool enabled)
 
 /**
  * @brief Indicate whether a video port is connected to a display.
- * 
+ *
  * This function is used to find out whether the video port is connected to a display or not.
  *
  * @param [in]  handle        Handle of the video port.
@@ -349,7 +351,7 @@ dsError_t  dsIsDisplayConnected(intptr_t handle, bool *connected)
     	}
 	/*Default is false*/
 	 *connected = false;
-    	
+
 	if(vopHandle->m_vType == dsVIDEOPORT_TYPE_BB)
 	{
 		*connected = true;
@@ -369,9 +371,9 @@ dsError_t  dsIsDisplayConnected(intptr_t handle, bool *connected)
                          printf("HDMI is not connected");
                          *connected = false;
                      }
-                     else 
+                     else
                          printf("Caannot find HDMI state\n");
-                } 
+                }
 	}
 	else
 	{
@@ -381,8 +383,8 @@ return ret;
 }
 
 /**
- * @brief To enable DTCP protection 
- * 
+ * @brief To enable DTCP protection
+ *
  * This function is used to set the DTCP content protection for the output
  * Must return dsERR_OPERATION_NOT_SUPPORTED when if content protection is not available
  *
@@ -396,7 +398,7 @@ dsError_t  dsEnableDTCP(intptr_t handle, bool contentProtect)
 	{
 	    return dsERR_NOT_INITIALIZED;
 	}
-	if (!isValidVopHandle(handle)) 
+	if (!isValidVopHandle(handle))
 	{
 	    return dsERR_INVALID_PARAM;
 	}
@@ -404,15 +406,15 @@ dsError_t  dsEnableDTCP(intptr_t handle, bool contentProtect)
 }
 
 /**
- * @brief To enable HDCP protection 
- * 
+ * @brief To enable HDCP protection
+ *
  * This function is used to set the HDCP content protection for the output
  * Must return dsERR_OPERATION_NOT_SUPPORTED when if content protection is not available
  *
  * @param [in] handle      Handle for the output video port
  * @param [in] contentProtect True to turn on content protection
- * @param [in] hdcpKey when enabled, this should contain the key of the HDCP 
- * @param [in] keySize length of the key. 
+ * @param [in] hdcpKey when enabled, this should contain the key of the HDCP
+ * @param [in] keySize length of the key.
  * @return dsError_t Error code.
  */
 dsError_t  dsEnableHDCP(intptr_t handle, bool contentProtect, char *hdcpKey, size_t keySize)
@@ -421,7 +423,7 @@ dsError_t  dsEnableHDCP(intptr_t handle, bool contentProtect, char *hdcpKey, siz
 	{
 	    return dsERR_NOT_INITIALIZED;
 	}
-	if (!isValidVopHandle(handle) || NULL == hdcpKey || keySize >= HDCP_KEY_MAX_SIZE ) 
+	if (!isValidVopHandle(handle) || NULL == hdcpKey || keySize >= HDCP_KEY_MAX_SIZE )
 	{
 	    return dsERR_INVALID_PARAM;
 	}
@@ -430,7 +432,7 @@ dsError_t  dsEnableHDCP(intptr_t handle, bool contentProtect, char *hdcpKey, siz
 
 /**
  * @brief To find whether the video content is DTCP protected
- * 
+ *
  * This function is used to check whether the given video port is configured for content protection.
  * Must return dsERR_OPERATION_NOT_SUPPORTED when if content protect is not available at port level
  *
@@ -444,7 +446,7 @@ dsError_t  dsIsDTCPEnabled (intptr_t handle, bool* pContentProtected)
 	{
 	    return dsERR_NOT_INITIALIZED;
 	}
-	if (!isValidVopHandle(handle) || NULL == pContentProtected) 
+	if (!isValidVopHandle(handle) || NULL == pContentProtected)
 	{
 	    return dsERR_INVALID_PARAM;
 	}
@@ -454,7 +456,7 @@ dsError_t  dsIsDTCPEnabled (intptr_t handle, bool* pContentProtected)
 
 /**
  * @brief To find whether the video content is HDCP protected
- * 
+ *
  * This function is used to check whether the given video port is configured for content protection.
  * Must return dsERR_OPERATION_NOT_SUPPORTED when if content protect is not available at port level
  *
@@ -488,17 +490,17 @@ dsError_t  dsIsHDCPEnabled (intptr_t handle, bool* pContentProtected)
  * @retval dsERR_GENERAL General failure.
  */
 dsError_t  dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
-{ 
+{
 	dsError_t ret = dsERR_NONE;
 	const char *resolution_name = NULL;
-	TV_DISPLAY_STATE_T tvstate; 
+	TV_DISPLAY_STATE_T tvstate;
 	uint32_t hdmi_mode;
 	if(false == _bIsVideoPortInitialized)
 	{
 		return dsERR_NOT_INITIALIZED;
 	}
 
-	if (!isValidVopHandle(handle) || NULL == resolution) 
+	if (!isValidVopHandle(handle) || NULL == resolution)
 	{
 		return dsERR_INVALID_PARAM;
 	}
@@ -509,19 +511,19 @@ dsError_t  dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 	 	hdmi_mode = dsGetHdmiMode(resolution);
 	 	resolution_name = dsVideoGetResolution(hdmi_mode);
 	}
-	if (resolution_name) 
-		strncpy(resolution->name, resolution_name, strlen(resolution_name)); 
-	return ret; 
+	if (resolution_name)
+		strncpy(resolution->name, resolution_name, strlen(resolution_name));
+	return ret;
 }
 
 static const char* dsVideoGetResolution(uint32_t hdmiMode)
-{ 
+{
     const char *res_name = NULL;
     size_t iCount = (sizeof(resolutionMap) / sizeof(resolutionMap[0]));
     for (size_t i = 0; i < iCount; i++) {
         if (resolutionMap[i].mode == (int) hdmiMode)
         res_name = resolutionMap[i].rdkRes;
-    }    
+    }
     return res_name;
 }
 
@@ -566,7 +568,7 @@ dsError_t  dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 	{
 		return dsERR_NOT_INITIALIZED;
 	}
-        if (!isValidVopHandle(handle) || NULL == resolution) 
+        if (!isValidVopHandle(handle) || NULL == resolution)
 	{
         	return dsERR_INVALID_PARAM;
         }
@@ -593,7 +595,7 @@ dsError_t  dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
              if (!strncmp(resolution->name, "480i", strlen("480i"))) {
                  res = vc_tv_sdtv_power_on(SDTV_MODE_NTSC, &options);
              }
-             else 
+             else
              {
                  res = vc_tv_sdtv_power_on(SDTV_MODE_PAL, &options);
              }
@@ -633,7 +635,7 @@ dsError_t  dsVideoPortTerm()
 
 /**
  * @brief To check whether the handle is valid or not
- * 
+ *
  * This function will be used to validate the  handles that are given
  *
  * @param [in] handle  Handle for the Output Audio port
@@ -650,14 +652,14 @@ static bool isValidVopHandle(intptr_t m_handle) {
 
 /**
  * @brief Indicate whether a video port is is connected to the active port of sink device.
- * 
+ *
  *  This function indicates whether the specified video port is active or not.A HDMI output port is active if
  *  it is connected to the active port of sink device. E.g. if RxSense is true.
  *  An analog output port is always considered active.
  *
  * @param [in] handle      Handle for the output video port that connects to sink
  * @param [out] *active   The address of a location to hold the video port active state
- * on return (@a true when port is active, @a false otherwise).                              
+ * on return (@a true when port is active, @a false otherwise).
  * @return dsError_t Error code.
  */
 dsError_t dsIsVideoPortActive(intptr_t handle, bool *active)
@@ -682,9 +684,9 @@ dsError_t dsIsVideoPortActive(intptr_t handle, bool *active)
                          *active = true;
                      else if (tvstate.state & VC_HDMI_UNPLUGGED)
                          *active = false;
-                     else 
+                     else
                          printf("Cannot find HDMI state\n");
-                } 
+                }
 	}
 	return ret;
 }
@@ -779,7 +781,7 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
                 case HDMI_CEA_576i50H:
                     *resolutions |= dsTV_RESOLUTION_576i;
                     break;
-                case HDMI_CEA_576p50: 
+                case HDMI_CEA_576p50:
                 case HDMI_CEA_576p50H:
                     *resolutions |= dsTV_RESOLUTION_576p50;
                     break;
@@ -824,7 +826,7 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
     printf("%s resolutions= %x \r\n",__FUNCTION__,*resolutions);
     return ret;
 }
- 
+
 dsError_t  dsIsDisplaySurround(intptr_t handle, bool *surround)
 {
     if(false == _bIsVideoPortInitialized)
@@ -863,7 +865,7 @@ dsError_t dsSetActiveSource(intptr_t handle)
     {
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;    
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }
 dsError_t dsGetHDCPStatus (intptr_t handle, dsHdcpStatus_t *status)
 {
@@ -1090,4 +1092,4 @@ dsError_t dsSetPreferredColorDepth(intptr_t handle,dsDisplayColorDepth_t colorDe
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
- 
+
