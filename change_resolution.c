@@ -27,8 +27,37 @@
 #include <drm/drm_mode.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
+#include <sys/ioctl.h>
+#include <stdbool.h>
 
-void print_edid(int fd, drmModeConnector *connector) {
+#define EDID_LENGTH 128
+#define EDID_HEADER "\x00\xff\xff\xff\xff\xff\xff\x00"
+
+bool validate_edid(unsigned char *edid, int length)
+{
+    if (length < EDID_LENGTH) {
+        return false;
+    }
+
+    if (memcmp(edid, EDID_HEADER, strlen(EDID_HEADER)) != 0) {
+        fprintf(stderr, "Invalid EDID header\n");
+        return false;
+    }
+
+    unsigned char checksum = 0;
+    for (int i = 0; i < length; i++) {
+        checksum += edid[i];
+    }
+    if (checksum != 0) {
+        fprintf(stderr, "Invalid EDID checksum\n");
+        return false;
+    }
+
+    return true;
+}
+
+void print_edid(int fd, drmModeConnector *connector)
+{
     if (connector->connection != DRM_MODE_CONNECTED) {
         printf("HDMI is not connected.\n");
         return;
@@ -48,7 +77,7 @@ void print_edid(int fd, drmModeConnector *connector) {
             has_edid = 1;
             edid_blob = drmModeGetPropertyBlob(fd, connector->prop_values[i]);
             if (edid_blob) {
-                printf("Host EDID:\n");
+                printf("Host EDID: '%s'\n", validate_edid(edid_blob->data, edid_blob->length) ? "valid" : "invalid");
                 for (int j = 0; j < edid_blob->length; j++) {
                     printf("%02x ", ((unsigned char*)edid_blob->data)[j]);
                     if ((j + 1) % 16 == 0) {
@@ -66,6 +95,70 @@ void print_edid(int fd, drmModeConnector *connector) {
 
     if (!has_edid) {
         printf("No EDID property found.\n");
+    }
+}
+
+void print_dri_edid(int fd)
+{
+    drmModeRes *resources = drmModeGetResources(fd);
+    if (!resources) {
+        fprintf(stderr, "Failed to get DRM resources: %s\n", strerror(errno));
+        return;
+    }
+
+    for (int i = 0; i < resources->count_connectors; i++) {
+        drmModeConnector *connector = drmModeGetConnector(fd, resources->connectors[i]);
+        if (!connector) {
+            fprintf(stderr, "Failed to get connector: %s\n", strerror(errno));
+            continue;
+        }
+        printf("DRI Connector %d EDID:\n", connector->connector_id);
+        print_edid(fd, connector);
+        drmModeFreeConnector(connector);
+    }
+
+    drmModeFreeResources(resources);
+}
+
+void print_connected_display_edid(int fd) {
+    drmModeRes *resources = drmModeGetResources(fd);
+    if (!resources) {
+        fprintf(stderr, "Failed to get DRM resources: %s\n", strerror(errno));
+        return;
+    }
+
+    for (int i = 0; i < resources->count_connectors; i++) {
+        drmModeConnector *connector = drmModeGetConnector(fd, resources->connectors[i]);
+        if (!connector) {
+            fprintf(stderr, "Failed to get connector: %s\n", strerror(errno));
+            continue;
+        }
+        if (connector->connection == DRM_MODE_CONNECTED) {
+            printf("Connected Display Connector %d EDID:\n", connector->connector_id);
+            print_edid(fd, connector);
+        }
+        drmModeFreeConnector(connector);
+    }
+
+    drmModeFreeResources(resources);
+}
+
+void list_connector_status(drmModeConnectorPtr connector) {
+    printf("Connector %d: %s\n", connector->connector_id, connector->connection == DRM_MODE_CONNECTED ? "connected" : "disconnected");
+    printf("  Modes: %d\n", connector->count_modes);
+    printf("  Properties: %d\n", connector->count_props);
+    printf("  Encoders: %d\n", connector->count_encoders);
+    printf("  Subpixel: %d\n", connector->subpixel);
+    printf("  Type: %d\n", connector->connector_type);
+    printf("  Size: %dx%d mm\n", connector->mmWidth, connector->mmHeight);
+}
+
+void print_supported_resolutions(drmModeConnector *connector)
+{
+    printf("Supported resolutions for connector %d:\n", connector->connector_id);
+    for (int i = 0; i < connector->count_modes; i++) {
+        drmModeModeInfo mode = connector->modes[i];
+        printf("  %dx%d@%dHz\n", mode.hdisplay, mode.vdisplay, mode.vrefresh);
     }
 }
 
@@ -102,6 +195,8 @@ void change_resolution(int fd, drmModeConnector *connector, drmModeRes *resource
             continue;
         }
 
+        // print mode info
+        fprintf(stderr, "Mode %d: %dx%d@%d-%d\n", i, mode.hdisplay, mode.vdisplay, mode.vrefresh, mode.clock);
         // Set the CRTC
         int ret = drmModeSetCrtc(fd, crtc->crtc_id, crtc->buffer_id, 0, 0, &connector->connector_id, 1, &mode);
         if (ret) {
@@ -138,6 +233,12 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    printf("Printing DRI EDID:\n");
+    print_dri_edid(fd);
+
+    printf("Printing Connected Display EDID:\n");
+    print_connected_display_edid(fd);
+
     drmModeRes *resources = drmModeGetResources(fd);
     if (!resources) {
         fprintf(stderr, "Failed to get DRM resources: %s\n", strerror(errno));
@@ -151,9 +252,9 @@ int main(int argc, char *argv[]) {
             fprintf(stderr, "Failed to get connector: %s\n", strerror(errno));
             continue;
         }
-
+        list_connector_status(connector);
+        print_supported_resolutions(connector);
         if (connector->connection == DRM_MODE_CONNECTED && connector->count_modes > 0) {
-            print_edid(fd, connector);
             change_resolution(fd, connector, resources, interval);
         } else {
             fprintf(stderr, "Connector %d is not connected or has no modes\n", connector->connector_id);
