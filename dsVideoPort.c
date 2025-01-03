@@ -170,12 +170,12 @@ dsError_t  dsGetVideoPort(dsVideoPortType_t type, int index, intptr_t *handle)
 	}
 
 	if (index != 0 || !dsVideoPortType_isValid(type) || NULL == handle) {
-		ret = dsERR_INVALID_PARAM;
+		return dsERR_INVALID_PARAM;
 	}
 
     /* Report only HDMI OUT is supported. */
     if (type != dsVIDEOPORT_TYPE_HDMI) {
-        ret = dsERR_OPERATION_NOT_SUPPORTED;
+        return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
 	*handle = (intptr_t)&_handles[type][index];
