@@ -26,9 +26,6 @@ extern "C" {
 }
 #include "dsTypes.h"
 
-#ifndef DSHALUTILS_H
-#define DSHALUTILS_H
-
 /* Begin: Log scheme for DSHAL */
 #define LOG_CONFIG_FILE "/etc/debug.ini"
 
@@ -44,6 +41,8 @@ enum {
     DSHAL_LOG_DEBUG
 };
 
+void logger(const char *format, ...);
+int getLogFlag(void);
 void configDSHALLogging(void);
 
 #define log_generic(log_flag, format, ...) \
