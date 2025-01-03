@@ -221,6 +221,8 @@ void configDSHALLogging(void)
         }
     }
     printf("DSHAL configDSHALLogging logflag: 0x%x\n", logflag);
+    fprintf(stderr, "DSHAL configDSHALLogging logflag: 0x%x\n", logflag);
+    system("echo \"DSHAL configDSHALLogging logflag\" >> /opt/logs/dshal.log");
     fclose(file);
 }
 
