@@ -1596,7 +1596,7 @@ dsError_t dsGetAudioGain(intptr_t handle, float *gain)
         else
         {
                 hal_err("failed to get playback dB\n");
-                ret = dsERR_GENERAL;
+                return dsERR_GENERAL;
         }
         hal_warn("%s: dsGetAudioGain: Gain %.2f\n", *gain);
         return dsERR_NONE;
@@ -1794,7 +1794,7 @@ dsError_t dsSetAudioDB(intptr_t handle, float db)
         }
         if (!dsAudioIsValidHandle(handle))
         {
-                ret = dsERR_INVALID_PARAM;
+                return dsERR_INVALID_PARAM;
         }
 
         const char *s_card = ALSA_CARD_NAME;
