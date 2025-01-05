@@ -30,6 +30,6 @@ extern "C"
 int vchi_tv_init();
 int vchi_tv_uninit();
 int fill_edid_struct(unsigned char *edid, dsDisplayEDID_t *display, int size);
-static bool dsIsValidHandle(intptr_t uHandle);
+bool dsIsValidHandle(intptr_t uHandle);
 
 #endif

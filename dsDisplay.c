@@ -51,7 +51,7 @@ typedef struct _VDISPHandle_t
 
 static VDISPHandle_t _handles[dsVIDEOPORT_TYPE_MAX][2] = {};
 
-static bool dsIsValidHandle(intptr_t m_handle)
+bool dsIsValidHandle(intptr_t m_handle)
 {
     for (int i = 0; i < dsVIDEOPORT_TYPE_MAX; i++)
     {
