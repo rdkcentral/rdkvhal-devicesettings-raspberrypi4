@@ -573,7 +573,7 @@ dsError_t dsGetAudioFormat(intptr_t handle, dsAudioFormat_t *audioFormat)
         {
                 return dsERR_NOT_INITIALIZED;
         }
-        if (NULL == format || !dsAudioIsValidHandle(handle))
+        if (NULL == audioFormat || !dsAudioIsValidHandle(handle))
         {
                 return dsERR_INVALID_PARAM;
         }
