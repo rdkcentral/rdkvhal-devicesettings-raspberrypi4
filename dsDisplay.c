@@ -499,7 +499,7 @@ static dsVideoPortResolution_t *dsgetResolutionInfo(const char *res_name)
  **/
 static dsError_t dsQueryHdmiResolution()
 {
-    hal_dbg("inviked.\n");
+    hal_dbg("invoked.\n");
     dsError_t ret = dsERR_NONE;
     static TV_SUPPORTED_MODE_NEW_T modeSupported[MAX_HDMI_CODE_ID];
     HDMI_RES_GROUP_T group;
@@ -530,6 +530,17 @@ static dsError_t dsQueryHdmiResolution()
         {
             for (int j = 0; j < num_of_modes; j++)
             {
+                hal_dbg("Resolution from Table '%s' - Mode %d\n", resolutionMap[i].rdkRes, resolutionMap[i].mode);
+                hal_dbg("Mode %d:\n", j);
+                hal_dbg("  Width: %d\n", modeSupported[j].width);
+                hal_dbg("  Height: %d\n", modeSupported[j].height);
+                hal_dbg("  Frame Rate: %d\n", modeSupported[j].frame_rate);
+                hal_dbg("  Scan Mode: %s\n", modeSupported[j].scan_mode == HDMI_INTERLACED ? "Interlaced" : "Progressive");
+                hal_dbg("  Aspect Ratio: %d\n", modeSupported[j].aspect_ratio);
+                hal_dbg("  Pixel Clock: %d\n", modeSupported[j].pixel_clock);
+                hal_dbg("  HDMI Mode: %s\n", modeSupported[j].hdmi_mode ? "HDMI" : "DVI");
+                hal_dbg("  Group: %d\n", modeSupported[j].group);
+                hal_dbg("  Code: %d\n", modeSupported[j].code);
                 if (modeSupported[j].code == resolutionMap[i].mode)
                 {
                     dsVideoPortResolution_t *resolution = dsgetResolutionInfo(resolutionMap[i].rdkRes);
