@@ -49,8 +49,8 @@ void configDSHALLogging(void);
     } while (0)
 
 // public use logging macros
-#define hal_err(format, ...) log_generic(LOG_ERROR, "[%s:%d] " format, __func__, __LINE__, ##__VA_ARGS__)
-#define hal_warn(format, ...) log_generic(LOG_WARNING, "[%s:%d] " format, __func__, __LINE__, ##__VA_ARGS__)
-#define hal_info(format, ...) log_generic(LOG_INFO, "[%s:%d] " format, __func__, __LINE__, ##__VA_ARGS__)
-#define hal_dbg(format, ...) log_generic(LOG_DEBUG, "[%s:%d] " format, __func__, __LINE__, ##__VA_ARGS__)
+#define hal_err(format, ...) log_generic(LOG_ERROR, "[DSHAL:%s:%d] " format, __func__, __LINE__, ##__VA_ARGS__)
+#define hal_warn(format, ...) log_generic(LOG_WARNING, "[DSHAL:%s:%d] " format, __func__, __LINE__, ##__VA_ARGS__)
+#define hal_info(format, ...) log_generic(LOG_INFO, "[DSHAL:%s:%d] " format, __func__, __LINE__, ##__VA_ARGS__)
+#define hal_dbg(format, ...) log_generic(LOG_DEBUG, "[DSHAL:%s:%d] " format, __func__, __LINE__, ##__VA_ARGS__)
 #endif // __DSHALLOGGER_H
