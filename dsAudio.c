@@ -273,23 +273,66 @@ dsAudioEncoding_t mapAudioFormat(snd_pcm_format_t format)
 {
         switch (format)
         {
-        case SND_PCM_FORMAT_S16_LE:
-        case SND_PCM_FORMAT_S16_BE:
-        case SND_PCM_FORMAT_S32_LE:
-        case SND_PCM_FORMAT_S32_BE:
         case SND_PCM_FORMAT_S8:
         case SND_PCM_FORMAT_U8:
+        case SND_PCM_FORMAT_S16_LE:
+        case SND_PCM_FORMAT_S16_BE:
+        case SND_PCM_FORMAT_U16_LE:
+        case SND_PCM_FORMAT_U16_BE:
         case SND_PCM_FORMAT_S24_LE:
         case SND_PCM_FORMAT_S24_BE:
         case SND_PCM_FORMAT_U24_LE:
         case SND_PCM_FORMAT_U24_BE:
+        case SND_PCM_FORMAT_S32_LE:
+        case SND_PCM_FORMAT_S32_BE:
+        case SND_PCM_FORMAT_U32_LE:
+        case SND_PCM_FORMAT_U32_BE:
         case SND_PCM_FORMAT_FLOAT_LE:
         case SND_PCM_FORMAT_FLOAT_BE:
+        case SND_PCM_FORMAT_FLOAT64_LE:
+        case SND_PCM_FORMAT_FLOAT64_BE:
+        case SND_PCM_FORMAT_IEC958_SUBFRAME_LE:
+        case SND_PCM_FORMAT_IEC958_SUBFRAME_BE:
+        case SND_PCM_FORMAT_MU_LAW:
+        case SND_PCM_FORMAT_A_LAW:
+        case SND_PCM_FORMAT_IMA_ADPCM:
+        case SND_PCM_FORMAT_MPEG:
+        case SND_PCM_FORMAT_GSM:
+        case SND_PCM_FORMAT_S20_LE:
+        case SND_PCM_FORMAT_S20_BE:
+        case SND_PCM_FORMAT_U20_LE:
+        case SND_PCM_FORMAT_U20_BE:
+        case SND_PCM_FORMAT_SPECIAL:
+        case SND_PCM_FORMAT_S24_3LE:
+        case SND_PCM_FORMAT_S24_3BE:
+        case SND_PCM_FORMAT_U24_3LE:
+        case SND_PCM_FORMAT_U24_3BE:
+        case SND_PCM_FORMAT_S20_3LE:
+        case SND_PCM_FORMAT_S20_3BE:
+        case SND_PCM_FORMAT_U20_3LE:
+        case SND_PCM_FORMAT_U20_3BE:
+        case SND_PCM_FORMAT_S18_3LE:
+        case SND_PCM_FORMAT_S18_3BE:
+        case SND_PCM_FORMAT_U18_3LE:
+        case SND_PCM_FORMAT_U18_3BE:
+        case SND_PCM_FORMAT_S16:
+        case SND_PCM_FORMAT_U16:
+        case SND_PCM_FORMAT_S24:
+        case SND_PCM_FORMAT_U24:
+        case SND_PCM_FORMAT_S32:
+        case SND_PCM_FORMAT_U32:
+        case SND_PCM_FORMAT_FLOAT:
+        case SND_PCM_FORMAT_FLOAT64:
+        case SND_PCM_FORMAT_IEC958_SUBFRAME:
+        case SND_PCM_FORMAT_S20:
+        case SND_PCM_FORMAT_U20:
                 return dsAUDIO_ENC_PCM;
+#if 0 // Not defined ?
         case SND_PCM_FORMAT_AC3:
                 return dsAUDIO_ENC_AC3;
         case SND_PCM_FORMAT_EAC3:
                 return dsAUDIO_ENC_EAC3;
+#endif
         default:
                 return dsAUDIO_ENC_NONE;
         }
@@ -369,9 +412,9 @@ snd_pcm_format_t mapToAlsaFormat(dsAudioEncoding_t encoding)
         case dsAUDIO_ENC_PCM:
                 return SND_PCM_FORMAT_S16_LE; // Example format, choose the appropriate one
         case dsAUDIO_ENC_AC3:
-                return SND_PCM_FORMAT_AC3;
+                // return SND_PCM_FORMAT_AC3; // Alsa says undefined ?
         case dsAUDIO_ENC_EAC3:
-                return SND_PCM_FORMAT_EAC3;
+                // return SND_PCM_FORMAT_EAC3; // Alsa says undefined ?
         default:
                 return SND_PCM_FORMAT_UNKNOWN;
         }
@@ -454,6 +497,80 @@ dsError_t dsSetAudioEncoding(intptr_t handle, dsAudioEncoding_t encoding)
 }
 
 /**
+ * @brief maps the audio format to dsAudioFormat_t
+ * @param[in] format - audio format
+ * @return dsAudioFormat_t - audio format type
+ */
+dsAudioFormat_t mapToAudioFormat(snd_pcm_format_t format)
+{
+        switch (format)
+        {
+        case SND_PCM_FORMAT_S8:
+        case SND_PCM_FORMAT_U8:
+        case SND_PCM_FORMAT_S16_LE:
+        case SND_PCM_FORMAT_S16_BE:
+        case SND_PCM_FORMAT_U16_LE:
+        case SND_PCM_FORMAT_U16_BE:
+        case SND_PCM_FORMAT_S24_LE:
+        case SND_PCM_FORMAT_S24_BE:
+        case SND_PCM_FORMAT_U24_LE:
+        case SND_PCM_FORMAT_U24_BE:
+        case SND_PCM_FORMAT_S32_LE:
+        case SND_PCM_FORMAT_S32_BE:
+        case SND_PCM_FORMAT_U32_LE:
+        case SND_PCM_FORMAT_U32_BE:
+        case SND_PCM_FORMAT_FLOAT_LE:
+        case SND_PCM_FORMAT_FLOAT_BE:
+        case SND_PCM_FORMAT_FLOAT64_LE:
+        case SND_PCM_FORMAT_FLOAT64_BE:
+        case SND_PCM_FORMAT_IEC958_SUBFRAME_LE:
+        case SND_PCM_FORMAT_IEC958_SUBFRAME_BE:
+        case SND_PCM_FORMAT_MU_LAW:
+        case SND_PCM_FORMAT_A_LAW:
+        case SND_PCM_FORMAT_IMA_ADPCM:
+        case SND_PCM_FORMAT_MPEG:
+        case SND_PCM_FORMAT_GSM:
+        case SND_PCM_FORMAT_S20_LE:
+        case SND_PCM_FORMAT_S20_BE:
+        case SND_PCM_FORMAT_U20_LE:
+        case SND_PCM_FORMAT_U20_BE:
+        case SND_PCM_FORMAT_SPECIAL:
+        case SND_PCM_FORMAT_S24_3LE:
+        case SND_PCM_FORMAT_S24_3BE:
+        case SND_PCM_FORMAT_U24_3LE:
+        case SND_PCM_FORMAT_U24_3BE:
+        case SND_PCM_FORMAT_S20_3LE:
+        case SND_PCM_FORMAT_S20_3BE:
+        case SND_PCM_FORMAT_U20_3LE:
+        case SND_PCM_FORMAT_U20_3BE:
+        case SND_PCM_FORMAT_S18_3LE:
+        case SND_PCM_FORMAT_S18_3BE:
+        case SND_PCM_FORMAT_U18_3LE:
+        case SND_PCM_FORMAT_U18_3BE:
+        case SND_PCM_FORMAT_S16:
+        case SND_PCM_FORMAT_U16:
+        case SND_PCM_FORMAT_S24:
+        case SND_PCM_FORMAT_U24:
+        case SND_PCM_FORMAT_S32:
+        case SND_PCM_FORMAT_U32:
+        case SND_PCM_FORMAT_FLOAT:
+        case SND_PCM_FORMAT_FLOAT64:
+        case SND_PCM_FORMAT_IEC958_SUBFRAME:
+        case SND_PCM_FORMAT_S20:
+        case SND_PCM_FORMAT_U20:
+                return dsAUDIO_FORMAT_PCM;
+#if 0 // Not defined ?
+        case SND_PCM_FORMAT_AC3:
+                return dsAUDIO_FORMAT_DOLBY_AC3;
+        case SND_PCM_FORMAT_EAC3:
+                return dsAUDIO_FORMAT_DOLBY_EAC3;
+#endif
+        default:
+                return dsAUDIO_FORMAT_UNKNOWN;
+        }
+}
+
+/**
  * @brief Gets the current audio format.
  *
  * This function returns the current audio format of the specified audio output port(like PCM, DOLBY AC3). Please refer ::dsAudioFormat_t
@@ -474,27 +591,27 @@ dsError_t dsSetAudioEncoding(intptr_t handle, dsAudioEncoding_t encoding)
  */
 dsError_t dsGetAudioFormat(intptr_t handle, dsAudioFormat_t *audioFormat)
 {
-        hal_dbg("invoked.\n");
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
-                hal_err("Audio not initialized.\n");
                 return dsERR_NOT_INITIALIZED;
         }
-        if (audioFormat == NULL || !dsAudioIsValidHandle(handle))
+        if (NULL == format || !dsAudioIsValidHandle(handle))
         {
-                hal_err("Invalid parameter.\n");
                 return dsERR_INVALID_PARAM;
         }
 
         snd_pcm_t *pcm_handle;
         snd_pcm_hw_params_t *params;
-        snd_pcm_format_t format;
+        snd_pcm_format_t alsa_format;
         int err;
+
         if ((err = snd_pcm_open(&pcm_handle, "default", SND_PCM_STREAM_PLAYBACK, 0)) < 0)
         {
                 hal_err("Error opening PCM device: '%s'\n", snd_strerror(err));
                 return dsERR_GENERAL;
         }
+
         snd_pcm_hw_params_alloca(&params);
         if ((err = snd_pcm_hw_params_any(pcm_handle, params)) < 0)
         {
@@ -502,34 +619,16 @@ dsError_t dsGetAudioFormat(intptr_t handle, dsAudioFormat_t *audioFormat)
                 snd_pcm_close(pcm_handle);
                 return dsERR_GENERAL;
         }
-        if ((err = snd_pcm_hw_params_get_format(params, &format)) < 0)
+
+        if ((err = snd_pcm_hw_params_get_format(params, &alsa_format)) < 0)
         {
                 hal_err("Error getting PCM format: '%s'\n", snd_strerror(err));
                 snd_pcm_close(pcm_handle);
                 return dsERR_GENERAL;
         }
-        switch (format)
-        {
-        case SND_PCM_FORMAT_S16_LE:
-        case SND_PCM_FORMAT_S16_BE:
-        case SND_PCM_FORMAT_S32_LE:
-        case SND_PCM_FORMAT_S32_BE:
-                *encoding = dsAUDIO_ENC_PCM;
-                break;
-        case SND_PCM_FORMAT_AC3:
-                *encoding = dsAUDIO_ENC_AC3;
-                break;
-        case SND_PCM_FORMAT_EAC3:
-                *encoding = dsAUDIO_ENC_EAC3;
-                break;
-        default:
-                hal_err("Unsupported audio format(snd_pcm_hw_params_get_format) 0x%X.\n", format);
-                snd_pcm_close(pcm_handle);
-                return dsERR_OPERATION_NOT_SUPPORTED;
-        }
-
+        *format = mapToAudioFormat(alsa_format);
         snd_pcm_close(pcm_handle);
-        hal_dbg("Audio format is %d.\n", *audioFormat);
+        hal_dbg("Audio format is %d.\n", *format);
         return dsERR_NONE;
 }
 
@@ -2673,7 +2772,6 @@ dsError_t dsIsAudioMute(intptr_t handle, bool *muted)
 dsError_t dsSetAudioMute(intptr_t handle, bool mute)
 {
         hal_dbg("Invoked.\n");
-#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
