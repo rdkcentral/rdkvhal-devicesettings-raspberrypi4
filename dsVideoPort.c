@@ -606,15 +606,14 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         hal_dbg("vc_tv_get_display_state: 0x%X\n", tvstate.state);
         if (tvstate.state & VC_HDMI_ATTACHED)
         {
-            printf("  Width: %d\n", tvstate.display.hdmi.width);
-            printf("  Height: %d\n", tvstate.display.hdmi.height);
-            printf("  Frame Rate: %d\n", tvstate.display.hdmi.frame_rate);
-            printf("  Scan Mode: %s\n", tvstate.display.hdmi.scan_mode ? "Interlaced" : "Progressive");
-            printf("  Aspect Ratio: %d\n", tvstate.display.hdmi.aspect_ratio);
-            printf("  Pixel Clock: %d\n", tvstate.display.hdmi.pixel_freq);
-            printf("  Group: %d\n", tvstate.display.hdmi.group);
-            printf("  Mode: %d\n", tvstate.display.hdmi.mode);
-            printf("  3D Structure Mask: 0x%X\n", tvstate.display.hdmi.struct_3d_mask);
+            hal_dbg("  Width: %d\n", tvstate.display.hdmi.width);
+            hal_dbg("  Height: %d\n", tvstate.display.hdmi.height);
+            hal_dbg("  Frame Rate: %d\n", tvstate.display.hdmi.frame_rate);
+            hal_dbg("  Scan Mode: %s\n", tvstate.display.hdmi.scan_mode ? "Interlaced" : "Progressive");
+            hal_dbg("  Aspect Ratio: %d\n", tvstate.display.hdmi.aspect_ratio);
+            hal_dbg("  Pixel Repetition: %d\n", tvstate.display.hdmi.pixel_rep);
+            hal_dbg("  Group: %d\n", tvstate.display.hdmi.group);
+            hal_dbg("  Mode: %d\n", tvstate.display.hdmi.mode);
             resolution_name = dsVideoGetResolution(tvstate.display.hdmi.mode);
         }
         else
