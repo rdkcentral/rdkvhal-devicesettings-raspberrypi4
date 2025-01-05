@@ -412,12 +412,13 @@ dsError_t dsGetDisplayAspectRatio(intptr_t handle, dsVideoAspectRatio_t *aspect)
  */
 dsError_t dsRegisterDisplayEventCallback(intptr_t handle, dsDisplayEventCallback_t cb)
 {
+    hal_dbg("invoked.\n");
     // VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
     if (false == _bDisplayInited)
     {
         return dsERR_NOT_INITIALIZED;
     }
-    if (NULL == cb || dsIsValidHandle(handle) == false)
+    if (NULL == cb)
     {
         return dsERR_INVALID_PARAM;
     }
