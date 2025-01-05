@@ -51,6 +51,18 @@ typedef struct _VDISPHandle_t
 
 static VDISPHandle_t _handles[dsVIDEOPORT_TYPE_MAX][2] = {};
 
+static bool dsIsValidHandle(intptr_t m_handle)
+{
+    for (int i = 0; i < dsVIDEOPORT_TYPE_MAX; i++)
+    {
+        if ((intptr_t)&_handles[i][0] == m_handle)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 static void tvservice_callback(void *callback_data,
                                uint32_t reason,
                                uint32_t param1,
