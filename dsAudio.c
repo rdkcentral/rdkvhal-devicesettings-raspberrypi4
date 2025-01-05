@@ -307,13 +307,19 @@ dsError_t dsGetAudioEncoding(intptr_t handle, dsAudioEncoding_t *encoding)
                 hal_err("Error opening PCM device: '%s'\n", snd_strerror(err));
                 return dsERR_GENERAL;
         }
+
         snd_pcm_hw_params_alloca(&params);
+
         if ((err = snd_pcm_hw_params_any(pcm_handle, params)) < 0)
         {
                 hal_err("Error initializing hardware parameter structure: '%s'\n", snd_strerror(err));
                 snd_pcm_close(pcm_handle);
                 return dsERR_GENERAL;
         }
+
+        // Log the parameters for debugging
+        hal_dbg("PCM parameters initialized.\n");
+
         if ((err = snd_pcm_hw_params_get_format(params, &format)) < 0)
         {
                 hal_err("Error getting PCM format: '%s'\n", snd_strerror(err));
@@ -321,27 +327,26 @@ dsError_t dsGetAudioEncoding(intptr_t handle, dsAudioEncoding_t *encoding)
                 return dsERR_GENERAL;
         }
 
-        switch (format)
+// Check if SND_PCM_FORMAT_AC3 is defined
+#ifdef SND_PCM_FORMAT_AC3
+        if (format == SND_PCM_FORMAT_AC3)
         {
-        case SND_PCM_FORMAT_S16_LE:
-        case SND_PCM_FORMAT_S24_LE:
-        case SND_PCM_FORMAT_S32_LE:
-        case SND_PCM_FORMAT_FLOAT_LE:
-                *encoding = dsAUDIO_ENC_PCM;
-                break;
-        case SND_PCM_FORMAT_U8: // SND_PCM_FORMAT_AC3:
-                *encoding = dsAUDIO_ENC_AC3;
-                break;
-        case SND_PCM_FORMAT_LAST: // SND_PCM_FORMAT_EAC3:
-                *encoding = dsAUDIO_ENC_EAC3;
-                break;
-        default:
-                hal_err("Unsupported PCM format: %d\n", format);
-                snd_pcm_close(pcm_handle);
-                return dsERR_GENERAL;
+                *encoding = DS_AUDIO_ENCODING_AC3;
         }
+        else
+#endif
+            if (format == SND_PCM_FORMAT_U8)
+        {
+                *encoding = DS_AUDIO_ENCODING_U8;
+        }
+        else
+        {
+                hal_err("Unsupported audio format.\n");
+                snd_pcm_close(pcm_handle);
+                return dsERR_OPERATION_NOT_SUPPORTED;
+        }
+
         snd_pcm_close(pcm_handle);
-        hal_dbg("Audio encoding is %d.\n", *encoding);
         return dsERR_NONE;
 }
 
