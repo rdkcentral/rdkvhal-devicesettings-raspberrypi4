@@ -168,4 +168,5 @@ int fill_edid_struct(unsigned char *edidBytes, dsDisplayEDID_t *displayEdidInfo,
         if (x[0] == 0x02)
             parse_cea_block(x, displayEdidInfo);
     }
+    return 0;
 }

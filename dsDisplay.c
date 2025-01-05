@@ -107,7 +107,6 @@ static void tvservice_callback(void *callback_data,
 dsError_t dsDisplayInit()
 {
     hal_dbg("invoked.\n");
-    dsError_t ret = dsERR_NONE;
     int32_t res = 0;
     if (true == _bDisplayInited)
     {
@@ -222,7 +221,11 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
             hal_err("dsGetEDIDBytes failed.\n");
             return dsERR_GENERAL;
         }
-        fill_edid_struct(raw, edid, length);
+        if (fill_edid_struct(raw, edid, length) != 0)
+        {
+            hal_err("fill_edid_struct failed.\n");
+            return dsERR_GENERAL;
+        }
         dsQueryHdmiResolution();
         hal_dbg("No. of supported resolutions: %d\n", numSupportedResn);
         for (size_t i = 0; i < numSupportedResn; i++)
@@ -409,20 +412,19 @@ dsError_t dsGetDisplayAspectRatio(intptr_t handle, dsVideoAspectRatio_t *aspect)
  */
 dsError_t dsRegisterDisplayEventCallback(intptr_t handle, dsDisplayEventCallback_t cb)
 {
-    VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
-    // TODD: add handle validation
+    // VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
     if (false == _bDisplayInited)
     {
         return dsERR_NOT_INITIALIZED;
     }
-    if (NULL == cb)
+    if (NULL == cb || dsIsValidHandle(handle) == false)
     {
         return dsERR_INVALID_PARAM;
     }
     /* Register The call Back */
     if (NULL != _halcallback)
     {
-        printf("Callback already registered; override with new one.\n");
+        hal_warn("Callback already registered; override with new one.\n");
     }
     _halcallback = cb;
     return dsERR_NONE;

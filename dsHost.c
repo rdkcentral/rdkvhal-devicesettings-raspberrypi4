@@ -289,7 +289,6 @@ dsError_t dsGetFreeSystemGraphicsMemory(uint64_t *memory)
 {
     hal_dbg("invoked.\n");
     char buffer[BUFFER_SIZE] = {0};
-    dsError_t ret = dsERR_NONE;
 
     if (vc_gencmd(buffer, sizeof(buffer), "get_mem reloc") != 0)
     {

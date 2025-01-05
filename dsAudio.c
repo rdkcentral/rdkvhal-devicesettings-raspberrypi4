@@ -334,10 +334,10 @@ dsError_t dsGetAudioEncoding(intptr_t handle, dsAudioEncoding_t *encoding)
         case SND_PCM_FORMAT_FLOAT_LE:
                 *encoding = dsAUDIO_ENC_PCM;
                 break;
-        case SND_PCM_FORMAT_AC3:
+        case SND_PCM_FORMAT_U8: // SND_PCM_FORMAT_AC3:
                 *encoding = dsAUDIO_ENC_AC3;
                 break;
-        case SND_PCM_FORMAT_EAC3:
+        case SND_PCM_FORMAT_LAST: // SND_PCM_FORMAT_EAC3:
                 *encoding = dsAUDIO_ENC_EAC3;
                 break;
         default:
@@ -454,10 +454,10 @@ dsError_t dsGetAudioFormat(intptr_t handle, dsAudioFormat_t *audioFormat)
         case SND_PCM_FORMAT_FLOAT_LE:
                 *audioFormat = dsAUDIO_FORMAT_PCM;
                 break;
-        case SND_PCM_FORMAT_AC3:
+        case SND_PCM_FORMAT_U8: // SND_PCM_FORMAT_AC3:
                 *audioFormat = dsAUDIO_FORMAT_AC3;
                 break;
-        case SND_PCM_FORMAT_EAC3:
+        case SND_PCM_FORMAT_LAST: // SND_PCM_FORMAT_EAC3:
                 *audioFormat = dsAUDIO_FORMAT_EAC3;
                 break;
         default:
@@ -1748,7 +1748,7 @@ dsError_t dsGetAudioDB(intptr_t handle, float *db)
         }
         if (!dsAudioIsValidHandle(handle) || db == NULL)
         {
-                ret = dsERR_INVALID_PARAM;
+                return dsERR_INVALID_PARAM;
         }
 
         long db_value;
@@ -2059,18 +2059,8 @@ dsError_t dsGetAudioMaxDB(intptr_t handle, float *maxDb)
                 snd_mixer_close(mixer);
                 return dsERR_GENERAL;
         }
-        if (snd_mixer_selem_id_set_index(sid, 0) < 0)
-        {
-                hal_err("Error setting mixer element index.\n");
-                snd_mixer_close(mixer);
-                return dsERR_GENERAL;
-        }
-        if (snd_mixer_selem_id_set_name(sid, ALSA_ELEMENT_NAME) < 0)
-        {
-                hal_err("Error setting mixer element name.\n");
-                snd_mixer_close(mixer);
-                return dsERR_GENERAL;
-        }
+        snd_mixer_selem_id_set_index(sid, 0);
+        snd_mixer_selem_id_set_name(sid, ALSA_ELEMENT_NAME);
 
         elem = snd_mixer_find_selem(mixer, sid);
         if (!elem)
@@ -2161,18 +2151,8 @@ dsError_t dsGetAudioMinDB(intptr_t handle, float *minDb)
                 snd_mixer_close(mixer);
                 return dsERR_GENERAL;
         }
-        if (snd_mixer_selem_id_set_index(sid, 0) < 0)
-        {
-                hal_err("Error setting mixer element index.\n");
-                snd_mixer_close(mixer);
-                return dsERR_GENERAL;
-        }
-        if (snd_mixer_selem_id_set_name(sid, ALSA_ELEMENT_NAME) < 0)
-        {
-                hal_err("Error setting mixer element name.\n");
-                snd_mixer_close(mixer);
-                return dsERR_GENERAL;
-        }
+        snd_mixer_selem_id_set_index(sid, 0);
+        snd_mixer_selem_id_set_name(sid, ALSA_ELEMENT_NAME);
 
         elem = snd_mixer_find_selem(mixer, sid);
         if (!elem)

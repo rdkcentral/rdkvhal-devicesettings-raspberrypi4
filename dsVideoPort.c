@@ -120,7 +120,6 @@ dsError_t dsRegisterHdcpStatusCallback(intptr_t handle, dsHDCPStatusCallback_t c
 dsError_t dsVideoPortInit()
 {
     hal_dbg("invoked.\n");
-    dsError_t ret = dsERR_NONE;
     if (true == _bIsVideoPortInitialized)
     {
         return dsERR_ALREADY_INITIALIZED;
@@ -285,7 +284,6 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
 {
     hal_dbg("invoked.\n");
     VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
-    SDTV_OPTIONS_T options;
     int res = 0, rc = 0;
     if (false == _bIsVideoPortInitialized)
     {
@@ -366,7 +364,6 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
 dsError_t dsIsDisplayConnected(intptr_t handle, bool *connected)
 {
     hal_dbg("invoked.\n");
-    dsError_t ret = dsERR_NONE;
     VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
     TV_DISPLAY_STATE_T tvstate;
     if (false == _bIsVideoPortInitialized)
@@ -596,7 +593,7 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
     hal_dbg("invoked.\n");
     const char *resolution_name = NULL;
     TV_DISPLAY_STATE_T tvstate;
-    uint32_t hdmi_mode;
+    // uint32_t hdmi_mode;
     if (false == _bIsVideoPortInitialized)
     {
         return dsERR_NOT_INITIALIZED;
