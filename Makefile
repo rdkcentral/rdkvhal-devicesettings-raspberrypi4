@@ -18,7 +18,7 @@
 ##########################################################################
 
 RM          := rm -rf
-CXXFLAGS    = -std=c++1y  -g -fPIC -D_REENTRANT -Wall -DALSA_AUDIO_MASTER_CONTROL_ENABLE
+CXXFLAGS    = -std=c++1y  -g -fPIC -D_REENTRANT -Wall -DALSA_AUDIO_MASTER_CONTROL_ENABLE -Wall -Werror
 LIBNAME     := ds-hal
 LIBNAMEFULL := lib$(LIBNAME).so
 OBJS        := $(patsubst %.c,%.o,$(wildcard *.c))

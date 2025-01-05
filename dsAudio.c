@@ -15,7 +15,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
-*/
+ */
 
 #include <sys/types.h>
 #include "dsAudio.h"
@@ -25,6 +25,7 @@
 #include "dsUtl.h"
 #include "dshalUtils.h"
 #include <alsa/asoundlib.h>
+#include "dshalLogger.h"
 
 #define ALSA_CARD_NAME "hw:0"
 #if (SND_LIB_MAJOR >= 1) && (SND_LIB_MINOR >= 2)
@@ -35,67 +36,77 @@
 
 #define MAX_LINEAR_DB_SCALE 24
 
-typedef struct _AOPHandle_t {
+#define ALSA_AUDIO_MASTER_CONTROL_ENABLE 1
+
+typedef struct _AOPHandle_t
+{
         dsAudioPortType_t m_vType;
         int m_index;
         int m_nativeHandle;
         bool m_IsEnabled;
 } AOPHandle_t;
 
-static AOPHandle_t _handles[dsAUDIOPORT_TYPE_MAX][2] = {
-};
+static AOPHandle_t _handles[dsAUDIOPORT_TYPE_MAX][2] = {};
 float dBmin;
 float dBmax;
 static dsAudioEncoding_t _encoding = dsAUDIO_ENC_PCM;
-static bool  _isms11Enabled = false;
+static bool _isms11Enabled = false;
 static dsAudioStereoMode_t _stereoModeHDMI = dsAUDIO_STEREO_STEREO;
 static bool _bIsAudioInitialized = false;
 
 static void dsGetdBRange();
-bool dsIsValidHandle(intptr_t uHandle)
+
+bool dsAudioIsValidHandle(intptr_t uHandle)
 {
-    size_t index ;
-    bool retValue = false;
-    for (index = 0; index < dsAUDIOPORT_TYPE_MAX; index++) {
-        if ((intptr_t)&_handles[index][0] == uHandle) {
-            retValue = true;
-            break;
+        bool retValue = false;
+        for (size_t index = 0; index < dsAUDIOPORT_TYPE_MAX; index++)
+        {
+                if ((intptr_t)&_handles[index][0] == uHandle)
+                {
+                        retValue = true;
+                        break;
+                }
         }
-    }
-    return retValue;
+        return retValue;
 }
 
 static int8_t initAlsa(const char *selemname, const char *s_card, snd_mixer_elem_t **element)
 {
+        hal_dbg("invoked.\n");
         int ret = 0;
         snd_mixer_t *smixer = NULL;
         snd_mixer_selem_id_t *sid;
 
-        if ((ret = snd_mixer_open(&smixer, 0)) < 0) {
-                printf("Cannot open sound mixer %s", snd_strerror(ret));
+        if ((ret = snd_mixer_open(&smixer, 0)) < 0)
+        {
+                hal_err("Cannot open sound mixer '%s'\n", snd_strerror(ret));
                 snd_mixer_close(smixer);
                 return ret;
         }
-        if ((ret = snd_mixer_attach(smixer, s_card)) < 0) {
-                printf("sound mixer attach Failed %s", snd_strerror(ret));
+        if ((ret = snd_mixer_attach(smixer, s_card)) < 0)
+        {
+                hal_err("Cannot attach sound mixer '%s'\n", snd_strerror(ret));
                 snd_mixer_close(smixer);
                 return ret;
         }
-        if ((ret = snd_mixer_selem_register(smixer, NULL, NULL)) < 0) {
-                printf("Cannot register sound mixer element %s", snd_strerror(ret));
+        if ((ret = snd_mixer_selem_register(smixer, NULL, NULL)) < 0)
+        {
+                hal_err("Cannot register sound mixer element '%s'\n", snd_strerror(ret));
                 snd_mixer_close(smixer);
                 return ret;
         }
         ret = snd_mixer_load(smixer);
-        if (ret < 0) {
-                printf("Sound mixer load %s error: %s", s_card, snd_strerror(ret));
+        if (ret < 0)
+        {
+                hal_err("Cannot load sound mixer '%s'\n", snd_strerror(ret));
                 snd_mixer_close(smixer);
                 return ret;
         }
 
         ret = snd_mixer_selem_id_malloc(&sid);
-        if (ret < 0) {
-                printf("Sound mixer: id allocation failed. %s: error: %s", s_card, snd_strerror(ret));
+        if (ret < 0)
+        {
+                hal_err("Sound mixer: id allocation failed. '%s': error: '%s'\n", s_card, snd_strerror(ret));
                 snd_mixer_close(smixer);
                 return ret;
         }
@@ -104,60 +115,140 @@ static int8_t initAlsa(const char *selemname, const char *s_card, snd_mixer_elem
         snd_mixer_selem_id_set_name(sid, selemname);
 
         *element = snd_mixer_find_selem(smixer, sid);
-        if (NULL == *element) {
-                printf("Unable to find simple control '%s',%i\n", snd_mixer_selem_id_get_name(sid), snd_mixer_selem_id_get_index(sid));
+        if (NULL == *element)
+        {
+                hal_err("Unable to find simple control '%s',%i\n", (sid), snd_mixer_selem_id_get_index(sid));
                 snd_mixer_close(smixer);
                 ret = -1;
         }
 
         return ret;
 }
-//###################################################################################################
+
+static void dsGetdBRange()
+{
+        hal_dbg("Invoked.\n");
+#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
+        long min_dB_value, max_dB_value;
+        const char *s_card = ALSA_CARD_NAME;
+        const char *element_name = ALSA_ELEMENT_NAME;
+        snd_mixer_elem_t *mixer_elem = NULL;
+        initAlsa(element_name, s_card, &mixer_elem);
+        if (mixer_elem == NULL)
+        {
+                hal_err("initAlsa failed.\n");
+                return;
+        }
+        if (!snd_mixer_selem_get_playback_dB_range(mixer_elem, &min_dB_value, &max_dB_value))
+        {
+                dBmax = (float)max_dB_value / 100;
+                dBmin = (float)min_dB_value / 100;
+        }
+        else
+        {
+                hal_err("snd_mixer_selem_get_playback_dB_range failed.\n");
+        }
+#endif
+}
+
+/**********************************************************************************************/
+/**
+ * @brief Initializes the audio port sub-system of Device Settings HAL.
+ *
+ * This function initializes all the audio output ports and allocates required resources.
+ * It must return dsERR_OPERATION_NOT_SUPPORTED when there are no audio ports present in the device
+ * (e.g. a headless gateway device).
+ *
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_ALREADY_INITIALIZED      -  Module is already initialised
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsAudioPortTerm()
+ *
+ */
 dsError_t dsAudioPortInit()
 {
+        hal_dbg("invoked.\n");
         dsError_t ret = dsERR_NONE;
         if (_bIsAudioInitialized)
         {
                 return dsERR_ALREADY_INITIALIZED;
         }
 
-        _handles[dsAUDIOPORT_TYPE_HDMI][0].m_vType  = dsAUDIOPORT_TYPE_HDMI;
+        _handles[dsAUDIOPORT_TYPE_HDMI][0].m_vType = dsAUDIOPORT_TYPE_HDMI;
         _handles[dsAUDIOPORT_TYPE_HDMI][0].m_nativeHandle = dsAUDIOPORT_TYPE_HDMI;
         _handles[dsAUDIOPORT_TYPE_HDMI][0].m_index = 0;
         _handles[dsAUDIOPORT_TYPE_HDMI][0].m_IsEnabled = true;
 
-        _handles[dsAUDIOPORT_TYPE_SPDIF][0].m_vType  = dsAUDIOPORT_TYPE_SPDIF;
+        _handles[dsAUDIOPORT_TYPE_SPDIF][0].m_vType = dsAUDIOPORT_TYPE_SPDIF;
         _handles[dsAUDIOPORT_TYPE_SPDIF][0].m_nativeHandle = dsAUDIOPORT_TYPE_SPDIF;
         _handles[dsAUDIOPORT_TYPE_SPDIF][0].m_index = 0;
         _handles[dsAUDIOPORT_TYPE_SPDIF][0].m_IsEnabled = true;
 
         dsGetdBRange();
-	_bIsAudioInitialized = true;
+        _bIsAudioInitialized = true;
         return ret;
 }
 
-static void dsGetdBRange()
+/**
+ * @brief Terminate the Audio Port sub-system of Device Settings HAL.
+ *
+ * This function terminates all the audio output ports by releasing the audio port specific handles
+ * and the allocated resources.
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
+dsError_t dsAudioPortTerm()
 {
-#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
-        long min_dB_value, max_dB_value;
-        const char *s_card = ALSA_CARD_NAME;
-        const char *element_name = ALSA_ELEMENT_NAME;
-        snd_mixer_elem_t *mixer_elem = NULL;
-        initAlsa(element_name,s_card,&mixer_elem);
-        if(mixer_elem == NULL) {
-                printf("failed to initialize alsa!\n");
-                return;
+        hal_dbg("Invoked.\n");
+        dsError_t ret = dsERR_NONE;
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
         }
-        if(!snd_mixer_selem_get_playback_dB_range(mixer_elem, &min_dB_value, &max_dB_value)) {
-                dBmax = (float) max_dB_value/100;
-                dBmin = (float) min_dB_value/100;
-        }
-#endif
+        _bIsAudioInitialized = false;
+        return ret;
 }
 
-dsError_t  dsGetAudioPort(dsAudioPortType_t type, int index, intptr_t *handle)
+/**
+ * @brief Gets the audio port handle.
+ *
+ * This function returns the handle for the type of audio port requested. It must return
+ * dsERR_OPERATION_NOT_SUPPORTED if an unavailable audio port is requested.
+ *
+ * @param[in] type     - Type of audio port (HDMI, SPDIF and so on). Please refer ::dsAudioPortType_t
+ * @param[in] index    - Index of audio port depending on the available ports(0, 1, ...). Maximum value of number of ports is platform specific. Please refer ::dsAudioPortConfig_t
+ * @param[out] handle  - Pointer to hold the handle of the audio port
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid(port is not present or index is out of range)
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
+dsError_t dsGetAudioPort(dsAudioPortType_t type, int index, intptr_t *handle)
 {
-	if (false == _bIsAudioInitialized)
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
         }
@@ -167,105 +258,2288 @@ dsError_t  dsGetAudioPort(dsAudioPortType_t type, int index, intptr_t *handle)
         }
         else
         {
-		*handle = (intptr_t)&_handles[type][index];
+                *handle = (intptr_t)&_handles[type][index];
         }
         return dsERR_NONE;
 }
 
+/**
+ * @brief Gets the encoding type of an audio port
+ *
+ * This function returns the current audio encoding setting for the specified audio port.
+ *
+ * @param[in] handle     -  Handle for the output audio port
+ * @param[out] encoding  -  Pointer to hold the encoding setting of the audio port. Please refer ::dsAudioEncoding_t , @link dsAudioSettings_template.h @endlink
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called in this order before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetAudioEncoding()
+ */
 dsError_t dsGetAudioEncoding(intptr_t handle, dsAudioEncoding_t *encoding)
 {
-        dsError_t ret = dsERR_NONE;
-	if (false == _bIsAudioInitialized)
+        hal_dbg("invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                hal_err("Audio not initialized.\n");
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (NULL == encoding || !dsAudioIsValidHandle(handle))
+        {
+                hal_err("Invalid parameter.\n");
+                return dsERR_INVALID_PARAM;
+        }
+
+        snd_pcm_t *pcm_handle;
+        snd_pcm_hw_params_t *params;
+        snd_pcm_format_t format;
+        int err;
+        if ((err = snd_pcm_open(&pcm_handle, "default", SND_PCM_STREAM_PLAYBACK, 0)) < 0)
+        {
+                hal_err("Error opening PCM device: '%s'\n", snd_strerror(err));
+                return dsERR_GENERAL;
+        }
+        if (snd_pcm_hw_params_alloca(&params) < 0)
+        {
+                hal_err("Error allocating hardware parameter structure.\n");
+                snd_pcm_close(pcm_handle);
+                return dsERR_GENERAL;
+        }
+        if ((err = snd_pcm_hw_params_any(pcm_handle, params)) < 0)
+        {
+                hal_err("Error initializing hardware parameter structure: '%s'\n", snd_strerror(err));
+                snd_pcm_close(pcm_handle);
+                return dsERR_GENERAL;
+        }
+        if ((err = snd_pcm_hw_params_get_format(params, &format)) < 0)
+        {
+                hal_err("Error getting PCM format: '%s'\n", snd_strerror(err));
+                snd_pcm_close(pcm_handle);
+                return dsERR_GENERAL;
+        }
+
+        switch (format)
+        {
+        case SND_PCM_FORMAT_S16_LE:
+        case SND_PCM_FORMAT_S24_LE:
+        case SND_PCM_FORMAT_S32_LE:
+        case SND_PCM_FORMAT_FLOAT_LE:
+                *encoding = dsAUDIO_ENC_PCM;
+                break;
+        case SND_PCM_FORMAT_AC3:
+                *encoding = dsAUDIO_ENC_AC3;
+                break;
+        case SND_PCM_FORMAT_EAC3:
+                *encoding = dsAUDIO_ENC_EAC3;
+                break;
+        default:
+                hal_err("Unsupported PCM format: %d\n", format);
+                snd_pcm_close(pcm_handle);
+                return dsERR_GENERAL;
+        }
+        snd_pcm_close(pcm_handle);
+        hal_dbg("Audio encoding is %d.\n", *encoding);
+        return dsERR_NONE;
+}
+
+/**
+ * @brief Sets the encoding type of an audio port
+ *
+ * This function sets the audio encoding type to be used on the specified audio port.
+ *
+ * @param[in] handle    - Handle for the output audio port
+ * @param[in] encoding  - The encoding type to be used on the audio port. Please refer ::dsAudioEncoding_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetAudioEncoding()
+ */
+dsError_t dsSetAudioEncoding(intptr_t handle, dsAudioEncoding_t encoding)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
         }
-        if (NULL == encoding || !dsIsValidHandle(handle))
+        if (!dsAudioIsValidHandle(handle))
         {
-		return dsERR_INVALID_PARAM;
+                return dsERR_INVALID_PARAM;
         }
-        *encoding = _encoding;
+        _encoding = encoding;
+        return dsERR_NONE;
+}
+
+/**
+ * @brief Gets the current audio format.
+ *
+ * This function returns the current audio format of the specified audio output port(like PCM, DOLBY AC3). Please refer ::dsAudioFormat_t
+ *
+ * @param[in] handle         - Handle for the output audio port
+ * @param[out] audioFormat   - Pointer to hold the audio format
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
+dsError_t dsGetAudioFormat(intptr_t handle, dsAudioFormat_t *audioFormat)
+{
+        hal_dbg("invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                hal_err("Audio not initialized.\n");
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (audioFormat == NULL || !dsAudioIsValidHandle(handle))
+        {
+                hal_err("Invalid parameter.\n");
+                return dsERR_INVALID_PARAM;
+        }
+
+        snd_pcm_t *pcm_handle;
+        snd_pcm_hw_params_t *params;
+        snd_pcm_format_t format;
+        int err;
+        if ((err = snd_pcm_open(&pcm_handle, "default", SND_PCM_STREAM_PLAYBACK, 0)) < 0)
+        {
+                hal_err("Error opening PCM device: '%s'\n", snd_strerror(err));
+                return dsERR_GENERAL;
+        }
+        if (snd_pcm_hw_params_alloca(&params) < 0)
+        {
+                hal_err("Error allocating hardware parameter structure.\n");
+                snd_pcm_close(pcm_handle);
+                return dsERR_GENERAL;
+        }
+        if ((err = snd_pcm_hw_params_any(pcm_handle, params)) < 0)
+        {
+                hal_err("Error initializing hardware parameter structure: '%s'\n", snd_strerror(err));
+                snd_pcm_close(pcm_handle);
+                return dsERR_GENERAL;
+        }
+        if ((err = snd_pcm_hw_params_get_format(params, &format)) < 0)
+        {
+                hal_err("Error getting PCM format: '%s'\n", snd_strerror(err));
+                snd_pcm_close(pcm_handle);
+                return dsERR_GENERAL;
+        }
+        switch (format)
+        {
+        case SND_PCM_FORMAT_S16_LE:
+        case SND_PCM_FORMAT_S24_LE:
+        case SND_PCM_FORMAT_S32_LE:
+        case SND_PCM_FORMAT_FLOAT_LE:
+                *audioFormat = dsAUDIO_FORMAT_PCM;
+                break;
+        case SND_PCM_FORMAT_AC3:
+                *audioFormat = dsAUDIO_FORMAT_AC3;
+                break;
+        case SND_PCM_FORMAT_EAC3:
+                *audioFormat = dsAUDIO_FORMAT_EAC3;
+                break;
+        default:
+                hal_err("Unsupported PCM format: %d\n", format);
+                snd_pcm_close(pcm_handle);
+                return dsERR_GENERAL;
+        }
+
+        snd_pcm_close(pcm_handle);
+        hal_dbg("Audio format is %d.\n", *audioFormat);
+        return dsERR_NONE;
+}
+
+/**
+ * @brief Gets the audio compression of the specified audio port.
+ *
+ * This function returns the audio compression level used in the audio port corresponding to specified port handle.
+ *
+ * @param[in] handle       - Handle for the output audio port
+ * @param[out] compression - Pointer to hold the compression value of the specified audio port. (Value ranges from 0 to 10)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetAudioCompression()
+ */
+dsError_t dsGetAudioCompression(intptr_t handle, int *compression)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (NULL == compression || !dsAudioIsValidHandle(handle) || *compression < 0 || *compression > 10)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Sets the audio compression of an audio port.
+ *
+ * This function sets the audio compression level(non-MS12) to be used on the audio port corresponding to the specified port handle.
+ *
+ * @param[in] handle       - Handle for the output audio port
+ * @param[in] compression  - Audio compression level (value ranges from 0 to 10) to be used on the audio port
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetAudioCompression()
+ */
+dsError_t dsSetAudioCompression(intptr_t handle, int compression)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (!dsAudioIsValidHandle(handle) || compression < 0 || compression > 10)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Gets the Dialog Enhancement level of the audio port.
+ *
+ * This function returns the dialog enhancement level of the audio port corresponding to the specified port handle.
+ *
+ * @param[in] handle - Handle for the output audio port
+ * @param[out] level - Pointer to Dialog Enhancement level (Value ranges from 0 to 16)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetDialogEnhancement()
+ */
+dsError_t dsGetDialogEnhancement(intptr_t handle, int *level)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (level == NULL || !dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Sets the Dialog Enhancement level of an audio port.
+ *
+ * This function sets the dialog enhancement level to be used in the audio port corresponding to specified port handle.
+ *
+ * @param[in] handle  - Handle for the output audio port.
+ * @param[in] level   - Dialog Enhancement level. Level ranges from 0 to 16.
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetDialogEnhancement()
+ */
+dsError_t dsSetDialogEnhancement(intptr_t handle, int level)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (!dsAudioIsValidHandle(handle) || level < 0 || level > 16)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Gets the dolby audio mode status of an audio port.
+ *
+ * This function returns the dolby audio mode status used in the audio port corresponding to the specified port handle.
+ *
+ * @param[in] handle  - Handle for the output audio port
+ * @param[out] mode   - Dolby volume mode
+ *                        ( @a true if Dolby Volume mode is enabled, and @a false if disabled)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetDolbyVolumeMode()
+ */
+dsError_t dsGetDolbyVolumeMode(intptr_t handle, bool *mode)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (mode == NULL || !dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief To enable/disable Dolby Volume Mode.
+ *
+ * This function sets the dolby audio mode status to the audio port corresponding to port handle.
+ *
+ * @param[in] handle  - Handle for the output audio port
+ * @param[in] mode    - Dolby volume mode.
+ *                        ( @a true to enable Dolby volume mode and @a false to disable Dolby volume mode )
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetDolbyVolumeMode()
+ */
+dsError_t dsSetDolbyVolumeMode(intptr_t handle, bool mode)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (!dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Gets the Intelligent Equalizer Mode.
+ *
+ * This function returns the Intelligent Equalizer Mode setting used in the audio port corresponding to specified Port handle.
+ *
+ * @param[in] handle - Handle for the output audio port.
+ * @param[out] mode  - Pointer to Intelligent Equalizer mode. 0 = OFF, 1 = Open, 2 = Rich, 3 = Focused,
+ *                       4 = Balanced, 5 = Warm, 6 = Detailed
+ *
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetIntelligentEqualizerMode()
+ */
+dsError_t dsGetIntelligentEqualizerMode(intptr_t handle, int *mode)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (mode == NULL || !dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Sets the Intelligent Equalizer Mode.
+ *
+ * This function sets the Intelligent Equalizer Mode to be used in the audio port corresponding to the specified port handle.
+ *
+ * @param[in] handle  - Handle for the output audio port.
+ * @param[in] mode    - Intelligent Equalizer mode. 0 = OFF, 1 = Open, 2 = Rich, 3 = Focused,
+ *                        4 = Balanced, 5 = Warm, 6 = Detailed
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetIntelligentEqualizerMode()
+ */
+dsError_t dsSetIntelligentEqualizerMode(intptr_t handle, int mode)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (!dsAudioIsValidHandle(handle) || mode < 0 || mode > 6)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Gets the Dolby volume leveller settings.
+ *
+ * This function returns the Volume leveller(mode and level) value used in the audio port corresponding to specified port handle.
+ *
+ * @param[in] handle       - Handle for the output Audio port
+ * @param[out] volLeveller - Pointer to Volume Leveller. Please refer ::dsVolumeLeveller_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetVolumeLeveller()
+ */
+dsError_t dsGetVolumeLeveller(intptr_t handle, dsVolumeLeveller_t *volLeveller)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (volLeveller == NULL || !dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Sets the Dolby volume leveller settings.
+ *
+ * This function sets the Volume leveller(mode and level) value to be used in the audio port corresponding to specified port handle.
+ *
+ * @param[in] handle       - Handle for the output Audio port
+ * @param[in] volLeveller  - Volume Leveller setting. Please refer ::dsVolumeLeveller_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetVolumeLeveller()
+ */
+dsError_t dsSetVolumeLeveller(intptr_t handle, dsVolumeLeveller_t volLeveller)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (volLeveller.mode < 0 || volLeveller.mode > 2 ||
+            volLeveller.level < 0 || volLeveller.level > 10 || !dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Gets the audio Bass
+ *
+ * This function returns the Bass used in a given audio port
+ *
+ * @param[in] handle  - Handle for the output Audio port
+ * @param[out] boost  - Pointer to Bass Enhancer boost value (ranging from 0 to 100)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetBassEnhancer()
+ */
+dsError_t dsGetBassEnhancer(intptr_t handle, int *boost)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (boost == NULL || !dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Sets the audio Bass
+ *
+ * This function sets the Bass to be used in the audio port corresponding to specified port handle.
+ *
+ * @param[in] handle  - Handle for the output Audio port
+ * @param[in] boost   - Bass Enhancer boost value (ranging from 0 to 100)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetBassEnhancer()
+ */
+dsError_t dsSetBassEnhancer(intptr_t handle, int boost)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (boost < 0 || boost > 100 || !dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Gets the audio Surround Decoder enabled/disabled status
+ *
+ * This function returns enable/disable status of surround decoder
+ *
+ * @param[in] handle   - Handle for the output Audio port
+ * @param[out] enabled - Pointer to Surround Decoder enabled(1)/disabled(0) value
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsEnableSurroundDecoder()
+ */
+dsError_t dsIsSurroundDecoderEnabled(intptr_t handle, bool *enabled)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (enabled == NULL || !dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Enables / Disables the audio Surround Decoder.
+ *
+ * This function will enable/disable surround decoder of the audio port corresponding to specified port handle.
+ *
+ * @param[in] handle   - Handle for the output Audio port
+ * @param[in] enabled  - Surround Decoder enabled(1)/disabled(0) value
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsIsSurroundDecoderEnabled()
+ */
+dsError_t dsEnableSurroundDecoder(intptr_t handle, bool enabled)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (!dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Gets the DRC Mode of the specified Audio Port.
+ *
+ * This function returns the Dynamic Range Control used in the audio port corresponding to specified port handle.
+ *
+ * @param[in] handle - Handle for the output Audio port
+ * @param[out] mode  - Pointer to DRC mode (0 for DRC line mode and 1 for DRC RF mode)
+ *
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetDRCMode()
+ */
+dsError_t dsGetDRCMode(intptr_t handle, int *mode)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (mode == NULL || !dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Sets the DRC Mode of specified audio port.
+ *
+ * This function sets the Dynamic Range Control to be used in the audio port corresponding to port handle.
+ *
+ * @param[in] handle  - Handle for the output Audio port
+ * @param[in] mode    - DRC mode (0 for DRC Line Mode and 1 for DRC RF mode)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetDRCMode()
+ */
+dsError_t dsSetDRCMode(intptr_t handle, int mode)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (mode < 0 || mode > 1 || !dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Gets the audio Surround Virtualizer level.
+ *
+ * This function returns the Surround Virtualizer level(mode and boost) used in the audio port corresponding to specified port handle.
+ *
+ * @param[in] handle       - Handle for the output Audio port
+ * @param[out] virtualizer - Surround virtualizer setting. Please refer ::dsSurroundVirtualizer_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetSurroundVirtualizer()
+ */
+dsError_t dsGetSurroundVirtualizer(intptr_t handle, dsSurroundVirtualizer_t *virtualizer)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (virtualizer == NULL || !dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Sets the audio Surround Virtualizer level
+ *
+ * This function sets the Surround Virtualizer level(mode and boost) to be used in the audio port corresponding to specified port handle.
+ *
+ * @param[in] handle       - Handle for the output Audio port
+ * @param[in] virtualizer  - Surround virtualizer setting. Please refer ::dsSurroundVirtualizer_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetSurroundVirtualizer()
+ */
+dsError_t dsSetSurroundVirtualizer(intptr_t handle, dsSurroundVirtualizer_t virtualizer)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (!dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Gets the Media Intelligent Steering of the audio port.
+ *
+ * This function returns enable/disable status of Media Intelligent Steering for the audio port corresponding to specified port handle.
+ *
+ * @param[in] handle    - Handle for the output Audio port
+ * @param[out] enabled  - MI Steering enabled(1)/disabled(0) value
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetMISteering()
+ */
+dsError_t dsGetMISteering(intptr_t handle, bool *enabled)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (enabled == NULL || !dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Set the Media Intelligent Steering of the audio port.
+ *
+ * This function sets the enable/disable status of Media Intelligent Steering for the audio port corresponding to specified port handle.
+ *
+ * @param[in] handle   - Handle for the output Audio port
+ * @param[in] enabled  - MI Steering enabled(1)/disabled(0) value
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetMISteering()
+ */
+dsError_t dsSetMISteering(intptr_t handle, bool enabled)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (!dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Gets the Graphic Equalizer Mode.
+ *
+ * This function returns the Graphic Equalizer Mode setting used in the audio port corresponding to the specified port handle.
+ *
+ * @param[in] handle - Handle for the output audio port.
+ * @param[out] mode  - Graphic Equalizer Mode. 0 = EQ OFF, 1 = EQ Open, 2 = EQ Rich and 3 = EQ Focused
+ *
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetGraphicEqualizerMode()
+ */
+dsError_t dsGetGraphicEqualizerMode(intptr_t handle, int *mode)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (mode == NULL || !dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Sets the Graphic Equalizer Mode.
+ *
+ * This function sets the Graphic Equalizer Mode setting to be used in the audio port corresponding to the specified port handle.
+ *
+ * @param[in] handle  - Handle for the output audio port.
+ * @param[in] mode    - Graphic Equalizer mode. 0 for EQ OFF, 1 for EQ Open, 2 for EQ Rich and 3 for EQ Focused
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetGraphicEqualizerMode()
+ */
+dsError_t dsSetGraphicEqualizerMode(intptr_t handle, int mode)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (!dsAudioIsValidHandle(handle) || mode < 0 || mode > 3)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Gets the supported MS12 audio profiles
+ *
+ * This function will get the list of supported MS12 audio profiles
+ *
+ * @param[in] handle     - Handle for the output Audio port
+ * @param[out] profiles  - List of supported audio profiles. Please refer ::dsMS12AudioProfileList_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetMS12AudioProfile()
+ */
+dsError_t dsGetMS12AudioProfileList(intptr_t handle, dsMS12AudioProfileList_t *profiles)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (profiles == NULL || !dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Gets current audio profile selection
+ *
+ * This function gets the current audio profile configured
+ *
+ * @param[in] handle    - Handle for the output Audio port
+ * @param[out] profile  - Audio profile configured currently
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetMS12AudioProfile()
+ */
+dsError_t dsGetMS12AudioProfile(intptr_t handle, char *profile)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (profile == NULL || !dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Gets the supported ARC types of the connected ARC/eARC device
+ *
+ * This function gets the supported ARC types of the connected device on ARC/eARC port.
+ *
+ * @param[in] handle - Handle for the HDMI ARC/eARC port
+ * @param[out] types - Value of supported ARC types. Please refer ::dsAudioARCTypes_t
+ *
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
+dsError_t dsGetSupportedARCTypes(intptr_t handle, int *types)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (types == NULL || !dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Sets Short Audio Descriptor retrieved from CEC for the connected ARC device
+ *
+ * This function sets the Short Audio Descriptor based on best available options
+ * of Audio capabilities supported by connected ARC device. Required when ARC output
+ * mode is Auto/Passthrough. Please refer ::dsAudioSADList_t, ::dsSetStereoMode
+ *
+ * @param[in] handle   - Handle for the HDMI ARC/eARC port.
+ * @param[in] sad_list - All SADs retrieved from CEC for the connected ARC device.
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
+dsError_t dsAudioSetSAD(intptr_t handle, dsAudioSADList_t sad_list)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (!dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Enable/Disable ARC/EARC and route audio to connected device.
+ *
+ * This function enables/disables ARC/EARC and routes audio to connected device. Please refer ::_dsAudioARCStatus_t and ::dsAudioARCTypes_t
+ *
+ * @param[in] handle    - Handle for the HDMI ARC/eARC port
+ * @param[in] arcStatus - ARC/eARC feature. Please refer ::_dsAudioARCStatus_t
+ *                          ( @a true to enable ARC/eARC, @a false to disable )
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
+dsError_t dsAudioEnableARC(intptr_t handle, dsAudioARCStatus_t arcStatus)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (!dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Sets the stereo mode of an audio port.
+ *
+ * This function sets the stereo mode to be used on the audio port corresponding to specified port handle.
+ *
+ * @param[in] handle  - Handle for the output audio port
+ * @param[in] mode    - Stereo mode to be used on the specified audio port. Please refer ::dsAudioStereoMode_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetStereoMode()
+ */
+dsError_t dsSetStereoMode(intptr_t handle, dsAudioStereoMode_t mode)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (!dsAudioIsValidHandle(handle) || mode >= dsAUDIO_STEREO_MAX || mode <= dsAUDIO_STEREO_UNKNOWN)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Checks if auto mode is enabled or not for the current audio port.
+ *
+ * This function returns the current auto mode of audio port corresponding to specified port handle.
+ *
+ * @param[in] handle     - Handle for the output audio port
+ * @param[out] autoMode  - Pointer to hold the auto mode setting ( @a if enabled, @a false if disabled) of the specified audio port
+ *
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetStereoAuto()
+ */
+dsError_t dsGetStereoAuto(intptr_t handle, int *autoMode)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (NULL == autoMode || !dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Sets the Auto Mode to be used on the audio port.
+ *
+ * This function sets the auto mode to be used on the specified audio port.
+ *
+ * @param[in] handle    - Handle for the output audio port.
+ * @param[in] autoMode  - Indicates the auto mode ( @a true if enabled, @a false if disabled ) to be used on audio port.
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetStereoAuto()
+ */
+dsError_t dsSetStereoAuto(intptr_t handle, int autoMode)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (!dsAudioIsValidHandle(handle) || autoMode < 0)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Gets the audio gain of an audio port.
+ *
+ * This function returns the current audio gain for the audio port corresponding to specified port handle.
+ *
+ * @param[in] handle  - Handle for the output audio port
+ * @param[out] gain   - Pointer to hold the audio gain value of the specified audio port.
+                          The gain ranges between -2080 and 480
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetAudioGain()
+ */
+dsError_t dsGetAudioGain(intptr_t handle, float *gain)
+{
+        hal_dbg("Invoked.\n");
+#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
+        dsError_t ret = dsERR_NONE;
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+
+        if (!dsAudioIsValidHandle(handle) || gain == NULL)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+
+        long value_got;
+        const char *s_card = ALSA_CARD_NAME;
+        const char *element_name = ALSA_ELEMENT_NAME;
+        long vol_min = 0, vol_max = 0;
+        double normalized = 0, min_norm = 0;
+        snd_mixer_elem_t *mixer_elem;
+        if (initAlsa(element_name, s_card, &mixer_elem) != dsERR_NONE)
+        {
+                hal_err("failed to initialize alsa, initAlsa!\n");
+                return dsERR_GENERAL;
+        }
+        if (mixer_elem == NULL)
+        {
+                hal_err("failed to initialize alsa, initAlsa!\n");
+                return dsERR_GENERAL;
+        }
+        if (snd_mixer_selem_get_playback_dB_range(mixer_elem, &vol_min, &vol_max) != 0)
+        {
+                hal_err("failed to get playback dB range\n");
+                return dsERR_GENERAL;
+        }
+        if (!snd_mixer_selem_get_playback_dB(mixer_elem, SND_MIXER_SCHN_FRONT_LEFT, &value_got))
+        {
+                hal_dbg(" dsGetAudioGain: Gain in dB %ld (%.2f)\n", value_got, value_got / 100.0);
+                if ((vol_max - vol_min) <= MAX_LINEAR_DB_SCALE * 100)
+                {
+                        *gain = (value_got - vol_min) / (double)(vol_max - vol_min);
+                        hal_dbg("%ld dsGetAudioGain: Gain %.2f\n", *gain);
+                }
+                else
+                {
+                        normalized = pow(10, (value_got - vol_max) / 6000.0);
+                        if (vol_min != SND_CTL_TLV_DB_GAIN_MUTE)
+                        {
+                                min_norm = pow(10, (vol_min - vol_max) / 6000.0);
+                                normalized = (normalized - min_norm) / (1 - min_norm);
+                        }
+                        *gain = (float)(((int)(100.0f * normalized + 0.5f)) / 1.0f);
+                        hal_dbg("%ld dsGetAudioGain: Gain %.2f\n", *gain);
+                }
+        }
+        else
+        {
+                hal_err("failed to get playback dB\n");
+                ret = dsERR_GENERAL;
+        }
+        hal_warn("%s: dsGetAudioGain: Gain %.2f\n", *gain);
+        return dsERR_NONE;
+#else
+        return dsERR_NONE;
+#endif
+}
+
+/**
+ * @brief Sets the audio gain of an audio port.
+ *
+ * This function sets the gain to be used on the audio port corresponding to specified port handle.
+ *
+ * @param[in] handle  - Handle for the output audio port
+ * @param[in] gain    - Audio Gain to be used on the audio port value
+ *                         The Gain ranges between -2080 and 480
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetAudioGain()
+ */
+dsError_t dsSetAudioGain(intptr_t handle, float gain)
+{
+        hal_dbg("Invoked.\n");
+#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (!dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        const char *s_card = ALSA_CARD_NAME;
+        const char *element_name = ALSA_ELEMENT_NAME;
+        bool enabled = false;
+        snd_mixer_elem_t *mixer_elem;
+        initAlsa(element_name, s_card, &mixer_elem);
+        if (mixer_elem == NULL)
+        {
+                hal_err("failed to initialize alsa, initAlsa!\n");
+                return dsERR_GENERAL;
+        }
+
+        if (dsIsAudioMute(handle, &enabled) != dsERR_NONE)
+        {
+                hal_err("failed to get mute status\n");
+                return dsERR_GENERAL;
+        }
+        if (true == enabled)
+        {
+                hal_err("failed to set gain, mute is enabled\n");
+                return dsERR_GENERAL;
+        }
+
+        long vol_min, vol_max;
+        double min_norm;
+        gain = gain / 100.0f;
+        if (snd_mixer_selem_get_playback_dB_range(mixer_elem, &vol_min, &vol_max) != 0)
+        {
+                hal_err("failed to get playback dB range\n");
+                return dsERR_GENERAL;
+        }
+        if ((vol_max - vol_min) <= MAX_LINEAR_DB_SCALE * 100)
+        {
+                long floatval = lrint(gain * (vol_max - vol_min)) + vol_min;
+                if (snd_mixer_selem_set_playback_dB_all(mixer_elem, floatval, 0) != 0)
+                {
+                        hal_err("failed to set playback dB\n");
+                        return dsERR_GENERAL;
+                }
+        }
+        else
+        {
+                if (vol_min != SND_CTL_TLV_DB_GAIN_MUTE)
+                {
+                        min_norm = pow(10, (vol_min - vol_max) / 6000.0);
+                        gain = gain * (1 - min_norm) + min_norm;
+                }
+                long floatval = lrint(6000.0 * log10(gain)) + vol_max;
+                if (snd_mixer_selem_set_playback_dB_all(mixer_elem, floatval, 0) != 0)
+                {
+                        hal_err("failed to set playback dB\n");
+                        return dsERR_GENERAL;
+                }
+                hal_dbg(" Setting gain in dB: %.2f \n", floatval / 100.0);
+        }
+        return dsERR_NONE;
+#else
+        return dsERR_NONE;
+#endif
+}
+
+/**
+ * @brief Gets the current audio dB level of an audio port.
+ *
+ * This function returns the current audio dB level for the audio port corresponding to specified port handle.
+ * The Audio dB level ranges from -1450 to 180 dB
+ *
+ * @param[in] handle  - Handle for the output audio port
+ * @param[out] db     - Pointer to hold the Audio dB level of the specified audio port
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetAudioDB()
+ */
+dsError_t dsGetAudioDB(intptr_t handle, float *db)
+{
+        hal_dbg("Invoked.\n");
+#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (!dsAudioIsValidHandle(handle) || db == NULL)
+        {
+                ret = dsERR_INVALID_PARAM;
+        }
+
+        long db_value;
+        const char *s_card = ALSA_CARD_NAME;
+        const char *element_name = ALSA_ELEMENT_NAME;
+        snd_mixer_elem_t *mixer_elem = NULL;
+
+        if (initAlsa(element_name, s_card, &mixer_elem) != dsERR_NONE)
+        {
+                hal_err("failed to initialize alsa, initAlsa!\n");
+                return dsERR_GENERAL;
+        }
+        if (mixer_elem == NULL)
+        {
+                hal_err("failed to initialize alsa, initAlsa!\n");
+                return dsERR_GENERAL;
+        }
+
+        if (!snd_mixer_selem_get_playback_dB(mixer_elem, SND_MIXER_SCHN_FRONT_LEFT, &db_value))
+        {
+                *db = (float)db_value / 100;
+        }
+        hal_warn("%s: Gain DB %.2f\n", *db);
+        return dsERR_NONE;
+#else
+        return dsERR_NONE;
+#endif
+}
+
+/**
+ * @brief Sets the current audio dB level of an audio port.
+ *
+ * This function sets the dB level to be used on the audio port corresponding to specified port handle.
+ * Max dB is 180 and Min dB is -1450
+ *
+ * @param[in] handle  - Handle for the output audio port
+ * @param[in] db      - Audio dB level to be used on the audio port
+ *
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetAudioDB()
+ */
+dsError_t dsSetAudioDB(intptr_t handle, float db)
+{
+        hal_dbg("Invoked.\n");
+#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
+        dsError_t ret = dsERR_NONE;
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (!dsAudioIsValidHandle(handle))
+        {
+                ret = dsERR_INVALID_PARAM;
+        }
+
+        const char *s_card = ALSA_CARD_NAME;
+        const char *element_name = ALSA_ELEMENT_NAME;
+        snd_mixer_elem_t *mixer_elem = NULL;
+        if (initAlsa(element_name, s_card, &mixer_elem) != dsERR_NONE)
+        {
+                hal_err("failed to initialize alsa, initAlsa!\n");
+                return dsERR_GENERAL;
+        }
+        if (mixer_elem == NULL)
+        {
+                hal_err("failed to initialize alsa, mixer_elem NULL!\n");
+                return dsERR_GENERAL;
+        }
+
+        if (db < dBmin)
+        {
+                db = dBmin;
+        }
+        if (db > dBmax)
+        {
+                db = dBmax;
+        }
+
+        if (snd_mixer_selem_set_playback_dB_all(mixer_elem, (long)db * 100, 0) != 0)
+        {
+                hal_err("failed to set snd_mixer_selem_set_playback_dB_all\n");
+                return dsERR_GENERAL;
+        }
+        return dsERR_NONE;
+#else
+        return dsERR_NONE;
+#endif
+}
+
+/**
+ * @brief Gets the current audio volume level of an audio port.
+ *
+ * This function returns the current audio volume level of audio port corresponding to specified port handle.
+ *
+ * @param[in] handle - Handle for the output audio port
+ * @param[out] level - Pointer to hold the audio level value (ranging from 0 to 100) of the specified audio port
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetAudioLevel()
+ */
+dsError_t dsGetAudioLevel(intptr_t handle, float *level)
+{
+        hal_dbg("Invoked.\n");
+#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (!dsAudioIsValidHandle(handle) || NULL == level)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+
+        long vol_value, min, max;
+        const char *s_card = "default";
+        const char *element_name = ALSA_ELEMENT_NAME;
+        snd_mixer_elem_t *mixer_elem = NULL;
+
+        if (initAlsa(element_name, s_card, &mixer_elem) != dsERR_NONE)
+        {
+                hal_err("failed to initialize alsa, initAlsa!\n");
+                return dsERR_GENERAL;
+        }
+        if (mixer_elem == NULL)
+        {
+                hal_err("failed to initialize alsa, mixer_elem NULL!\n");
+                return dsERR_GENERAL;
+        }
+        if (!snd_mixer_selem_get_playback_volume(mixer_elem, SND_MIXER_SCHN_FRONT_LEFT, &vol_value))
+        {
+                if (snd_mixer_selem_get_playback_volume_range(mixer_elem, &min, &max) != 0)
+                {
+                        hal_err("failed to get playback volume range\n");
+                        return dsERR_GENERAL;
+                }
+                if (min != vol_value)
+                {
+                        min = min / 2;
+                }
+                *level = round((float)((vol_value - min) * 100.0 / (max - min)));
+        }
+        hal_warn("%s: Volume Level %.2f\n", *level);
+        return dsERR_NONE;
+#else
+        return dsERR_NONE;
+#endif
+}
+
+/**
+ * @brief Sets the audio volume level of an audio port.
+ *
+ * This function sets the audio volume level to be used on the audio port corresponding to specified port handle.
+ *
+ * @param[in] handle  - Handle for the output audio port
+ * @param[in] level   - Volume level value (ranging from 0 to 100) to be used on the specified audio port
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetAudioLevel()
+ */
+dsError_t dsSetAudioLevel(intptr_t handle, float level)
+{
+        hal_dbg("Invoked.\n");
+#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (!dsAudioIsValidHandle(handle) || level < 0.0 || level > 100.0)
+        {
+                ret = dsERR_INVALID_PARAM;
+        }
+
+        long vol_value, min, max;
+        const char *s_card = ALSA_CARD_NAME;
+        const char *element_name = ALSA_ELEMENT_NAME;
+        snd_mixer_elem_t *mixer_elem = NULL;
+
+        if (initAlsa(element_name, s_card, &mixer_elem) != dsERR_NONE)
+        {
+                hal_err("failed to initialize alsa, initAlsa!\n");
+                return dsERR_GENERAL;
+        }
+        if (mixer_elem == NULL)
+        {
+                hal_err("failed to initialize alsa, mixer_elem NULL!\n");
+                return dsERR_GENERAL;
+        }
+        if (snd_mixer_selem_get_playback_volume_range(mixer_elem, &min, &max) != 0)
+        {
+                hal_err("failed to get playback volume range\n");
+                return dsERR_GENERAL;
+        }
+        if (level != 0)
+        {
+                min = min / 2;
+        }
+        vol_value = (long)(((level / 100.0) * (max - min)) + min);
+        if (snd_mixer_selem_set_playback_volume_all(mixer_elem, vol_value) != 0)
+        {
+                hal_err("failed to set playback volume\n");
+                return dsERR_GENERAL;
+        }
+        else
+        {
+                hal_dbg(" Set volume to %ld\n", vol_value);
+        }
+        return dsERR_NONE;
+#else
+        return dsERR_NONE;
+#endif
+}
+
+/**
+ * @brief Gets the maximum audio dB level of an audio port.
+ *
+ * This function returns the maximum audio dB level supported by the audio port corresponding to specified port handle(platform specific).
+ *
+ * @param[in] handle  - Handle for the output audio port
+ * @param[out] maxDb  - Pointer to hold the maximum audio dB value (float value e.g:10.0) supported by the specified audio port(platform specific)
+ *                        Maximum value can be 180 dB
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
+dsError_t dsGetAudioMaxDB(intptr_t handle, float *maxDb)
+{
+        hal_dbg("invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                hal_err("Audio not initialized.\n");
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (!dsAudioIsValidHandle(handle) || NULL == maxDb)
+        {
+                hal_err("Invalid parameter.\n");
+                return dsERR_INVALID_PARAM;
+        }
+
+        snd_mixer_t *mixer;
+        snd_mixer_selem_id_t *sid;
+        snd_mixer_elem_t *elem;
+        long min, max;
+        if (snd_mixer_open(&mixer, 0) < 0)
+        {
+                hal_err("Error opening mixer.\n");
+                return dsERR_GENERAL;
+        }
+        if (snd_mixer_attach(mixer, "default") < 0)
+        {
+                hal_err("Error attaching mixer.\n");
+                snd_mixer_close(mixer);
+                return dsERR_GENERAL;
+        }
+        if (snd_mixer_selem_register(mixer, NULL, NULL) < 0)
+        {
+                hal_err("Error registering mixer.\n");
+                snd_mixer_close(mixer);
+                return dsERR_GENERAL;
+        }
+        if (snd_mixer_load(mixer) < 0)
+        {
+                hal_err("Error loading mixer elements.\n");
+                snd_mixer_close(mixer);
+                return dsERR_GENERAL;
+        }
+        if (snd_mixer_selem_id_alloca(&sid) < 0)
+        {
+                hal_err("Error allocating mixer element.\n");
+                snd_mixer_close(mixer);
+                return dsERR_GENERAL;
+        }
+        if (snd_mixer_selem_id_set_index(sid, 0) < 0)
+        {
+                hal_err("Error setting mixer element index.\n");
+                snd_mixer_close(mixer);
+                return dsERR_GENERAL;
+        }
+        if (snd_mixer_selem_id_set_name(sid, ALSA_ELEMENT_NAME) < 0)
+        {
+                hal_err("Error setting mixer element name.\n");
+                snd_mixer_close(mixer);
+                return dsERR_GENERAL;
+        }
+
+        elem = snd_mixer_find_selem(mixer, sid);
+        if (!elem)
+        {
+                hal_err("Error finding mixer element.\n");
+                snd_mixer_close(mixer);
+                return dsERR_GENERAL;
+        }
+
+        if (snd_mixer_selem_get_playback_dB_range(elem, &min, &max) < 0)
+        {
+                hal_err("Error getting dB range.\n");
+                snd_mixer_close(mixer);
+                return dsERR_GENERAL;
+        }
+        snd_mixer_close(mixer);
+
+        *maxDb = (float)max / 100.0;
+        hal_dbg("Maximum dB level is %f.\n", *maxDb);
+        return dsERR_NONE;
+}
+
+/**
+ * @brief Gets the minimum audio dB level of an audio port.
+ *
+ * This function returns the minimum audio dB level supported by the audio port corresponding to specified port handle.
+ *
+ * @param[in] handle  - Handle for the output audio port
+ * @param[out] minDb  - Pointer to hold the minimum audio dB value (float. e.g: 0.0) supported by the specified audio port(platform specific)
+ *                        Minimum value can be -1450 dB
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
+dsError_t dsGetAudioMinDB(intptr_t handle, float *minDb)
+{
+        hal_dbg("invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                hal_err("Audio not initialized.\n");
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (!dsAudioIsValidHandle(handle) || NULL == minDb)
+        {
+                hal_err("Invalid parameter.\n");
+                return dsERR_INVALID_PARAM;
+        }
+
+        snd_mixer_t *mixer;
+        snd_mixer_selem_id_t *sid;
+        snd_mixer_elem_t *elem;
+        long min, max;
+
+        if (snd_mixer_open(&mixer, 0) < 0)
+        {
+                hal_err("Error opening mixer.\n");
+                return dsERR_GENERAL;
+        }
+        if (snd_mixer_attach(mixer, "default") < 0)
+        {
+                hal_err("Error attaching mixer.\n");
+                snd_mixer_close(mixer);
+                return dsERR_GENERAL;
+        }
+        if (snd_mixer_selem_register(mixer, NULL, NULL) < 0)
+        {
+                hal_err("Error registering mixer.\n");
+                snd_mixer_close(mixer);
+                return dsERR_GENERAL;
+        }
+        if (snd_mixer_load(mixer) < 0)
+        {
+                hal_err("Error loading mixer elements.\n");
+                snd_mixer_close(mixer);
+                return dsERR_GENERAL;
+        }
+        if (snd_mixer_selem_id_alloca(&sid) < 0)
+        {
+                hal_err("Error allocating mixer element.\n");
+                snd_mixer_close(mixer);
+                return dsERR_GENERAL;
+        }
+        if (snd_mixer_selem_id_set_index(sid, 0) < 0)
+        {
+                hal_err("Error setting mixer element index.\n");
+                snd_mixer_close(mixer);
+                return dsERR_GENERAL;
+        }
+        if (snd_mixer_selem_id_set_name(sid, ALSA_ELEMENT_NAME) < 0)
+        {
+                hal_err("Error setting mixer element name.\n");
+                snd_mixer_close(mixer);
+                return dsERR_GENERAL;
+        }
+
+        elem = snd_mixer_find_selem(mixer, sid);
+        if (!elem)
+        {
+                hal_err("Error finding mixer element.\n");
+                snd_mixer_close(mixer);
+                return dsERR_GENERAL;
+        }
+        if (snd_mixer_selem_get_playback_dB_range(elem, &min, &max) < 0)
+        {
+                hal_err("Error getting dB range.\n");
+                snd_mixer_close(mixer);
+                return dsERR_GENERAL;
+        }
+        snd_mixer_close(mixer);
+
+        *minDb = (float)min / 100.0;
+        hal_dbg("Minimum dB level is %f.\n", *minDb);
+        return dsERR_NONE;
+}
+
+/**
+ * @brief Gets the optimal audio level of an audio port.
+ *
+ * This function returns the optimal audio level (dB) of the audio port corresponding to specified port handle(platform specific).
+ *
+ * @param[in] handle        - Handle for the output audio port
+ * @param[out] optimalLevel - Pointer to hold the optimal level value of the specified audio port(platform specific)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
+dsError_t dsGetAudioOptimalLevel(intptr_t handle, float *optimalLevel)
+{
+        hal_dbg("Invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (!dsAudioIsValidHandle(handle) || NULL == optimalLevel)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+
+        snd_mixer_t *mixer;
+        snd_mixer_selem_id_t *sid;
+        snd_mixer_elem_t *elem;
+        long min, max, volume;
+
+        if (snd_mixer_open(&mixer, 0) < 0)
+        {
+                hal_err("Error opening mixer\n");
+                return dsERR_GENERAL;
+        }
+
+        if (snd_mixer_attach(mixer, "default") < 0)
+        {
+                hal_err("Error attaching mixer\n");
+                snd_mixer_close(mixer);
+                return dsERR_GENERAL;
+        }
+
+        if (snd_mixer_selem_register(mixer, NULL, NULL) < 0)
+        {
+                hal_err("Error registering mixer\n");
+                snd_mixer_close(mixer);
+                return dsERR_GENERAL;
+        }
+
+        if (snd_mixer_load(mixer) < 0)
+        {
+                hal_err("Error loading mixer\n");
+                snd_mixer_close(mixer);
+                return dsERR_GENERAL;
+        }
+
+        if (snd_mixer_selem_id_alloca(&sid) < 0)
+        {
+                hal_err("Error allocating mixer element\n");
+                snd_mixer_close(mixer);
+                return dsERR_GENERAL;
+        }
+        if (snd_mixer_selem_id_set_index(sid, 0) < 0)
+        {
+                hal_err("Error setting mixer element index\n");
+                snd_mixer_close(mixer);
+                return dsERR_GENERAL;
+        }
+        if (snd_mixer_selem_id_set_name(sid, ALSA_ELEMENT_NAME) < 0)
+        {
+                hal_err("Error setting mixer element name\n");
+                snd_mixer_close(mixer);
+                return dsERR_GENERAL;
+        }
+
+        elem = snd_mixer_find_selem(mixer, sid);
+        if (!elem)
+        {
+                hal_err("Error finding mixer element\n");
+                snd_mixer_close(mixer);
+                return dsERR_GENERAL;
+        }
+
+        if (snd_mixer_selem_get_playback_volume_range(elem, &min, &max) < 0)
+        {
+                hal_err("Error getting playback volume range\n");
+                snd_mixer_close(mixer);
+                return dsERR_GENERAL;
+        }
+
+        if (snd_mixer_selem_get_playback_volume(elem, SND_MIXER_SCHN_FRONT_LEFT, &volume) < 0)
+        {
+                hal_err("Error getting playback volume\n");
+                snd_mixer_close(mixer);
+                return dsERR_GENERAL;
+        }
+        snd_mixer_close(mixer);
+
+        // Calculate the optimal level as a float between 0.0 and 1.0
+        *optimalLevel = (float)(volume - min) / (max - min);
+        hal_warn("%s: Optimal Level %.2f\n", *optimalLevel);
+        return dsERR_NONE;
+}
+
+/**
+ * @brief Gets the audio delay (in ms) of an audio port
+ *
+ * This function returns the audio delay (in milliseconds) of audio port with respect to video corresponding to the specified port handle.
+ *
+ * @param[in] handle        - Handle for the output Audio port
+ * @param[out] audioDelayMs - Pointer to Audio delay ( ranges from 0 to 200 milliseconds )
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetAudioDelay()
+ */
+dsError_t dsGetAudioDelay(intptr_t handle, uint32_t *audioDelayMs)
+{
+        hal_dbg("invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (audioDelayMs == NULL || !dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Sets the audio delay (in ms) of an audio port.
+ *
+ * This function will set the audio delay (in milliseconds) of audio port corresponding to the specified port handle.
+ *
+ * @param[in] handle        - Handle for the output Audio port
+ * @param[in] audioDelayMs  - Amount of delay(in milliseconds)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetAudioDelay()
+ */
+dsError_t dsSetAudioDelay(intptr_t handle, const uint32_t audioDelayMs)
+{
+        hal_dbg("invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (!dsAudioIsValidHandle(handle) || audioDelayMs > 200)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Gets the audio delay offset (in ms) of an audio port.
+ *
+ * This function returns the audio delay offset (in milliseconds) of the audio port corresponding to specified port handle.
+ *
+ * @param[in] handle               - Handle for the output Audio port
+ * @param[out] audioDelayOffsetMs  - Audio delay offset in milliseconds
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetAudioDelayOffset()
+ */
+dsError_t dsGetAudioDelayOffset(intptr_t handle, uint32_t *audioDelayOffsetMs)
+{
+        hal_dbg("invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (audioDelayOffsetMs == NULL || !dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Sets the audio delay offset (in ms) of an audio port.
+ *
+ * This function will set the audio delay offset (in milliseconds) of the audio port corresponding to specified port handle.
+ *
+ * @param[in] handle              - Handle for the output Audio port
+ * @param[in] audioDelayOffsetMs  - Amount of delay offset(in milliseconds)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetAudioDelayOffset()
+ */
+dsError_t dsSetAudioDelayOffset(intptr_t handle, const uint32_t audioDelayOffsetMs)
+{
+        hal_dbg("invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (!dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Sets the audio ATMOS output mode.
+ *
+ * This function will set the Audio Atmos output mode.
+ *
+ * @param[in] handle  - Handle for the output Audio port
+ * @param[in] enable  - Audio ATMOS output mode( @a true to enable  @a false to disable)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
+dsError_t dsSetAudioAtmosOutputMode(intptr_t handle, bool enable)
+{
+        hal_dbg("invoked.\n");
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (!dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+== == == == == == == == == == == == == == == == == == == == == == == == == == == == == == == == == == == == == == == == == == ==
+
+    dsError_t dsGetStereoMode(intptr_t handle, dsAudioStereoMode_t *stereoMode)
+{
+        dsError_t ret = dsERR_NONE;
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (NULL == stereoMode || !dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        *stereoMode = _stereoModeHDMI;
         return ret;
 }
 
-dsError_t dsGetAudioCompression(intptr_t handle, dsAudioCompression_t *compression)
-{
-        if (false == _bIsAudioInitialized)
-        {
-                return dsERR_NOT_INITIALIZED;
-        }
-        if (NULL == compression || !dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-
-dsError_t dsGetStereoMode(intptr_t handle, dsAudioStereoMode_t *stereoMode)
-{
-	dsError_t ret = dsERR_NONE;
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-        if (NULL == stereoMode || !dsIsValidHandle(handle))
-        {
-		return dsERR_INVALID_PARAM;
-        }
-        *stereoMode = _stereoModeHDMI;
-	return ret;
-}
-
-dsError_t dsGetPersistedStereoMode (intptr_t handle, dsAudioStereoMode_t *stereoMode)
+dsError_t dsGetPersistedStereoMode(intptr_t handle, dsAudioStereoMode_t *stereoMode)
 {
         return dsERR_NONE;
 }
 
-dsError_t dsGetStereoAuto (intptr_t handle, int *autoMode)
-{
-        if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-        if (NULL == autoMode || !dsIsValidHandle(handle))
-        {
-		return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-
-dsError_t dsIsAudioMute (intptr_t handle, bool *muted)
+dsError_t dsIsAudioMute(intptr_t handle, bool *muted)
 {
 #ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
-        printf("Inside %s :%d\n",__FUNCTION__,__LINE__);
+        printf("Inside %s :%d\n", __FUNCTION__, __LINE__);
         dsError_t ret = dsERR_NONE;
-	if (false == _bIsAudioInitialized)
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-        if( ! dsIsValidHandle(handle) || NULL == muted ){
+        if (!dsAudioIsValidHandle(handle) || NULL == muted)
+        {
                 return dsERR_INVALID_PARAM;
         }
-	const char *s_card = ALSA_CARD_NAME;
-	const char *element_name = ALSA_ELEMENT_NAME;
+        const char *s_card = ALSA_CARD_NAME;
+        const char *element_name = ALSA_ELEMENT_NAME;
         snd_mixer_elem_t *mixer_elem = NULL;
-	initAlsa(element_name,s_card,&mixer_elem);
-        if(mixer_elem == NULL) {
+        initAlsa(element_name, s_card, &mixer_elem);
+        if (mixer_elem == NULL)
+        {
                 printf("failed to initialize alsa!\n");
                 return dsERR_GENERAL;
         }
-	int mute_status;
-	if (snd_mixer_selem_has_playback_switch(mixer_elem)) {
-		snd_mixer_selem_get_playback_switch(mixer_elem,  SND_MIXER_SCHN_FRONT_LEFT, &mute_status);
-		if (!mute_status) {
-			*muted = true;
-		} else {
-			*muted = false;
-		}
-	}
-	else {
-		ret = dsERR_GENERAL;
-	}
-	return ret;
+        int mute_status;
+        if (snd_mixer_selem_has_playback_switch(mixer_elem))
+        {
+                snd_mixer_selem_get_playback_switch(mixer_elem, SND_MIXER_SCHN_FRONT_LEFT, &mute_status);
+                if (!mute_status)
+                {
+                        *muted = true;
+                }
+                else
+                {
+                        *muted = false;
+                }
+        }
+        else
+        {
+                ret = dsERR_GENERAL;
+        }
+        return ret;
 #else
         return dsERR_NONE;
 #endif
@@ -274,28 +2548,34 @@ dsError_t dsIsAudioMute (intptr_t handle, bool *muted)
 dsError_t dsSetAudioMute(intptr_t handle, bool mute)
 {
 #ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
-        printf("Inside %s :%d\n",__FUNCTION__,__LINE__);
-	if (false == _bIsAudioInitialized)
+        printf("Inside %s :%d\n", __FUNCTION__, __LINE__);
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
         dsError_t ret = dsERR_NONE;
-        if( ! dsIsValidHandle(handle)){
+        if (!dsAudioIsValidHandle(handle))
+        {
                 return dsERR_INVALID_PARAM;
         }
         const char *s_card = ALSA_CARD_NAME;
         const char *element_name = ALSA_ELEMENT_NAME;
         snd_mixer_elem_t *mixer_elem = NULL;
-        initAlsa(element_name,s_card,&mixer_elem);
-        if(mixer_elem == NULL) {
+        initAlsa(element_name, s_card, &mixer_elem);
+        if (mixer_elem == NULL)
+        {
                 printf("failed to initialize alsa!\n");
                 return dsERR_GENERAL;
         }
-        if (snd_mixer_selem_has_playback_switch(mixer_elem)) {
+        if (snd_mixer_selem_has_playback_switch(mixer_elem))
+        {
                 snd_mixer_selem_set_playback_switch_all(mixer_elem, !mute);
-                if (mute) {
+                if (mute)
+                {
                         printf("Audio Mute success\n");
-                } else {
+                }
+                else
+                {
                         printf("Audio Unmute success.\n");
                 }
         }
@@ -305,887 +2585,129 @@ dsError_t dsSetAudioMute(intptr_t handle, bool mute)
 #endif
 }
 
-dsError_t  dsIsAudioPortEnabled(intptr_t handle, bool *enabled)
+dsError_t dsIsAudioPortEnabled(intptr_t handle, bool *enabled)
 {
-	printf("Inside %s :%d\n",__FUNCTION__,__LINE__);
-	dsError_t ret = dsERR_NONE;
-	bool audioEnabled = true;
-	if (false == _bIsAudioInitialized)
-	{
-		return dsERR_NOT_INITIALIZED;
-	}
-	if (NULL == enabled || !dsIsValidHandle(handle))
-	{
-		return dsERR_INVALID_PARAM;
-	}
-	ret = dsIsAudioMute(handle, &audioEnabled);
-	if (ret == dsERR_NONE) {
-		*enabled = !audioEnabled;
-	}
-	return ret;
-}
-
-dsError_t  dsEnableAudioPort(intptr_t handle, bool enabled)
-{
-    	printf("Inside %s :%d\n",__FUNCTION__,__LINE__);
-	if (false == _bIsAudioInitialized)
-    	{
-        	return dsERR_NOT_INITIALIZED;
-    	}
-    	if (!dsIsValidHandle(handle))
-    	{
-       		return dsERR_INVALID_PARAM;
-    	} 
-    	return dsSetAudioMute ( handle, !enabled );
-}
-
-dsError_t dsGetAudioGain(intptr_t handle, float *gain)
-{
-#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
+        printf("Inside %s :%d\n", __FUNCTION__, __LINE__);
         dsError_t ret = dsERR_NONE;
-	if (false == _bIsAudioInitialized)
+        bool audioEnabled = true;
+        if (false == _bIsAudioInitialized)
         {
-             return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-
-        if( ! dsIsValidHandle(handle) || gain == NULL) {
-                ret = dsERR_INVALID_PARAM;
+        if (NULL == enabled || !dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
         }
-
-        if ( dsERR_NONE == ret ) {
-                long value_got;
-                const char *s_card = ALSA_CARD_NAME;
-                const char *element_name = ALSA_ELEMENT_NAME;
-                long vol_min = 0, vol_max = 0;
-                double normalized= 0, min_norm = 0;
-                snd_mixer_elem_t *mixer_elem;
-                initAlsa(element_name,s_card,&mixer_elem);
-                if(mixer_elem == NULL) {
-                        printf("failed to initialize alsa!\n");
-                        return dsERR_GENERAL;
-                }
-
-                snd_mixer_selem_get_playback_dB_range(mixer_elem, &vol_min, &vol_max);
-                if(!snd_mixer_selem_get_playback_dB(mixer_elem, SND_MIXER_SCHN_FRONT_LEFT, &value_got))
-                {
-                    printf("dsGetAudioGain: Gain  in dB %.2f\n", value_got/100.0);
-                    if ((vol_max - vol_min) <= MAX_LINEAR_DB_SCALE * 100)
-                    {
-                      *gain = (value_got - vol_min) / (double)(vol_max - vol_min);
-                    }
-                    else
-                    {
-                        normalized = pow(10, (value_got - vol_max) / 6000.0);
-
-                        if (vol_min != SND_CTL_TLV_DB_GAIN_MUTE)
-                        {
-                          min_norm = pow(10, (vol_min - vol_max) / 6000.0);
-                          normalized = (normalized - min_norm) / (1 - min_norm);
-                        }
-                        *gain = (float)(((int)(100.0f * normalized + 0.5f))/1.0f);
-                        printf("dsGetAudioGain: Rounded Gain  in linear scale %.2f\n", *gain);
-                    }
-                }
-
+        ret = dsIsAudioMute(handle, &audioEnabled);
+        if (ret == dsERR_NONE)
+        {
+                *enabled = !audioEnabled;
         }
         return ret;
-#else
-        return dsERR_NONE;
-#endif
-
 }
 
-dsError_t dsGetAudioDB(intptr_t handle, float *db)
+dsError_t dsEnableAudioPort(intptr_t handle, bool enabled)
 {
-    #ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
-        dsError_t ret = dsERR_NONE;
-	if (false == _bIsAudioInitialized)
+        printf("Inside %s :%d\n", __FUNCTION__, __LINE__);
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-
-        if( ! dsIsValidHandle(handle) || db == NULL) {
-                ret = dsERR_INVALID_PARAM;
-        }
-
-        if ( dsERR_NONE == ret ) {
-                long db_value;
-                const char *s_card = ALSA_CARD_NAME;
-                const char *element_name = ALSA_ELEMENT_NAME;
-
-                snd_mixer_elem_t *mixer_elem = NULL;
-                initAlsa(element_name,s_card,&mixer_elem);
-                if(mixer_elem == NULL) {
-                        printf("failed to initialize alsa!\n");
-                        return dsERR_GENERAL;
-                }
-
-                if(!snd_mixer_selem_get_playback_dB(mixer_elem, SND_MIXER_SCHN_FRONT_LEFT, &db_value)) {
-                        *db = (float) db_value/100;
-                }
-
-        }
-        return ret;
-#else
-        return dsERR_NONE;
-#endif
-}
-
-dsError_t dsGetAudioLevel(intptr_t handle, float *level)
-{
- #ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
-        dsError_t ret = dsERR_NONE;
-	if (false == _bIsAudioInitialized)
+        if (!dsAudioIsValidHandle(handle))
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_INVALID_PARAM;
         }
-        if( ! dsIsValidHandle(handle) || NULL == level) {
-                ret = dsERR_INVALID_PARAM;
-        }
-
-        if ( dsERR_NONE == ret ) {
-                long vol_value, min, max;
-                const char *s_card = "default";
-                const char *element_name = ALSA_ELEMENT_NAME;
-
-                snd_mixer_elem_t *mixer_elem = NULL;
-                initAlsa(element_name,s_card,&mixer_elem);
-                if(mixer_elem == NULL) {
-                        printf("failed to initialize alsa!\n");
-                        return dsERR_GENERAL;
-                }
-                if(!snd_mixer_selem_get_playback_volume(mixer_elem, SND_MIXER_SCHN_FRONT_LEFT, &vol_value)) {
-	                snd_mixer_selem_get_playback_volume_range(mixer_elem, &min, &max);
-			if(min != vol_value){
-				min=min/2;
-			}
-                        *level = round((float)((vol_value - min)*100.0/(max - min)));
-                }
-
-        }
-        return ret;
-#else
-        return dsERR_NONE;
-#endif
+        return dsSetAudioMute(handle, !enabled);
 }
 
-dsError_t dsGetAudioMaxDB(intptr_t handle, float *maxDb)
+dsError_t dsIsAudioLoopThru(intptr_t handle, bool *loopThru)
 {
-	if (false == _bIsAudioInitialized)
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-        if( !dsIsValidHandle(handle) || NULL == maxDb) {
-             	return dsERR_INVALID_PARAM;
-        }
-        *maxDb = dBmax;
-        return dsERR_NONE;
-}
-
-dsError_t dsGetAudioMinDB(intptr_t handle, float *minDb)
-{
-	if (false == _bIsAudioInitialized)
+        if (!dsAudioIsValidHandle(handle) || NULL == loopThru)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_INVALID_PARAM;
         }
-        if( !dsIsValidHandle(handle) || NULL == minDb) {
-             	return dsERR_INVALID_PARAM;
-        }
-        *minDb = dBmin;
-        return dsERR_NONE;
-}
-
-dsError_t dsGetAudioOptimalLevel(intptr_t handle, float *optimalLevel)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-        if( !dsIsValidHandle(handle) || NULL == optimalLevel) {
-             	return dsERR_INVALID_PARAM;
-        }
-	return dsERR_OPERATION_NOT_SUPPORTED;
-}
-
-dsError_t  dsIsAudioLoopThru(intptr_t handle, bool *loopThru)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-        if( !dsIsValidHandle(handle) || NULL == loopThru) {
-             	return dsERR_INVALID_PARAM;
-        }
-	return dsERR_OPERATION_NOT_SUPPORTED;
-}
-
-dsError_t dsSetAudioEncoding(intptr_t handle, dsAudioEncoding_t encoding)
-{
-	dsError_t ret = dsERR_NONE;
-	if (false == _bIsAudioInitialized)
-	{
-		return dsERR_NOT_INITIALIZED;
-	}
-	if( !dsIsValidHandle(handle)) 
-	{
-		return dsERR_INVALID_PARAM;
-	}
-	_encoding = encoding;
-	return ret;
-}
-
-dsError_t dsSetAudioCompression(intptr_t handle, dsAudioCompression_t compression)
-{
-	if (false == _bIsAudioInitialized)
-	{
-		return dsERR_NOT_INITIALIZED;
-	}
-	if( !dsIsValidHandle(handle))
-	{
-		return dsERR_INVALID_PARAM;
-	}
-	return dsERR_OPERATION_NOT_SUPPORTED;
+        return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 dsError_t dsIsAudioMSDecode(intptr_t handle, bool *ms11Enabled)
 {
-	dsError_t ret = dsERR_NONE;
-	if (false == _bIsAudioInitialized)
-	{
-		return dsERR_NOT_INITIALIZED;
-	}
-	if( !dsIsValidHandle(handle) || NULL == ms11Enabled) 
-	{
-		return dsERR_INVALID_PARAM;
-	}
-	*ms11Enabled = _isms11Enabled;
-	return ret;
-}
-
-dsError_t dsSetStereoMode(intptr_t handle, dsAudioStereoMode_t mode)
-{
-	if (false == _bIsAudioInitialized)
-	{
-		return dsERR_NOT_INITIALIZED;
-	}
-	
-	if(!dsIsValidHandle(handle) || mode >= dsAUDIO_STEREO_MAX || mode <= dsAUDIO_STEREO_UNKNOWN ) 
-        {
-		return dsERR_INVALID_PARAM;
-        }
-	return dsERR_OPERATION_NOT_SUPPORTED;
-}
-
-dsError_t dsSetStereoAuto (intptr_t handle, int autoMode)
-{
+        dsError_t ret = dsERR_NONE;
         if (false == _bIsAudioInitialized)
-	{
-		return dsERR_NOT_INITIALIZED;
-	}
-	if(!dsIsValidHandle(handle) || autoMode < 0) 
         {
-           	return dsERR_INVALID_PARAM;
+                return dsERR_NOT_INITIALIZED;
         }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-
-dsError_t dsSetAudioGain(intptr_t handle, float gain)
-{
-#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
-        dsError_t ret = dsERR_NONE;
-	if (false == _bIsAudioInitialized)
-	{
-		return dsERR_NOT_INITIALIZED;
-	}
-        if( ! dsIsValidHandle(handle) ) {
-                ret = dsERR_INVALID_PARAM;
+        if (!dsAudioIsValidHandle(handle) || NULL == ms11Enabled)
+        {
+                return dsERR_INVALID_PARAM;
         }
-
-        if ( dsERR_NONE == ret ) {
-                const char *s_card = ALSA_CARD_NAME;
-                const char *element_name = ALSA_ELEMENT_NAME;
-                bool enabled = false;
-                ret = dsERR_GENERAL;
-                snd_mixer_elem_t *mixer_elem;
-                initAlsa(element_name,s_card,&mixer_elem);
-                if(mixer_elem == NULL) {
-                        printf("failed to initialize alsa!\n");
-                        return dsERR_GENERAL;
-                }
-
-
-                dsIsAudioMute(handle, &enabled);
-                if (true == enabled)
-                {
-                    printf("dsSetAudioGain: Mute is enabled. \n");
-                    return ret;
-                }
-
-                long vol_min, vol_max;
-                double min_norm;
-                gain = gain / 100.0f;
-
-                snd_mixer_selem_get_playback_dB_range(mixer_elem, &vol_min, &vol_max);
-                if (vol_max - vol_min <= MAX_LINEAR_DB_SCALE * 100)
-                {
-                  long floatval = lrint(gain * (vol_max - vol_min)) + vol_min;
-                  snd_mixer_selem_set_playback_dB_all(mixer_elem, floatval, 0);
-                  ret = dsERR_NONE;
-                }
-                else
-                {
-                    if (vol_min != SND_CTL_TLV_DB_GAIN_MUTE)
-                    {
-                        min_norm = pow(10, (vol_min - vol_max) / 6000.0);
-                        gain = gain * (1 - min_norm) + min_norm;
-                    }
-                    long floatval = lrint(6000.0 * log10(gain)) + vol_max;
-                    snd_mixer_selem_set_playback_dB_all(mixer_elem, floatval, 0);
-                    printf("dsSetAudioGain: Setting gain in dB: %.2f \n", floatval/100.0);
-                    ret = dsERR_NONE;
-                }
-        }
-
+        *ms11Enabled = _isms11Enabled;
         return ret;
-#else
-        return dsERR_NONE;
-#endif
-}
-
-dsError_t dsSetAudioDB(intptr_t handle, float db)
-{
-#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
-        dsError_t ret = dsERR_NONE;
-	if (false == _bIsAudioInitialized)
-	{
-		return dsERR_NOT_INITIALIZED;
-	}
-
-        if( ! dsIsValidHandle(handle) ) {
-                ret = dsERR_INVALID_PARAM;
-        }
-
-        if ( dsERR_NONE == ret ) {
-                const char *s_card = ALSA_CARD_NAME;
-                const char *element_name = ALSA_ELEMENT_NAME;
-
-                snd_mixer_elem_t *mixer_elem = NULL;
-                initAlsa(element_name,s_card,&mixer_elem);
-                if(mixer_elem == NULL) {
-                        printf("failed to initialize alsa!\n");
-                        return dsERR_GENERAL;
-                }
-
-                if(db < dBmin) {
-                        db = dBmin;
-                }
-                if(db > dBmax) {
-                        db = dBmax;
-                }
-
-                if(!snd_mixer_selem_set_playback_dB_all(mixer_elem, (long) db * 100, 0)) {
-                        ret = dsERR_NONE;
-                }
-                else {
-                        ret = dsERR_GENERAL;
-                }
-        }
-        return ret;
-#else
-        return dsERR_NONE;
-#endif
-}
-
-dsError_t dsSetAudioLevel(intptr_t handle, float level)
-{
- #ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
-        dsError_t ret = dsERR_NONE;
-	if (false == _bIsAudioInitialized)
-	{
-		return dsERR_NOT_INITIALIZED;
-	}
-        if( ! dsIsValidHandle(handle) || level < 0.0 || level > 100.0) {
-                ret = dsERR_INVALID_PARAM;
-        }
-
-        if ( dsERR_NONE == ret ) {
-                long vol_value, min, max;
-                const char *s_card = ALSA_CARD_NAME;
-                const char *element_name = ALSA_ELEMENT_NAME;
-
-                snd_mixer_elem_t *mixer_elem = NULL;
-                initAlsa(element_name,s_card,&mixer_elem);
-                if(mixer_elem == NULL) {
-                        printf("failed to initialize alsa!\n");
-                        return dsERR_GENERAL;
-                }
-                snd_mixer_selem_get_playback_volume_range(mixer_elem, &min, &max);
-		if(level != 0){
-			min=min/2;
-		}
-                vol_value = (long)(((level / 100.0) * (max - min)) + min);
-                if(snd_mixer_selem_set_playback_volume_all(mixer_elem, vol_value)) {
-                    printf("Failed to set Audio level\n");
-                }
-
-        }
-        return ret;
-#else
-        return dsERR_NONE;
-#endif
 }
 
 dsError_t dsEnableLoopThru(intptr_t handle, bool loopThru)
 {
-	if (false == _bIsAudioInitialized)
-	{
-		return dsERR_NOT_INITIALIZED;
-	}
-        if( ! dsIsValidHandle(handle)) {
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (!dsAudioIsValidHandle(handle))
+        {
                 return dsERR_INVALID_PARAM;
         }
-	return dsERR_OPERATION_NOT_SUPPORTED;
-}
-
-dsError_t dsAudioPortTerm()
-{
-	dsError_t ret = dsERR_NONE;
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	_bIsAudioInitialized = false;
-	return ret;
+        return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 bool dsCheckSurroundSupport()
 {
-     bool status = false;
-     int num_channels = 0;
-    for (int i=1; i<=8; i++) {
-      if (vc_tv_hdmi_audio_supported(EDID_AudioFormat_eAC3, i, EDID_AudioSampleRate_e44KHz, EDID_AudioSampleSize_16bit ) == 0)
-        num_channels = i;
-    }
+        bool status = false;
+        int num_channels = 0;
+        for (int i = 1; i <= 8; i++)
+        {
+                if (vc_tv_hdmi_audio_supported(EDID_AudioFormat_eAC3, i, EDID_AudioSampleRate_e44KHz, EDID_AudioSampleSize_16bit) == 0)
+                        num_channels = i;
+        }
 
-    if (num_channels)
-        status = true;
+        if (num_channels)
+                status = true;
 
-    return status;
+        return status;
 }
-dsError_t  dsGetAudioFormat(intptr_t handle, dsAudioFormat_t *audioFormat)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(audioFormat == NULL || !dsIsValidHandle(handle))
-	{
-        	return dsERR_INVALID_PARAM;
-	}
-   	return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t  dsGetDialogEnhancement(intptr_t handle, int *level)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(level == NULL || !dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t  dsSetDialogEnhancement(intptr_t handle, int level)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(!dsIsValidHandle(handle) || level < 0 || level > 16)
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t  dsGetDolbyVolumeMode(intptr_t handle, bool *mode)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(mode == NULL || !dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t  dsSetDolbyVolumeMode(intptr_t handle, bool mode)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(!dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t  dsGetIntelligentEqualizerMode(intptr_t handle, int *mode)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(mode == NULL || !dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t  dsSetIntelligentEqualizerMode(intptr_t handle, int mode)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-        if (!dsIsValidHandle(handle) || mode < 0 || mode > 6) 
-	{
-        	return dsERR_INVALID_PARAM; 
-    	}
-	return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t  dsGetVolumeLeveller(intptr_t handle, dsVolumeLeveller_t* volLeveller)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(volLeveller == NULL || !dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t  dsSetVolumeLeveller(intptr_t handle, dsVolumeLeveller_t volLeveller)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if (volLeveller.mode < 0 ||
-        	volLeveller.mode > 2 ||
-                volLeveller.level < 0 ||
-                volLeveller.level > 10 )
-        {
-                return dsERR_INVALID_PARAM;
-        }
-	if(!dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t  dsGetBassEnhancer(intptr_t handle, int *boost)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(boost == NULL || !dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t  dsSetBassEnhancer(intptr_t handle, int boost)
-{       
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(boost < 0 || boost > 100 || !dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t  dsIsSurroundDecoderEnabled(intptr_t handle, bool *enabled)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(enabled == NULL || !dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t  dsEnableSurroundDecoder(intptr_t handle, bool enabled)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(!dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t  dsGetDRCMode(intptr_t handle, int *mode)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(mode == NULL || !dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t  dsSetDRCMode(intptr_t handle, int mode)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(mode < 0 || mode > 1 || !dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t  dsGetSurroundVirtualizer(intptr_t handle, dsSurroundVirtualizer_t *virtualizer)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(virtualizer == NULL || !dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t  dsSetSurroundVirtualizer(intptr_t handle, dsSurroundVirtualizer_t virtualizer)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(!dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t  dsGetMISteering(intptr_t handle, bool *enabled)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(enabled == NULL || !dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t  dsSetMISteering(intptr_t handle, bool enabled)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(!dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t  dsGetGraphicEqualizerMode(intptr_t handle, int *mode)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(mode == NULL || !dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t  dsSetGraphicEqualizerMode(intptr_t handle, int mode)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(!dsIsValidHandle(handle) || mode < 0 || mode > 3)
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t  dsGetMS12AudioProfileList(intptr_t handle, dsMS12AudioProfileList_t* profiles)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(profiles == NULL || !dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t  dsGetMS12AudioProfile(intptr_t handle, char *profile)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(profile == NULL || !dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t dsGetSupportedARCTypes(intptr_t handle, int *types)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(types == NULL|| !dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t dsAudioSetSAD(intptr_t handle, dsAudioSADList_t sad_list)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if (!dsIsValidHandle(handle)) 
-	{
-        	return dsERR_INVALID_PARAM; 
-    	}
-	return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t dsAudioEnableARC(intptr_t handle, dsAudioARCStatus_t arcStatus)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(!dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t dsGetAudioDelay(intptr_t handle, uint32_t *audioDelayMs)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(audioDelayMs == NULL || !dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t dsSetAudioDelay(intptr_t handle, const uint32_t audioDelayMs)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(!dsIsValidHandle(handle) || audioDelayMs > 200)
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t dsGetAudioDelayOffset(intptr_t handle, uint32_t *audioDelayOffsetMs)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(audioDelayOffsetMs == NULL || !dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t dsSetAudioDelayOffset(intptr_t handle, const uint32_t audioDelayOffsetMs)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(!dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t dsSetAudioAtmosOutputMode(intptr_t handle, bool enable)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(!dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
+
 dsError_t dsGetSinkDeviceAtmosCapability(intptr_t handle, dsATMOSCapability_t *capability)
 {
-	if (false == _bIsAudioInitialized)
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-	if(capability == NULL || !dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t  dsEnableMS12Config(intptr_t handle, dsMS12FEATURE_t feature,const bool enable)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(!dsIsValidHandle(handle))
+        if (capability == NULL || !dsAudioIsValidHandle(handle))
         {
                 return dsERR_INVALID_PARAM;
         }
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
-dsError_t  dsEnableLEConfig(intptr_t handle, const bool enable)
+dsError_t dsEnableMS12Config(intptr_t handle, dsMS12FEATURE_t feature, const bool enable)
 {
-	if (false == _bIsAudioInitialized)
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-	if(!dsIsValidHandle(handle))
+        if (!dsAudioIsValidHandle(handle))
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsEnableLEConfig(intptr_t handle, const bool enable)
+{
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (!dsAudioIsValidHandle(handle))
         {
                 return dsERR_INVALID_PARAM;
         }
@@ -1193,59 +2715,59 @@ dsError_t  dsEnableLEConfig(intptr_t handle, const bool enable)
 }
 dsError_t dsGetLEConfig(intptr_t handle, bool *enable)
 {
-	if (false == _bIsAudioInitialized)
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-	if(!dsIsValidHandle(handle) || enable == NULL)
+        if (!dsAudioIsValidHandle(handle) || enable == NULL)
         {
                 return dsERR_INVALID_PARAM;
         }
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
-dsError_t  dsSetMS12AudioProfile(intptr_t handle, const char* profile)
+dsError_t dsSetMS12AudioProfile(intptr_t handle, const char *profile)
 {
-	if (false == _bIsAudioInitialized)
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-	if(!dsIsValidHandle(handle) || profile == NULL)
+        if (!dsAudioIsValidHandle(handle) || profile == NULL)
         {
                 return dsERR_INVALID_PARAM;
         }
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
-dsError_t  dsSetAudioDucking(intptr_t handle, dsAudioDuckingAction_t action, dsAudioDuckingType_t type, const unsigned char level)
+dsError_t dsSetAudioDucking(intptr_t handle, dsAudioDuckingAction_t action, dsAudioDuckingType_t type, const unsigned char level)
 {
-	if (false == _bIsAudioInitialized)
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-	if(!dsIsValidHandle(handle) || level > 100)
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t  dsIsAudioMS12Decode(intptr_t handle, bool *hasMS12Decode)
-{       
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(!dsIsValidHandle(handle) || hasMS12Decode == NULL)
+        if (!dsAudioIsValidHandle(handle) || level > 100)
         {
                 return dsERR_INVALID_PARAM;
         }
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
-dsError_t dsAudioOutIsConnected(intptr_t handle, bool* isConnected)
+dsError_t dsIsAudioMS12Decode(intptr_t handle, bool *hasMS12Decode)
 {
-	if (false == _bIsAudioInitialized)
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-	if(!dsIsValidHandle(handle) || isConnected == NULL)
+        if (!dsAudioIsValidHandle(handle) || hasMS12Decode == NULL)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsAudioOutIsConnected(intptr_t handle, bool *isConnected)
+{
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (!dsAudioIsValidHandle(handle) || isConnected == NULL)
         {
                 return dsERR_INVALID_PARAM;
         }
@@ -1253,59 +2775,59 @@ dsError_t dsAudioOutIsConnected(intptr_t handle, bool* isConnected)
 }
 dsError_t dsAudioOutRegisterConnectCB(dsAudioOutPortConnectCB_t CBFunc)
 {
-	if (false == _bIsAudioInitialized)
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-	if(CBFunc == NULL)
+        if (CBFunc == NULL)
         {
                 return dsERR_INVALID_PARAM;
         }
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
 dsError_t dsAudioFormatUpdateRegisterCB(dsAudioFormatUpdateCB_t cbFun)
-{      
-	if (false == _bIsAudioInitialized)
+{
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-	if(cbFun == NULL)
+        if (cbFun == NULL)
         {
                 return dsERR_INVALID_PARAM;
         }
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
-dsError_t dsAudioAtmosCapsChangeRegisterCB (dsAtmosCapsChangeCB_t cbFun)
+dsError_t dsAudioAtmosCapsChangeRegisterCB(dsAtmosCapsChangeCB_t cbFun)
 {
-	if (false == _bIsAudioInitialized)
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-	if(cbFun == NULL)
+        if (cbFun == NULL)
         {
                 return dsERR_INVALID_PARAM;
         }
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
 dsError_t dsGetAudioCapabilities(intptr_t handle, int *capabilities)
-{       
-	if (false == _bIsAudioInitialized)
+{
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-	if(!dsIsValidHandle(handle) || capabilities == NULL)
+        if (!dsAudioIsValidHandle(handle) || capabilities == NULL)
         {
                 return dsERR_INVALID_PARAM;
         }
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
 dsError_t dsGetMS12Capabilities(intptr_t handle, int *capabilities)
-{      
-	if (false == _bIsAudioInitialized)
+{
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-	if(!dsIsValidHandle(handle) || capabilities == NULL)
+        if (!dsAudioIsValidHandle(handle) || capabilities == NULL)
         {
                 return dsERR_INVALID_PARAM;
         }
@@ -1313,11 +2835,11 @@ dsError_t dsGetMS12Capabilities(intptr_t handle, int *capabilities)
 }
 dsError_t dsResetDialogEnhancement(intptr_t handle)
 {
-	if (false == _bIsAudioInitialized)
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-	if(!dsIsValidHandle(handle))
+        if (!dsAudioIsValidHandle(handle))
         {
                 return dsERR_INVALID_PARAM;
         }
@@ -1325,11 +2847,11 @@ dsError_t dsResetDialogEnhancement(intptr_t handle)
 }
 dsError_t dsResetBassEnhancer(intptr_t handle)
 {
-	if (false == _bIsAudioInitialized)
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-	if(!dsIsValidHandle(handle))
+        if (!dsAudioIsValidHandle(handle))
         {
                 return dsERR_INVALID_PARAM;
         }
@@ -1337,11 +2859,11 @@ dsError_t dsResetBassEnhancer(intptr_t handle)
 }
 dsError_t dsResetSurroundVirtualizer(intptr_t handle)
 {
-	if (false == _bIsAudioInitialized)
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-	if(!dsIsValidHandle(handle))
+        if (!dsAudioIsValidHandle(handle))
         {
                 return dsERR_INVALID_PARAM;
         }
@@ -1349,11 +2871,11 @@ dsError_t dsResetSurroundVirtualizer(intptr_t handle)
 }
 dsError_t dsResetVolumeLeveller(intptr_t handle)
 {
-	if (false == _bIsAudioInitialized)
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-	if(!dsIsValidHandle(handle))
+        if (!dsAudioIsValidHandle(handle))
         {
                 return dsERR_INVALID_PARAM;
         }
@@ -1361,95 +2883,95 @@ dsError_t dsResetVolumeLeveller(intptr_t handle)
 }
 dsError_t dsSetAssociatedAudioMixing(intptr_t handle, bool mixing)
 {
-	if (false == _bIsAudioInitialized)
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-	if(!dsIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t  dsGetAssociatedAudioMixing(intptr_t handle, bool *mixing)
-{
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-	if(!dsIsValidHandle(handle) || mixing == NULL)
+        if (!dsAudioIsValidHandle(handle))
         {
                 return dsERR_INVALID_PARAM;
         }
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
-dsError_t  dsSetFaderControl(intptr_t handle, int mixerbalance)
+dsError_t dsGetAssociatedAudioMixing(intptr_t handle, bool *mixing)
 {
-	if (false == _bIsAudioInitialized)
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-	if(!dsIsValidHandle(handle) ||  mixerbalance < -32 || mixerbalance > 32)
+        if (!dsAudioIsValidHandle(handle) || mixing == NULL)
         {
                 return dsERR_INVALID_PARAM;
         }
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
-dsError_t  dsGetFaderControl(intptr_t handle, int* mixerbalance)
+dsError_t dsSetFaderControl(intptr_t handle, int mixerbalance)
 {
-	if (false == _bIsAudioInitialized)
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-	if(!dsIsValidHandle(handle) ||  mixerbalance == NULL)
+        if (!dsAudioIsValidHandle(handle) || mixerbalance < -32 || mixerbalance > 32)
         {
                 return dsERR_INVALID_PARAM;
         }
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
-dsError_t  dsSetPrimaryLanguage(intptr_t handle, const char* pLang)
+dsError_t dsGetFaderControl(intptr_t handle, int *mixerbalance)
 {
-	if (false == _bIsAudioInitialized)
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-	if(!dsIsValidHandle(handle) ||  pLang == NULL)
+        if (!dsAudioIsValidHandle(handle) || mixerbalance == NULL)
         {
                 return dsERR_INVALID_PARAM;
         }
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
-dsError_t  dsGetPrimaryLanguage(intptr_t handle, char* pLang)
+dsError_t dsSetPrimaryLanguage(intptr_t handle, const char *pLang)
 {
-	if (false == _bIsAudioInitialized)
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-	if(!dsIsValidHandle(handle)  ||  pLang == NULL)
+        if (!dsAudioIsValidHandle(handle) || pLang == NULL)
         {
                 return dsERR_INVALID_PARAM;
         }
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
-dsError_t  dsSetSecondaryLanguage(intptr_t handle, const char* sLang)
+dsError_t dsGetPrimaryLanguage(intptr_t handle, char *pLang)
 {
-	if (false == _bIsAudioInitialized)
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-	if(!dsIsValidHandle(handle) ||  sLang == NULL)
+        if (!dsAudioIsValidHandle(handle) || pLang == NULL)
         {
                 return dsERR_INVALID_PARAM;
         }
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
-dsError_t  dsGetSecondaryLanguage(intptr_t handle, char* sLang)
+dsError_t dsSetSecondaryLanguage(intptr_t handle, const char *sLang)
 {
-	if (false == _bIsAudioInitialized)
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-	if(!dsIsValidHandle(handle) ||  sLang == NULL)
+        if (!dsAudioIsValidHandle(handle) || sLang == NULL)
+        {
+                return dsERR_INVALID_PARAM;
+        }
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+dsError_t dsGetSecondaryLanguage(intptr_t handle, char *sLang)
+{
+        if (false == _bIsAudioInitialized)
+        {
+                return dsERR_NOT_INITIALIZED;
+        }
+        if (!dsAudioIsValidHandle(handle) || sLang == NULL)
         {
                 return dsERR_INVALID_PARAM;
         }
@@ -1457,23 +2979,23 @@ dsError_t  dsGetSecondaryLanguage(intptr_t handle, char* sLang)
 }
 dsError_t dsGetHDMIARCPortId(int *portId)
 {
-	if (false == _bIsAudioInitialized)
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-	if(portId == NULL)
+        if (portId == NULL)
         {
                 return dsERR_INVALID_PARAM;
         }
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
-dsError_t dsSetAudioMixerLevels (intptr_t handle, dsAudioInput_t aInput, int volume)
+dsError_t dsSetAudioMixerLevels(intptr_t handle, dsAudioInput_t aInput, int volume)
 {
-	if (false == _bIsAudioInitialized)
+        if (false == _bIsAudioInitialized)
         {
-		return dsERR_NOT_INITIALIZED;
+                return dsERR_NOT_INITIALIZED;
         }
-	if(!dsIsValidHandle(handle) || volume < 0 || volume > 100)
+        if (!dsAudioIsValidHandle(handle) || volume < 0 || volume > 100)
         {
                 return dsERR_INVALID_PARAM;
         }
