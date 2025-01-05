@@ -592,7 +592,6 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 {
     hal_dbg("invoked.\n");
     const char *resolution_name = NULL;
-    // uint32_t hdmi_mode;
     if (false == _bIsVideoPortInitialized)
     {
         return dsERR_NOT_INITIALIZED;
@@ -601,7 +600,7 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
     {
         return dsERR_INVALID_PARAM;
     }
-    TV_DISPLAY_STATE_T tv_state;
+    TV_DISPLAY_STATE_T tvstate;
     if (vc_tv_get_display_state(&tvstate) == 0)
     {
         hal_dbg("vc_tv_get_display_state: 0x%X\n", tvstate.state);
