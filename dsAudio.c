@@ -1542,7 +1542,6 @@ dsError_t dsGetAudioGain(intptr_t handle, float *gain)
 {
         hal_dbg("Invoked.\n");
 #ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
-        dsError_t ret = dsERR_NONE;
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -1789,7 +1788,6 @@ dsError_t dsSetAudioDB(intptr_t handle, float db)
 {
         hal_dbg("Invoked.\n");
 #ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
-        dsError_t ret = dsERR_NONE;
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -1933,7 +1931,7 @@ dsError_t dsSetAudioLevel(intptr_t handle, float level)
         }
         if (!dsAudioIsValidHandle(handle) || level < 0.0 || level > 100.0)
         {
-                ret = dsERR_INVALID_PARAM;
+                return dsERR_INVALID_PARAM;
         }
 
         long vol_value, min, max;
