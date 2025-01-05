@@ -50,7 +50,6 @@ typedef struct _AOPHandle_t
 static AOPHandle_t _handles[dsAUDIOPORT_TYPE_MAX][2] = {};
 float dBmin;
 float dBmax;
-static dsAudioEncoding_t _encoding = dsAUDIO_ENC_PCM;
 static bool _isms11Enabled = false;
 static dsAudioStereoMode_t _stereoModeHDMI = dsAUDIO_STEREO_STEREO;
 static bool _bIsAudioInitialized = false;
@@ -315,17 +314,6 @@ dsAudioEncoding_t mapAudioFormat(snd_pcm_format_t format)
         case SND_PCM_FORMAT_S18_3BE:
         case SND_PCM_FORMAT_U18_3LE:
         case SND_PCM_FORMAT_U18_3BE:
-        case SND_PCM_FORMAT_S16:
-        case SND_PCM_FORMAT_U16:
-        case SND_PCM_FORMAT_S24:
-        case SND_PCM_FORMAT_U24:
-        case SND_PCM_FORMAT_S32:
-        case SND_PCM_FORMAT_U32:
-        case SND_PCM_FORMAT_FLOAT:
-        case SND_PCM_FORMAT_FLOAT64:
-        case SND_PCM_FORMAT_IEC958_SUBFRAME:
-        case SND_PCM_FORMAT_S20:
-        case SND_PCM_FORMAT_U20:
                 return dsAUDIO_ENC_PCM;
 #if 0 // Not defined ?
         case SND_PCM_FORMAT_AC3:
@@ -547,17 +535,6 @@ dsAudioFormat_t mapToAudioFormat(snd_pcm_format_t format)
         case SND_PCM_FORMAT_S18_3BE:
         case SND_PCM_FORMAT_U18_3LE:
         case SND_PCM_FORMAT_U18_3BE:
-        case SND_PCM_FORMAT_S16:
-        case SND_PCM_FORMAT_U16:
-        case SND_PCM_FORMAT_S24:
-        case SND_PCM_FORMAT_U24:
-        case SND_PCM_FORMAT_S32:
-        case SND_PCM_FORMAT_U32:
-        case SND_PCM_FORMAT_FLOAT:
-        case SND_PCM_FORMAT_FLOAT64:
-        case SND_PCM_FORMAT_IEC958_SUBFRAME:
-        case SND_PCM_FORMAT_S20:
-        case SND_PCM_FORMAT_U20:
                 return dsAUDIO_FORMAT_PCM;
 #if 0 // Not defined ?
         case SND_PCM_FORMAT_AC3:
@@ -626,9 +603,9 @@ dsError_t dsGetAudioFormat(intptr_t handle, dsAudioFormat_t *audioFormat)
                 snd_pcm_close(pcm_handle);
                 return dsERR_GENERAL;
         }
-        *format = mapToAudioFormat(alsa_format);
+        *audioFormat = mapToAudioFormat(alsa_format);
         snd_pcm_close(pcm_handle);
-        hal_dbg("Audio format is %d.\n", *format);
+        hal_dbg("Audio format is %d.\n", *audioFormat);
         return dsERR_NONE;
 }
 
