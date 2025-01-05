@@ -265,6 +265,37 @@ dsError_t dsGetAudioPort(dsAudioPortType_t type, int index, intptr_t *handle)
 }
 
 /**
+ * @brief maps the audio format to dsAudioEncoding_t
+ * @param[in] format - audio format
+ * @return dsAudioEncoding_t - audio encoding type
+ */
+dsAudioEncoding_t mapAudioFormat(snd_pcm_format_t format)
+{
+        switch (format)
+        {
+        case SND_PCM_FORMAT_S16_LE:
+        case SND_PCM_FORMAT_S16_BE:
+        case SND_PCM_FORMAT_S32_LE:
+        case SND_PCM_FORMAT_S32_BE:
+        case SND_PCM_FORMAT_S8:
+        case SND_PCM_FORMAT_U8:
+        case SND_PCM_FORMAT_S24_LE:
+        case SND_PCM_FORMAT_S24_BE:
+        case SND_PCM_FORMAT_U24_LE:
+        case SND_PCM_FORMAT_U24_BE:
+        case SND_PCM_FORMAT_FLOAT_LE:
+        case SND_PCM_FORMAT_FLOAT_BE:
+                return dsAUDIO_ENC_PCM;
+        case SND_PCM_FORMAT_AC3:
+                return dsAUDIO_ENC_AC3;
+        case SND_PCM_FORMAT_EAC3:
+                return dsAUDIO_ENC_EAC3;
+        default:
+                return dsAUDIO_ENC_NONE;
+        }
+}
+
+/**
  * @brief Gets the encoding type of an audio port
  *
  * This function returns the current audio encoding setting for the specified audio port.
@@ -308,45 +339,42 @@ dsError_t dsGetAudioEncoding(intptr_t handle, dsAudioEncoding_t *encoding)
                 hal_err("Error opening PCM device: '%s'\n", snd_strerror(err));
                 return dsERR_GENERAL;
         }
-
         snd_pcm_hw_params_alloca(&params);
-
         if ((err = snd_pcm_hw_params_any(pcm_handle, params)) < 0)
         {
                 hal_err("Error initializing hardware parameter structure: '%s'\n", snd_strerror(err));
                 snd_pcm_close(pcm_handle);
                 return dsERR_GENERAL;
         }
-        hal_dbg("PCM parameters initialized.\n");
         if ((err = snd_pcm_hw_params_get_format(params, &format)) < 0)
         {
                 hal_err("Error getting PCM format: '%s'\n", snd_strerror(err));
                 snd_pcm_close(pcm_handle);
                 return dsERR_GENERAL;
         }
-
-        switch (format)
-        {
-        case SND_PCM_FORMAT_S16_LE:
-        case SND_PCM_FORMAT_S16_BE:
-        case SND_PCM_FORMAT_S32_LE:
-        case SND_PCM_FORMAT_S32_BE:
-                *encoding = dsAUDIO_ENC_PCM;
-                break;
-        case SND_PCM_FORMAT_AC3:
-                *encoding = dsAUDIO_ENC_AC3;
-                break;
-        case SND_PCM_FORMAT_EAC3:
-                *encoding = dsAUDIO_ENC_EAC3;
-                break;
-        default:
-                hal_err("Unsupported audio format(snd_pcm_hw_params_get_format) 0x%X.\n", format);
-                snd_pcm_close(pcm_handle);
-                return dsERR_OPERATION_NOT_SUPPORTED;
-        }
-
+        *encoding = mapAudioFormat(format);
         snd_pcm_close(pcm_handle);
         return dsERR_NONE;
+}
+
+/**
+ * @brief maps the audio encoding to snd_pcm_format_t
+ * @param[in] encoding - RDK audio encoding type
+ * @return snd_pcm_format_t - audio format
+ */
+snd_pcm_format_t mapToAlsaFormat(dsAudioEncoding_t encoding)
+{
+        switch (encoding)
+        {
+        case dsAUDIO_ENC_PCM:
+                return SND_PCM_FORMAT_S16_LE; // Example format, choose the appropriate one
+        case dsAUDIO_ENC_AC3:
+                return SND_PCM_FORMAT_AC3;
+        case dsAUDIO_ENC_EAC3:
+                return SND_PCM_FORMAT_EAC3;
+        default:
+                return SND_PCM_FORMAT_UNKNOWN;
+        }
 }
 
 /**
@@ -381,7 +409,47 @@ dsError_t dsSetAudioEncoding(intptr_t handle, dsAudioEncoding_t encoding)
         {
                 return dsERR_INVALID_PARAM;
         }
-        _encoding = encoding;
+
+        snd_pcm_t *pcm_handle;
+        snd_pcm_hw_params_t *params;
+        snd_pcm_format_t alsa_format;
+        int err;
+        alsa_format = mapToAlsaFormat(encoding);
+        if (alsa_format == SND_PCM_FORMAT_UNKNOWN)
+        {
+                return dsERR_OPERATION_NOT_SUPPORTED;
+        }
+
+        if ((err = snd_pcm_open(&pcm_handle, "default", SND_PCM_STREAM_PLAYBACK, 0)) < 0)
+        {
+                hal_err("Error opening PCM device: '%s'\n", snd_strerror(err));
+                return dsERR_GENERAL;
+        }
+
+        snd_pcm_hw_params_alloca(&params);
+
+        if ((err = snd_pcm_hw_params_any(pcm_handle, params)) < 0)
+        {
+                hal_err("Error initializing hardware parameter structure: '%s'\n", snd_strerror(err));
+                snd_pcm_close(pcm_handle);
+                return dsERR_GENERAL;
+        }
+
+        if ((err = snd_pcm_hw_params_set_format(pcm_handle, params, alsa_format)) < 0)
+        {
+                hal_err("Error setting PCM format: '%s'\n", snd_strerror(err));
+                snd_pcm_close(pcm_handle);
+                return dsERR_GENERAL;
+        }
+
+        if ((err = snd_pcm_hw_params(pcm_handle, params)) < 0)
+        {
+                hal_err("Error setting hardware parameters: '%s'\n", snd_strerror(err));
+                snd_pcm_close(pcm_handle);
+                return dsERR_GENERAL;
+        }
+
+        snd_pcm_close(pcm_handle);
         return dsERR_NONE;
 }
 
@@ -571,6 +639,21 @@ dsError_t dsGetAudioCompression(intptr_t handle, int *compression)
 }
 
 /**
+ * @brief maps the RDK audio compression level to long
+ * @param[in] compression - audio compression level
+ * @return long - audio compression value
+ */
+long mapCompressionLevel(int compression)
+{
+        if (compression < 0)
+                return 0;
+        else if (compression > 10)
+                return 10;
+        else
+                return compression;
+}
+
+/**
  * @brief Sets the audio compression of an audio port.
  *
  * This function sets the audio compression level(non-MS12) to be used on the audio port corresponding to the specified port handle.
@@ -602,7 +685,59 @@ dsError_t dsSetAudioCompression(intptr_t handle, int compression)
         {
                 return dsERR_INVALID_PARAM;
         }
-        return dsERR_OPERATION_NOT_SUPPORTED;
+
+        snd_mixer_t *mixer_handle;
+        snd_mixer_elem_t *elem;
+        snd_mixer_selem_id_t *sid;
+        long value = 0;
+        int err;
+        value = mapCompressionLevel(compression);
+        hal_dbg("Setting the compression value to %ld.\n", value);
+
+        if ((err = snd_mixer_open(&mixer_handle, 0)) < 0)
+        {
+                hal_err("Error opening mixer: '%s'\n", snd_strerror(err));
+                return dsERR_GENERAL;
+        }
+
+        if ((err = snd_mixer_attach(mixer_handle, "default")) < 0)
+        {
+                hal_err("Error attaching mixer: '%s'\n", snd_strerror(err));
+                snd_mixer_close(mixer_handle);
+                return dsERR_GENERAL;
+        }
+
+        if ((err = snd_mixer_selem_register(mixer_handle, NULL, NULL)) < 0)
+        {
+                hal_err("Error registering mixer: '%s'\n", snd_strerror(err));
+                snd_mixer_close(mixer_handle);
+                return dsERR_GENERAL;
+        }
+
+        if ((err = snd_mixer_load(mixer_handle)) < 0)
+        {
+                hal_err("Error loading mixer elements: '%s'\n", snd_strerror(err));
+                snd_mixer_close(mixer_handle);
+                return dsERR_GENERAL;
+        }
+
+        snd_mixer_selem_id_alloca(&sid);
+        snd_mixer_selem_id_set_name(sid, AUDIO_COMPRESSION_CONTROL);
+        elem = snd_mixer_find_selem(mixer_handle, sid);
+        if (!elem)
+        {
+                hal_err("Error finding mixer element: '%s'\n", AUDIO_COMPRESSION_CONTROL);
+                snd_mixer_close(mixer_handle);
+                return dsERR_GENERAL;
+        }
+        if ((err = snd_mixer_selem_set_playback_volume_all(elem, value)) < 0)
+        {
+                hal_err("Error setting playback volume: '%s'\n", snd_strerror(err));
+                snd_mixer_close(mixer_handle);
+                return dsERR_GENERAL;
+        }
+        snd_mixer_close(mixer_handle);
+        return dsERR_NONE;
 }
 
 /**
@@ -1621,7 +1756,6 @@ dsError_t dsSetStereoAuto(intptr_t handle, int autoMode)
 dsError_t dsGetAudioGain(intptr_t handle, float *gain)
 {
         hal_dbg("Invoked.\n");
-#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -1680,9 +1814,6 @@ dsError_t dsGetAudioGain(intptr_t handle, float *gain)
         }
         hal_warn("%s: dsGetAudioGain: Gain %.2f\n", *gain);
         return dsERR_NONE;
-#else
-        return dsERR_NONE;
-#endif
 }
 
 /**
@@ -1710,7 +1841,6 @@ dsError_t dsGetAudioGain(intptr_t handle, float *gain)
 dsError_t dsSetAudioGain(intptr_t handle, float gain)
 {
         hal_dbg("Invoked.\n");
-#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -1774,9 +1904,6 @@ dsError_t dsSetAudioGain(intptr_t handle, float gain)
                 hal_dbg(" Setting gain in dB: %.2f \n", floatval / 100.0);
         }
         return dsERR_NONE;
-#else
-        return dsERR_NONE;
-#endif
 }
 
 /**
@@ -1804,7 +1931,6 @@ dsError_t dsSetAudioGain(intptr_t handle, float gain)
 dsError_t dsGetAudioDB(intptr_t handle, float *db)
 {
         hal_dbg("Invoked.\n");
-#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -1836,9 +1962,6 @@ dsError_t dsGetAudioDB(intptr_t handle, float *db)
         }
         hal_warn("%s: Gain DB %.2f\n", *db);
         return dsERR_NONE;
-#else
-        return dsERR_NONE;
-#endif
 }
 
 /**
@@ -1867,7 +1990,6 @@ dsError_t dsGetAudioDB(intptr_t handle, float *db)
 dsError_t dsSetAudioDB(intptr_t handle, float db)
 {
         hal_dbg("Invoked.\n");
-#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -1906,9 +2028,6 @@ dsError_t dsSetAudioDB(intptr_t handle, float db)
                 return dsERR_GENERAL;
         }
         return dsERR_NONE;
-#else
-        return dsERR_NONE;
-#endif
 }
 
 /**
@@ -1935,7 +2054,6 @@ dsError_t dsSetAudioDB(intptr_t handle, float db)
 dsError_t dsGetAudioLevel(intptr_t handle, float *level)
 {
         hal_dbg("Invoked.\n");
-#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -1975,9 +2093,6 @@ dsError_t dsGetAudioLevel(intptr_t handle, float *level)
         }
         hal_warn("%s: Volume Level %.2f\n", *level);
         return dsERR_NONE;
-#else
-        return dsERR_NONE;
-#endif
 }
 
 /**
@@ -2004,7 +2119,6 @@ dsError_t dsGetAudioLevel(intptr_t handle, float *level)
 dsError_t dsSetAudioLevel(intptr_t handle, float level)
 {
         hal_dbg("Invoked.\n");
-#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2049,9 +2163,6 @@ dsError_t dsSetAudioLevel(intptr_t handle, float level)
                 hal_dbg(" Set volume to %ld\n", vol_value);
         }
         return dsERR_NONE;
-#else
-        return dsERR_NONE;
-#endif
 }
 
 /**
@@ -2499,6 +2610,7 @@ dsError_t dsSetAudioAtmosOutputMode(intptr_t handle, bool enable)
 
 dsError_t dsGetStereoMode(intptr_t handle, dsAudioStereoMode_t *stereoMode)
 {
+        hal_dbg("Invoked.\n");
         dsError_t ret = dsERR_NONE;
         if (false == _bIsAudioInitialized)
         {
@@ -2514,14 +2626,13 @@ dsError_t dsGetStereoMode(intptr_t handle, dsAudioStereoMode_t *stereoMode)
 
 dsError_t dsGetPersistedStereoMode(intptr_t handle, dsAudioStereoMode_t *stereoMode)
 {
-        return dsERR_NONE;
+        hal_dbg("Invoked.\n");
+        return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 dsError_t dsIsAudioMute(intptr_t handle, bool *muted)
 {
-#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
-        printf("Inside %s :%d\n", __FUNCTION__, __LINE__);
-        dsError_t ret = dsERR_NONE;
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2554,23 +2665,19 @@ dsError_t dsIsAudioMute(intptr_t handle, bool *muted)
         }
         else
         {
-                ret = dsERR_GENERAL;
+                return dsERR_GENERAL;
         }
-        return ret;
-#else
         return dsERR_NONE;
-#endif
 }
 
 dsError_t dsSetAudioMute(intptr_t handle, bool mute)
 {
+        hal_dbg("Invoked.\n");
 #ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
-        printf("Inside %s :%d\n", __FUNCTION__, __LINE__);
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
         }
-        dsError_t ret = dsERR_NONE;
         if (!dsAudioIsValidHandle(handle))
         {
                 return dsERR_INVALID_PARAM;
@@ -2581,7 +2688,7 @@ dsError_t dsSetAudioMute(intptr_t handle, bool mute)
         initAlsa(element_name, s_card, &mixer_elem);
         if (mixer_elem == NULL)
         {
-                printf("failed to initialize alsa!\n");
+                hal_err("failed to initialize alsa, mixer_elem is NULL!\n");
                 return dsERR_GENERAL;
         }
         if (snd_mixer_selem_has_playback_switch(mixer_elem))
@@ -2589,23 +2696,19 @@ dsError_t dsSetAudioMute(intptr_t handle, bool mute)
                 snd_mixer_selem_set_playback_switch_all(mixer_elem, !mute);
                 if (mute)
                 {
-                        printf("Audio Mute success\n");
+                        hal_dbg("Audio Mute success.\n");
                 }
                 else
                 {
-                        printf("Audio Unmute success.\n");
+                        hal_dbg("Audio Unmute success.\n");
                 }
         }
-        return ret;
-#else
         return dsERR_NONE;
-#endif
 }
 
 dsError_t dsIsAudioPortEnabled(intptr_t handle, bool *enabled)
 {
-        printf("Inside %s :%d\n", __FUNCTION__, __LINE__);
-        dsError_t ret = dsERR_NONE;
+        hal_dbg("Invoked.\n");
         bool audioEnabled = true;
         if (false == _bIsAudioInitialized)
         {
@@ -2615,17 +2718,17 @@ dsError_t dsIsAudioPortEnabled(intptr_t handle, bool *enabled)
         {
                 return dsERR_INVALID_PARAM;
         }
-        ret = dsIsAudioMute(handle, &audioEnabled);
-        if (ret == dsERR_NONE)
+        if (dsIsAudioMute(handle, &audioEnabled) == dsERR_NONE)
         {
                 *enabled = !audioEnabled;
+                return dsERR_NONE;
         }
-        return ret;
+        return dsERR_GENERAL;
 }
 
 dsError_t dsEnableAudioPort(intptr_t handle, bool enabled)
 {
-        printf("Inside %s :%d\n", __FUNCTION__, __LINE__);
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2639,6 +2742,7 @@ dsError_t dsEnableAudioPort(intptr_t handle, bool enabled)
 
 dsError_t dsIsAudioLoopThru(intptr_t handle, bool *loopThru)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2652,7 +2756,7 @@ dsError_t dsIsAudioLoopThru(intptr_t handle, bool *loopThru)
 
 dsError_t dsIsAudioMSDecode(intptr_t handle, bool *ms11Enabled)
 {
-        dsError_t ret = dsERR_NONE;
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2662,11 +2766,12 @@ dsError_t dsIsAudioMSDecode(intptr_t handle, bool *ms11Enabled)
                 return dsERR_INVALID_PARAM;
         }
         *ms11Enabled = _isms11Enabled;
-        return ret;
+        return dsERR_NONE;
 }
 
 dsError_t dsEnableLoopThru(intptr_t handle, bool loopThru)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2680,6 +2785,7 @@ dsError_t dsEnableLoopThru(intptr_t handle, bool loopThru)
 
 bool dsCheckSurroundSupport()
 {
+        hal_dbg("Invoked.\n");
         bool status = false;
         int num_channels = 0;
         for (int i = 1; i <= 8; i++)
@@ -2696,6 +2802,7 @@ bool dsCheckSurroundSupport()
 
 dsError_t dsGetSinkDeviceAtmosCapability(intptr_t handle, dsATMOSCapability_t *capability)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2708,6 +2815,7 @@ dsError_t dsGetSinkDeviceAtmosCapability(intptr_t handle, dsATMOSCapability_t *c
 }
 dsError_t dsEnableMS12Config(intptr_t handle, dsMS12FEATURE_t feature, const bool enable)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2720,6 +2828,7 @@ dsError_t dsEnableMS12Config(intptr_t handle, dsMS12FEATURE_t feature, const boo
 }
 dsError_t dsEnableLEConfig(intptr_t handle, const bool enable)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2732,6 +2841,7 @@ dsError_t dsEnableLEConfig(intptr_t handle, const bool enable)
 }
 dsError_t dsGetLEConfig(intptr_t handle, bool *enable)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2744,6 +2854,7 @@ dsError_t dsGetLEConfig(intptr_t handle, bool *enable)
 }
 dsError_t dsSetMS12AudioProfile(intptr_t handle, const char *profile)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2756,6 +2867,7 @@ dsError_t dsSetMS12AudioProfile(intptr_t handle, const char *profile)
 }
 dsError_t dsSetAudioDucking(intptr_t handle, dsAudioDuckingAction_t action, dsAudioDuckingType_t type, const unsigned char level)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2768,6 +2880,7 @@ dsError_t dsSetAudioDucking(intptr_t handle, dsAudioDuckingAction_t action, dsAu
 }
 dsError_t dsIsAudioMS12Decode(intptr_t handle, bool *hasMS12Decode)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2780,6 +2893,7 @@ dsError_t dsIsAudioMS12Decode(intptr_t handle, bool *hasMS12Decode)
 }
 dsError_t dsAudioOutIsConnected(intptr_t handle, bool *isConnected)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2792,6 +2906,7 @@ dsError_t dsAudioOutIsConnected(intptr_t handle, bool *isConnected)
 }
 dsError_t dsAudioOutRegisterConnectCB(dsAudioOutPortConnectCB_t CBFunc)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2804,6 +2919,7 @@ dsError_t dsAudioOutRegisterConnectCB(dsAudioOutPortConnectCB_t CBFunc)
 }
 dsError_t dsAudioFormatUpdateRegisterCB(dsAudioFormatUpdateCB_t cbFun)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2816,6 +2932,7 @@ dsError_t dsAudioFormatUpdateRegisterCB(dsAudioFormatUpdateCB_t cbFun)
 }
 dsError_t dsAudioAtmosCapsChangeRegisterCB(dsAtmosCapsChangeCB_t cbFun)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2828,6 +2945,7 @@ dsError_t dsAudioAtmosCapsChangeRegisterCB(dsAtmosCapsChangeCB_t cbFun)
 }
 dsError_t dsGetAudioCapabilities(intptr_t handle, int *capabilities)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2840,6 +2958,7 @@ dsError_t dsGetAudioCapabilities(intptr_t handle, int *capabilities)
 }
 dsError_t dsGetMS12Capabilities(intptr_t handle, int *capabilities)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2852,6 +2971,7 @@ dsError_t dsGetMS12Capabilities(intptr_t handle, int *capabilities)
 }
 dsError_t dsResetDialogEnhancement(intptr_t handle)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2864,6 +2984,7 @@ dsError_t dsResetDialogEnhancement(intptr_t handle)
 }
 dsError_t dsResetBassEnhancer(intptr_t handle)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2876,6 +2997,7 @@ dsError_t dsResetBassEnhancer(intptr_t handle)
 }
 dsError_t dsResetSurroundVirtualizer(intptr_t handle)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2888,6 +3010,7 @@ dsError_t dsResetSurroundVirtualizer(intptr_t handle)
 }
 dsError_t dsResetVolumeLeveller(intptr_t handle)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2900,6 +3023,7 @@ dsError_t dsResetVolumeLeveller(intptr_t handle)
 }
 dsError_t dsSetAssociatedAudioMixing(intptr_t handle, bool mixing)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2912,6 +3036,7 @@ dsError_t dsSetAssociatedAudioMixing(intptr_t handle, bool mixing)
 }
 dsError_t dsGetAssociatedAudioMixing(intptr_t handle, bool *mixing)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2924,6 +3049,7 @@ dsError_t dsGetAssociatedAudioMixing(intptr_t handle, bool *mixing)
 }
 dsError_t dsSetFaderControl(intptr_t handle, int mixerbalance)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2936,6 +3062,7 @@ dsError_t dsSetFaderControl(intptr_t handle, int mixerbalance)
 }
 dsError_t dsGetFaderControl(intptr_t handle, int *mixerbalance)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2948,6 +3075,7 @@ dsError_t dsGetFaderControl(intptr_t handle, int *mixerbalance)
 }
 dsError_t dsSetPrimaryLanguage(intptr_t handle, const char *pLang)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2960,6 +3088,7 @@ dsError_t dsSetPrimaryLanguage(intptr_t handle, const char *pLang)
 }
 dsError_t dsGetPrimaryLanguage(intptr_t handle, char *pLang)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2972,6 +3101,7 @@ dsError_t dsGetPrimaryLanguage(intptr_t handle, char *pLang)
 }
 dsError_t dsSetSecondaryLanguage(intptr_t handle, const char *sLang)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2984,6 +3114,7 @@ dsError_t dsSetSecondaryLanguage(intptr_t handle, const char *sLang)
 }
 dsError_t dsGetSecondaryLanguage(intptr_t handle, char *sLang)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -2996,6 +3127,7 @@ dsError_t dsGetSecondaryLanguage(intptr_t handle, char *sLang)
 }
 dsError_t dsGetHDMIARCPortId(int *portId)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
@@ -3008,6 +3140,7 @@ dsError_t dsGetHDMIARCPortId(int *portId)
 }
 dsError_t dsSetAudioMixerLevels(intptr_t handle, dsAudioInput_t aInput, int volume)
 {
+        hal_dbg("Invoked.\n");
         if (false == _bIsAudioInitialized)
         {
                 return dsERR_NOT_INITIALIZED;
