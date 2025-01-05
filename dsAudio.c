@@ -307,12 +307,7 @@ dsError_t dsGetAudioEncoding(intptr_t handle, dsAudioEncoding_t *encoding)
                 hal_err("Error opening PCM device: '%s'\n", snd_strerror(err));
                 return dsERR_GENERAL;
         }
-        if (snd_pcm_hw_params_alloca(&params) < 0)
-        {
-                hal_err("Error allocating hardware parameter structure.\n");
-                snd_pcm_close(pcm_handle);
-                return dsERR_GENERAL;
-        }
+        snd_pcm_hw_params_alloca(&params);
         if ((err = snd_pcm_hw_params_any(pcm_handle, params)) < 0)
         {
                 hal_err("Error initializing hardware parameter structure: '%s'\n", snd_strerror(err));
@@ -428,12 +423,7 @@ dsError_t dsGetAudioFormat(intptr_t handle, dsAudioFormat_t *audioFormat)
                 hal_err("Error opening PCM device: '%s'\n", snd_strerror(err));
                 return dsERR_GENERAL;
         }
-        if (snd_pcm_hw_params_alloca(&params) < 0)
-        {
-                hal_err("Error allocating hardware parameter structure.\n");
-                snd_pcm_close(pcm_handle);
-                return dsERR_GENERAL;
-        }
+        snd_pcm_hw_params_alloca(&params);
         if ((err = snd_pcm_hw_params_any(pcm_handle, params)) < 0)
         {
                 hal_err("Error initializing hardware parameter structure: '%s'\n", snd_strerror(err));
@@ -453,12 +443,6 @@ dsError_t dsGetAudioFormat(intptr_t handle, dsAudioFormat_t *audioFormat)
         case SND_PCM_FORMAT_S32_LE:
         case SND_PCM_FORMAT_FLOAT_LE:
                 *audioFormat = dsAUDIO_FORMAT_PCM;
-                break;
-        case SND_PCM_FORMAT_U8: // SND_PCM_FORMAT_AC3:
-                *audioFormat = dsAUDIO_FORMAT_AC3;
-                break;
-        case SND_PCM_FORMAT_LAST: // SND_PCM_FORMAT_EAC3:
-                *audioFormat = dsAUDIO_FORMAT_EAC3;
                 break;
         default:
                 hal_err("Unsupported PCM format: %d\n", format);
@@ -2053,12 +2037,7 @@ dsError_t dsGetAudioMaxDB(intptr_t handle, float *maxDb)
                 snd_mixer_close(mixer);
                 return dsERR_GENERAL;
         }
-        if (snd_mixer_selem_id_alloca(&sid) < 0)
-        {
-                hal_err("Error allocating mixer element.\n");
-                snd_mixer_close(mixer);
-                return dsERR_GENERAL;
-        }
+        snd_mixer_selem_id_alloca(&sid);
         snd_mixer_selem_id_set_index(sid, 0);
         snd_mixer_selem_id_set_name(sid, ALSA_ELEMENT_NAME);
 
@@ -2145,12 +2124,7 @@ dsError_t dsGetAudioMinDB(intptr_t handle, float *minDb)
                 snd_mixer_close(mixer);
                 return dsERR_GENERAL;
         }
-        if (snd_mixer_selem_id_alloca(&sid) < 0)
-        {
-                hal_err("Error allocating mixer element.\n");
-                snd_mixer_close(mixer);
-                return dsERR_GENERAL;
-        }
+        snd_mixer_selem_id_alloca(&sid);
         snd_mixer_selem_id_set_index(sid, 0);
         snd_mixer_selem_id_set_name(sid, ALSA_ELEMENT_NAME);
 
@@ -2237,24 +2211,9 @@ dsError_t dsGetAudioOptimalLevel(intptr_t handle, float *optimalLevel)
                 return dsERR_GENERAL;
         }
 
-        if (snd_mixer_selem_id_alloca(&sid) < 0)
-        {
-                hal_err("Error allocating mixer element\n");
-                snd_mixer_close(mixer);
-                return dsERR_GENERAL;
-        }
-        if (snd_mixer_selem_id_set_index(sid, 0) < 0)
-        {
-                hal_err("Error setting mixer element index\n");
-                snd_mixer_close(mixer);
-                return dsERR_GENERAL;
-        }
-        if (snd_mixer_selem_id_set_name(sid, ALSA_ELEMENT_NAME) < 0)
-        {
-                hal_err("Error setting mixer element name\n");
-                snd_mixer_close(mixer);
-                return dsERR_GENERAL;
-        }
+        snd_mixer_selem_id_alloca(&sid);
+        snd_mixer_selem_id_set_index(sid, 0);
+        snd_mixer_selem_id_set_name(sid, ALSA_ELEMENT_NAME);
 
         elem = snd_mixer_find_selem(mixer, sid);
         if (!elem)
@@ -2458,9 +2417,9 @@ dsError_t dsSetAudioAtmosOutputMode(intptr_t handle, bool enable)
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
-== == == == == == == == == == == == == == == == == == == == == == == == == == == == == == == == == == == == == == == == == == ==
+//=============================================================================
 
-    dsError_t dsGetStereoMode(intptr_t handle, dsAudioStereoMode_t *stereoMode)
+dsError_t dsGetStereoMode(intptr_t handle, dsAudioStereoMode_t *stereoMode)
 {
         dsError_t ret = dsERR_NONE;
         if (false == _bIsAudioInitialized)

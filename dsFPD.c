@@ -48,7 +48,7 @@ void exportPins(int pin)
 
 void setDirection(int pin)
 {
-    snprint(fName, sizeof(fName), "/sys/class/gpio/gpio%d/direction", pin);
+    snprintf(fName, sizeof(fName), "/sys/class/gpio/gpio%d/direction", pin);
     if ((fd = fopen(fName, "w")) == NULL)
     {
         hal_err("Unable to open GPIO direction interface for pin %d: '%s'\n", pin, strerror(errno));
@@ -60,7 +60,7 @@ void setDirection(int pin)
 
 void setValue(int pin, int value)
 {
-    snprint(fName, sizeof(fName), "/sys/class/gpio/gpio%d/value", pin);
+    snprintf(fName, sizeof(fName), "/sys/class/gpio/gpio%d/value", pin);
     if ((fd = fopen(fName, "w")) == NULL)
     {
         hal_err("Unable to open GPIO direction interface for pin %d: '%s'\n", pin, strerror(errno));
