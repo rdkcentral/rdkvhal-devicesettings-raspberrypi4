@@ -535,12 +535,14 @@ static dsError_t dsQueryHdmiResolution()
                 hal_dbg("  Width: %d\n", modeSupported[j].width);
                 hal_dbg("  Height: %d\n", modeSupported[j].height);
                 hal_dbg("  Frame Rate: %d\n", modeSupported[j].frame_rate);
-                hal_dbg("  Scan Mode: %s\n", modeSupported[j].scan_mode == HDMI_INTERLACED ? "Interlaced" : "Progressive");
+                hal_dbg("  Scan Mode: %s\n", modeSupported[j].scan_mode ? "Interlaced" : "Progressive");
+                hal_dbg("  Native: %s\n", modeSupported[j].native ? "Yes" : "No");
                 hal_dbg("  Aspect Ratio: %d\n", modeSupported[j].aspect_ratio);
-                hal_dbg("  Pixel Clock: %d\n", modeSupported[j].pixel_clock);
-                hal_dbg("  HDMI Mode: %s\n", modeSupported[j].hdmi_mode ? "HDMI" : "DVI");
+                hal_dbg("  Pixel Clock: %d\n", modeSupported[j].pixel_freq);
+                hal_dbg("  Pixel Repetition: %d\n", modeSupported[j].pixel_rep);
                 hal_dbg("  Group: %d\n", modeSupported[j].group);
                 hal_dbg("  Code: %d\n", modeSupported[j].code);
+                hal_dbg("  3D Structure Mask: 0x%X\n", modeSupported[j].struct_3d_mask);
                 if (modeSupported[j].code == resolutionMap[i].mode)
                 {
                     dsVideoPortResolution_t *resolution = dsgetResolutionInfo(resolutionMap[i].rdkRes);

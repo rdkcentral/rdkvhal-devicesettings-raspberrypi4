@@ -592,7 +592,6 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 {
     hal_dbg("invoked.\n");
     const char *resolution_name = NULL;
-    TV_DISPLAY_STATE_T tvstate;
     // uint32_t hdmi_mode;
     if (false == _bIsVideoPortInitialized)
     {
@@ -602,13 +601,23 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
     {
         return dsERR_INVALID_PARAM;
     }
-    if (vc_tv_get_display_state(&tvstate) == 0)
+    TV_DISPLAY_STATE_T tv_state;
+    if (vc_tv_hdmi_get_display_state(&tv_state) == 0)
     {
-        resolution_name = dsVideoGetResolution(tvstate.display.hdmi.mode);
+        hal_dbg("Current vc_tv_hdmi_get_display_state: %d\n", tv_state.state);
+        hal_dbg("  Mode: %d\n", tv_state.display.hdmi.mode);
+        hal_dbg("  Width: %d\n", tv_state.display.hdmi.width);
+        hal_dbg("  Height: %d\n", tv_state.display.hdmi.height);
+        hal_dbg("  Frame Rate: %d\n", tv_state.display.hdmi.frame_rate);
+        hal_dbg("  Scan Mode: %s\n", tv_state.display.hdmi.scan_mode ? "Interlaced" : "Progressive");
+        hal_dbg("  Aspect Ratio: %d\n", tv_state.display.hdmi.aspect_ratio);
+        hal_dbg("  Pixel Clock: %d\n", tv_state.display.hdmi.pixel_freq);
+        if (tv_state.state & VC_HDMI_ATTACHED)
+            resolution_name = dsVideoGetResolution(tvstate.display.hdmi.mode);
     }
     else
     {
-        hal_err("vc_tv_get_display_state failed\n");
+        hal_err("Failed vc_tv_hdmi_get_display_state.\n");
         return dsERR_GENERAL;
     }
     // if (resolution_name == NULL) {
