@@ -34,6 +34,7 @@
 #define ALSA_ELEMENT_NAME "PCM"
 #endif
 
+#define AUDIO_COMPRESSION_CONTROL "Audio Compression"
 #define MAX_LINEAR_DB_SCALE 24
 
 #define ALSA_AUDIO_MASTER_CONTROL_ENABLE 1
@@ -316,10 +317,7 @@ dsError_t dsGetAudioEncoding(intptr_t handle, dsAudioEncoding_t *encoding)
                 snd_pcm_close(pcm_handle);
                 return dsERR_GENERAL;
         }
-
-        // Log the parameters for debugging
         hal_dbg("PCM parameters initialized.\n");
-
         if ((err = snd_pcm_hw_params_get_format(params, &format)) < 0)
         {
                 hal_err("Error getting PCM format: '%s'\n", snd_strerror(err));
@@ -327,21 +325,22 @@ dsError_t dsGetAudioEncoding(intptr_t handle, dsAudioEncoding_t *encoding)
                 return dsERR_GENERAL;
         }
 
-// Check if SND_PCM_FORMAT_AC3 is defined
-#ifdef SND_PCM_FORMAT_AC3
-        if (format == SND_PCM_FORMAT_AC3)
+        switch (format)
         {
-                *encoding = DS_AUDIO_ENCODING_AC3;
-        }
-        else
-#endif
-            if (format == SND_PCM_FORMAT_U8)
-        {
-                *encoding = DS_AUDIO_ENCODING_U8;
-        }
-        else
-        {
-                hal_err("Unsupported audio format.\n");
+        case SND_PCM_FORMAT_S16_LE:
+        case SND_PCM_FORMAT_S16_BE:
+        case SND_PCM_FORMAT_S32_LE:
+        case SND_PCM_FORMAT_S32_BE:
+                *encoding = dsAUDIO_ENC_PCM;
+                break;
+        case SND_PCM_FORMAT_AC3:
+                *encoding = dsAUDIO_ENC_AC3;
+                break;
+        case SND_PCM_FORMAT_EAC3:
+                *encoding = dsAUDIO_ENC_EAC3;
+                break;
+        default:
+                hal_err("Unsupported audio format(snd_pcm_hw_params_get_format) 0x%X.\n", format);
                 snd_pcm_close(pcm_handle);
                 return dsERR_OPERATION_NOT_SUPPORTED;
         }
@@ -444,20 +443,43 @@ dsError_t dsGetAudioFormat(intptr_t handle, dsAudioFormat_t *audioFormat)
         switch (format)
         {
         case SND_PCM_FORMAT_S16_LE:
-        case SND_PCM_FORMAT_S24_LE:
+        case SND_PCM_FORMAT_S16_BE:
         case SND_PCM_FORMAT_S32_LE:
-        case SND_PCM_FORMAT_FLOAT_LE:
-                *audioFormat = dsAUDIO_FORMAT_PCM;
+        case SND_PCM_FORMAT_S32_BE:
+                *encoding = dsAUDIO_ENC_PCM;
+                break;
+        case SND_PCM_FORMAT_AC3:
+                *encoding = dsAUDIO_ENC_AC3;
+                break;
+        case SND_PCM_FORMAT_EAC3:
+                *encoding = dsAUDIO_ENC_EAC3;
                 break;
         default:
-                hal_err("Unsupported PCM format: %d\n", format);
+                hal_err("Unsupported audio format(snd_pcm_hw_params_get_format) 0x%X.\n", format);
                 snd_pcm_close(pcm_handle);
-                return dsERR_GENERAL;
+                return dsERR_OPERATION_NOT_SUPPORTED;
         }
 
         snd_pcm_close(pcm_handle);
         hal_dbg("Audio format is %d.\n", *audioFormat);
         return dsERR_NONE;
+}
+
+/**
+ * @brief maps the audio compression value to dsAudioCompression_t
+ * @param[in] value - audio compression value
+ * @return dsAudioCompression_t - audio compression type
+ */
+dsAudioCompression_t mapCompressionValue(long value)
+{
+        if (value <= 2)
+                return dsAUDIO_CMP_LIGHT;
+        else if (value <= 5)
+                return dsAUDIO_CMP_MEDIUM;
+        else if (value <= 10)
+                return dsAUDIO_CMP_HEAVY;
+        else
+                return dsAUDIO_CMP_NONE;
 }
 
 /**
@@ -488,11 +510,64 @@ dsError_t dsGetAudioCompression(intptr_t handle, int *compression)
         {
                 return dsERR_NOT_INITIALIZED;
         }
-        if (NULL == compression || !dsAudioIsValidHandle(handle) || *compression < 0 || *compression > 10)
+        if (NULL == compression || !dsAudioIsValidHandle(handle))
         {
                 return dsERR_INVALID_PARAM;
         }
-        return dsERR_OPERATION_NOT_SUPPORTED;
+
+        snd_mixer_t *mixer_handle;
+        snd_mixer_elem_t *elem;
+        snd_mixer_selem_id_t *sid;
+        long value;
+        int err;
+
+        if ((err = snd_mixer_open(&mixer_handle, 0)) < 0)
+        {
+                hal_err("Error opening mixer: '%s'\n", snd_strerror(err));
+                return dsERR_GENERAL;
+        }
+
+        if ((err = snd_mixer_attach(mixer_handle, "default")) < 0)
+        {
+                hal_err("Error attaching mixer: '%s'\n", snd_strerror(err));
+                snd_mixer_close(mixer_handle);
+                return dsERR_GENERAL;
+        }
+
+        if ((err = snd_mixer_selem_register(mixer_handle, NULL, NULL)) < 0)
+        {
+                hal_err("Error registering mixer: '%s'\n", snd_strerror(err));
+                snd_mixer_close(mixer_handle);
+                return dsERR_GENERAL;
+        }
+
+        if ((err = snd_mixer_load(mixer_handle)) < 0)
+        {
+                hal_err("Error loading mixer elements: '%s'\n", snd_strerror(err));
+                snd_mixer_close(mixer_handle);
+                return dsERR_GENERAL;
+        }
+
+        snd_mixer_selem_id_alloca(&sid);
+        snd_mixer_selem_id_set_name(sid, AUDIO_COMPRESSION_CONTROL);
+        elem = snd_mixer_find_selem(mixer_handle, sid);
+        if (!elem)
+        {
+                hal_err("Error finding mixer element: '%s'\n", AUDIO_COMPRESSION_CONTROL);
+                snd_mixer_close(mixer_handle);
+                return dsERR_GENERAL;
+        }
+
+        if ((err = snd_mixer_selem_get_playback_volume(elem, SND_MIXER_SCHN_FRONT_LEFT, &value)) < 0)
+        {
+                hal_err("Error getting playback volume: '%s'\n", snd_strerror(err));
+                snd_mixer_close(mixer_handle);
+                return dsERR_GENERAL;
+        }
+
+        *compression = mapCompressionValue(value);
+        snd_mixer_close(mixer_handle);
+        return dsERR_NONE;
 }
 
 /**
