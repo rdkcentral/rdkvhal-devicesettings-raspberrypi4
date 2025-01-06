@@ -36,8 +36,6 @@
 
 #define MAX_LINEAR_DB_SCALE 24
 
-#define ALSA_AUDIO_MASTER_CONTROL_ENABLE 1
-
 typedef struct _AOPHandle_t
 {
         dsAudioPortType_t m_vType;
