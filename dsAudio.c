@@ -34,7 +34,6 @@
 #define ALSA_ELEMENT_NAME "PCM"
 #endif
 
-#define AUDIO_COMPRESSION_CONTROL "Audio Compression"
 #define MAX_LINEAR_DB_SCALE 24
 
 #define ALSA_AUDIO_MASTER_CONTROL_ENABLE 1
@@ -50,6 +49,7 @@ typedef struct _AOPHandle_t
 static AOPHandle_t _handles[dsAUDIOPORT_TYPE_MAX][2] = {};
 float dBmin;
 float dBmax;
+static dsAudioEncoding_t _encoding = dsAUDIO_ENC_PCM;
 static bool _isms11Enabled = false;
 static dsAudioStereoMode_t _stereoModeHDMI = dsAUDIO_STEREO_STEREO;
 static bool _bIsAudioInitialized = false;
@@ -360,31 +360,7 @@ dsError_t dsGetAudioEncoding(intptr_t handle, dsAudioEncoding_t *encoding)
                 hal_err("Invalid parameter.\n");
                 return dsERR_INVALID_PARAM;
         }
-
-        snd_pcm_t *pcm_handle;
-        snd_pcm_hw_params_t *params;
-        snd_pcm_format_t format;
-        int err;
-        if ((err = snd_pcm_open(&pcm_handle, "default", SND_PCM_STREAM_PLAYBACK, 0)) < 0)
-        {
-                hal_err("Error opening PCM device: '%s'\n", snd_strerror(err));
-                return dsERR_GENERAL;
-        }
-        snd_pcm_hw_params_alloca(&params);
-        if ((err = snd_pcm_hw_params_any(pcm_handle, params)) < 0)
-        {
-                hal_err("Error initializing hardware parameter structure: '%s'\n", snd_strerror(err));
-                snd_pcm_close(pcm_handle);
-                return dsERR_GENERAL;
-        }
-        if ((err = snd_pcm_hw_params_get_format(params, &format)) < 0)
-        {
-                hal_err("Error getting PCM format: '%s'\n", snd_strerror(err));
-                snd_pcm_close(pcm_handle);
-                return dsERR_GENERAL;
-        }
-        *encoding = mapAudioFormat(format);
-        snd_pcm_close(pcm_handle);
+        *encoding = _encoding;
         return dsERR_NONE;
 }
 
@@ -440,47 +416,7 @@ dsError_t dsSetAudioEncoding(intptr_t handle, dsAudioEncoding_t encoding)
         {
                 return dsERR_INVALID_PARAM;
         }
-
-        snd_pcm_t *pcm_handle;
-        snd_pcm_hw_params_t *params;
-        snd_pcm_format_t alsa_format;
-        int err;
-        alsa_format = mapToAlsaFormat(encoding);
-        if (alsa_format == SND_PCM_FORMAT_UNKNOWN)
-        {
-                return dsERR_OPERATION_NOT_SUPPORTED;
-        }
-
-        if ((err = snd_pcm_open(&pcm_handle, "default", SND_PCM_STREAM_PLAYBACK, 0)) < 0)
-        {
-                hal_err("Error opening PCM device: '%s'\n", snd_strerror(err));
-                return dsERR_GENERAL;
-        }
-
-        snd_pcm_hw_params_alloca(&params);
-
-        if ((err = snd_pcm_hw_params_any(pcm_handle, params)) < 0)
-        {
-                hal_err("Error initializing hardware parameter structure: '%s'\n", snd_strerror(err));
-                snd_pcm_close(pcm_handle);
-                return dsERR_GENERAL;
-        }
-
-        if ((err = snd_pcm_hw_params_set_format(pcm_handle, params, alsa_format)) < 0)
-        {
-                hal_err("Error setting PCM format: '%s'\n", snd_strerror(err));
-                snd_pcm_close(pcm_handle);
-                return dsERR_GENERAL;
-        }
-
-        if ((err = snd_pcm_hw_params(pcm_handle, params)) < 0)
-        {
-                hal_err("Error setting hardware parameters: '%s'\n", snd_strerror(err));
-                snd_pcm_close(pcm_handle);
-                return dsERR_GENERAL;
-        }
-
-        snd_pcm_close(pcm_handle);
+        _encoding = encoding;
         return dsERR_NONE;
 }
 
@@ -577,36 +513,7 @@ dsError_t dsGetAudioFormat(intptr_t handle, dsAudioFormat_t *audioFormat)
         {
                 return dsERR_INVALID_PARAM;
         }
-
-        snd_pcm_t *pcm_handle;
-        snd_pcm_hw_params_t *params;
-        snd_pcm_format_t alsa_format;
-        int err;
-
-        if ((err = snd_pcm_open(&pcm_handle, "default", SND_PCM_STREAM_PLAYBACK, 0)) < 0)
-        {
-                hal_err("Error opening PCM device: '%s'\n", snd_strerror(err));
-                return dsERR_GENERAL;
-        }
-
-        snd_pcm_hw_params_alloca(&params);
-        if ((err = snd_pcm_hw_params_any(pcm_handle, params)) < 0)
-        {
-                hal_err("Error initializing hardware parameter structure: '%s'\n", snd_strerror(err));
-                snd_pcm_close(pcm_handle);
-                return dsERR_GENERAL;
-        }
-
-        if ((err = snd_pcm_hw_params_get_format(params, &alsa_format)) < 0)
-        {
-                hal_err("Error getting PCM format: '%s'\n", snd_strerror(err));
-                snd_pcm_close(pcm_handle);
-                return dsERR_GENERAL;
-        }
-        *audioFormat = mapToAudioFormat(alsa_format);
-        snd_pcm_close(pcm_handle);
-        hal_dbg("Audio format is %d.\n", *audioFormat);
-        return dsERR_NONE;
+        return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
@@ -658,60 +565,7 @@ dsError_t dsGetAudioCompression(intptr_t handle, int *compression)
         {
                 return dsERR_INVALID_PARAM;
         }
-
-        snd_mixer_t *mixer_handle;
-        snd_mixer_elem_t *elem;
-        snd_mixer_selem_id_t *sid;
-        long value;
-        int err;
-
-        if ((err = snd_mixer_open(&mixer_handle, 0)) < 0)
-        {
-                hal_err("Error opening mixer: '%s'\n", snd_strerror(err));
-                return dsERR_GENERAL;
-        }
-
-        if ((err = snd_mixer_attach(mixer_handle, "default")) < 0)
-        {
-                hal_err("Error attaching mixer: '%s'\n", snd_strerror(err));
-                snd_mixer_close(mixer_handle);
-                return dsERR_GENERAL;
-        }
-
-        if ((err = snd_mixer_selem_register(mixer_handle, NULL, NULL)) < 0)
-        {
-                hal_err("Error registering mixer: '%s'\n", snd_strerror(err));
-                snd_mixer_close(mixer_handle);
-                return dsERR_GENERAL;
-        }
-
-        if ((err = snd_mixer_load(mixer_handle)) < 0)
-        {
-                hal_err("Error loading mixer elements: '%s'\n", snd_strerror(err));
-                snd_mixer_close(mixer_handle);
-                return dsERR_GENERAL;
-        }
-
-        snd_mixer_selem_id_alloca(&sid);
-        snd_mixer_selem_id_set_name(sid, AUDIO_COMPRESSION_CONTROL);
-        elem = snd_mixer_find_selem(mixer_handle, sid);
-        if (!elem)
-        {
-                hal_err("Error finding mixer element: '%s'\n", AUDIO_COMPRESSION_CONTROL);
-                snd_mixer_close(mixer_handle);
-                return dsERR_GENERAL;
-        }
-
-        if ((err = snd_mixer_selem_get_playback_volume(elem, SND_MIXER_SCHN_FRONT_LEFT, &value)) < 0)
-        {
-                hal_err("Error getting playback volume: '%s'\n", snd_strerror(err));
-                snd_mixer_close(mixer_handle);
-                return dsERR_GENERAL;
-        }
-
-        *compression = mapCompressionValue(value);
-        snd_mixer_close(mixer_handle);
-        return dsERR_NONE;
+        return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
@@ -761,59 +615,7 @@ dsError_t dsSetAudioCompression(intptr_t handle, int compression)
         {
                 return dsERR_INVALID_PARAM;
         }
-
-        snd_mixer_t *mixer_handle;
-        snd_mixer_elem_t *elem;
-        snd_mixer_selem_id_t *sid;
-        long value = 0;
-        int err;
-        value = mapCompressionLevel(compression);
-        hal_dbg("Setting the compression value to %ld.\n", value);
-
-        if ((err = snd_mixer_open(&mixer_handle, 0)) < 0)
-        {
-                hal_err("Error opening mixer: '%s'\n", snd_strerror(err));
-                return dsERR_GENERAL;
-        }
-
-        if ((err = snd_mixer_attach(mixer_handle, "default")) < 0)
-        {
-                hal_err("Error attaching mixer: '%s'\n", snd_strerror(err));
-                snd_mixer_close(mixer_handle);
-                return dsERR_GENERAL;
-        }
-
-        if ((err = snd_mixer_selem_register(mixer_handle, NULL, NULL)) < 0)
-        {
-                hal_err("Error registering mixer: '%s'\n", snd_strerror(err));
-                snd_mixer_close(mixer_handle);
-                return dsERR_GENERAL;
-        }
-
-        if ((err = snd_mixer_load(mixer_handle)) < 0)
-        {
-                hal_err("Error loading mixer elements: '%s'\n", snd_strerror(err));
-                snd_mixer_close(mixer_handle);
-                return dsERR_GENERAL;
-        }
-
-        snd_mixer_selem_id_alloca(&sid);
-        snd_mixer_selem_id_set_name(sid, AUDIO_COMPRESSION_CONTROL);
-        elem = snd_mixer_find_selem(mixer_handle, sid);
-        if (!elem)
-        {
-                hal_err("Error finding mixer element: '%s'\n", AUDIO_COMPRESSION_CONTROL);
-                snd_mixer_close(mixer_handle);
-                return dsERR_GENERAL;
-        }
-        if ((err = snd_mixer_selem_set_playback_volume_all(elem, value)) < 0)
-        {
-                hal_err("Error setting playback volume: '%s'\n", snd_strerror(err));
-                snd_mixer_close(mixer_handle);
-                return dsERR_GENERAL;
-        }
-        snd_mixer_close(mixer_handle);
-        return dsERR_NONE;
+        return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
@@ -2274,55 +2076,7 @@ dsError_t dsGetAudioMaxDB(intptr_t handle, float *maxDb)
                 hal_err("Invalid parameter.\n");
                 return dsERR_INVALID_PARAM;
         }
-
-        snd_mixer_t *mixer;
-        snd_mixer_selem_id_t *sid;
-        snd_mixer_elem_t *elem;
-        long min, max;
-        if (snd_mixer_open(&mixer, 0) < 0)
-        {
-                hal_err("Error opening mixer.\n");
-                return dsERR_GENERAL;
-        }
-        if (snd_mixer_attach(mixer, "default") < 0)
-        {
-                hal_err("Error attaching mixer.\n");
-                snd_mixer_close(mixer);
-                return dsERR_GENERAL;
-        }
-        if (snd_mixer_selem_register(mixer, NULL, NULL) < 0)
-        {
-                hal_err("Error registering mixer.\n");
-                snd_mixer_close(mixer);
-                return dsERR_GENERAL;
-        }
-        if (snd_mixer_load(mixer) < 0)
-        {
-                hal_err("Error loading mixer elements.\n");
-                snd_mixer_close(mixer);
-                return dsERR_GENERAL;
-        }
-        snd_mixer_selem_id_alloca(&sid);
-        snd_mixer_selem_id_set_index(sid, 0);
-        snd_mixer_selem_id_set_name(sid, ALSA_ELEMENT_NAME);
-
-        elem = snd_mixer_find_selem(mixer, sid);
-        if (!elem)
-        {
-                hal_err("Error finding mixer element.\n");
-                snd_mixer_close(mixer);
-                return dsERR_GENERAL;
-        }
-
-        if (snd_mixer_selem_get_playback_dB_range(elem, &min, &max) < 0)
-        {
-                hal_err("Error getting dB range.\n");
-                snd_mixer_close(mixer);
-                return dsERR_GENERAL;
-        }
-        snd_mixer_close(mixer);
-
-        *maxDb = (float)max / 100.0;
+        *maxDb = dBmax;
         hal_dbg("Maximum dB level is %f.\n", *maxDb);
         return dsERR_NONE;
 }
@@ -2360,55 +2114,7 @@ dsError_t dsGetAudioMinDB(intptr_t handle, float *minDb)
                 hal_err("Invalid parameter.\n");
                 return dsERR_INVALID_PARAM;
         }
-
-        snd_mixer_t *mixer;
-        snd_mixer_selem_id_t *sid;
-        snd_mixer_elem_t *elem;
-        long min, max;
-
-        if (snd_mixer_open(&mixer, 0) < 0)
-        {
-                hal_err("Error opening mixer.\n");
-                return dsERR_GENERAL;
-        }
-        if (snd_mixer_attach(mixer, "default") < 0)
-        {
-                hal_err("Error attaching mixer.\n");
-                snd_mixer_close(mixer);
-                return dsERR_GENERAL;
-        }
-        if (snd_mixer_selem_register(mixer, NULL, NULL) < 0)
-        {
-                hal_err("Error registering mixer.\n");
-                snd_mixer_close(mixer);
-                return dsERR_GENERAL;
-        }
-        if (snd_mixer_load(mixer) < 0)
-        {
-                hal_err("Error loading mixer elements.\n");
-                snd_mixer_close(mixer);
-                return dsERR_GENERAL;
-        }
-        snd_mixer_selem_id_alloca(&sid);
-        snd_mixer_selem_id_set_index(sid, 0);
-        snd_mixer_selem_id_set_name(sid, ALSA_ELEMENT_NAME);
-
-        elem = snd_mixer_find_selem(mixer, sid);
-        if (!elem)
-        {
-                hal_err("Error finding mixer element.\n");
-                snd_mixer_close(mixer);
-                return dsERR_GENERAL;
-        }
-        if (snd_mixer_selem_get_playback_dB_range(elem, &min, &max) < 0)
-        {
-                hal_err("Error getting dB range.\n");
-                snd_mixer_close(mixer);
-                return dsERR_GENERAL;
-        }
-        snd_mixer_close(mixer);
-
-        *minDb = (float)min / 100.0;
+        *minDb = dBmin;
         hal_dbg("Minimum dB level is %f.\n", *minDb);
         return dsERR_NONE;
 }
@@ -2443,70 +2149,7 @@ dsError_t dsGetAudioOptimalLevel(intptr_t handle, float *optimalLevel)
         {
                 return dsERR_INVALID_PARAM;
         }
-
-        snd_mixer_t *mixer;
-        snd_mixer_selem_id_t *sid;
-        snd_mixer_elem_t *elem;
-        long min, max, volume;
-
-        if (snd_mixer_open(&mixer, 0) < 0)
-        {
-                hal_err("Error opening mixer\n");
-                return dsERR_GENERAL;
-        }
-
-        if (snd_mixer_attach(mixer, "default") < 0)
-        {
-                hal_err("Error attaching mixer\n");
-                snd_mixer_close(mixer);
-                return dsERR_GENERAL;
-        }
-
-        if (snd_mixer_selem_register(mixer, NULL, NULL) < 0)
-        {
-                hal_err("Error registering mixer\n");
-                snd_mixer_close(mixer);
-                return dsERR_GENERAL;
-        }
-
-        if (snd_mixer_load(mixer) < 0)
-        {
-                hal_err("Error loading mixer\n");
-                snd_mixer_close(mixer);
-                return dsERR_GENERAL;
-        }
-
-        snd_mixer_selem_id_alloca(&sid);
-        snd_mixer_selem_id_set_index(sid, 0);
-        snd_mixer_selem_id_set_name(sid, ALSA_ELEMENT_NAME);
-
-        elem = snd_mixer_find_selem(mixer, sid);
-        if (!elem)
-        {
-                hal_err("Error finding mixer element\n");
-                snd_mixer_close(mixer);
-                return dsERR_GENERAL;
-        }
-
-        if (snd_mixer_selem_get_playback_volume_range(elem, &min, &max) < 0)
-        {
-                hal_err("Error getting playback volume range\n");
-                snd_mixer_close(mixer);
-                return dsERR_GENERAL;
-        }
-
-        if (snd_mixer_selem_get_playback_volume(elem, SND_MIXER_SCHN_FRONT_LEFT, &volume) < 0)
-        {
-                hal_err("Error getting playback volume\n");
-                snd_mixer_close(mixer);
-                return dsERR_GENERAL;
-        }
-        snd_mixer_close(mixer);
-
-        // Calculate the optimal level as a float between 0.0 and 1.0
-        *optimalLevel = (float)(volume - min) / (max - min);
-        hal_warn("%s: Optimal Level %.2f\n", *optimalLevel);
-        return dsERR_NONE;
+        return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
@@ -2703,7 +2346,7 @@ dsError_t dsGetStereoMode(intptr_t handle, dsAudioStereoMode_t *stereoMode)
 dsError_t dsGetPersistedStereoMode(intptr_t handle, dsAudioStereoMode_t *stereoMode)
 {
         hal_dbg("Invoked.\n");
-        return dsERR_OPERATION_NOT_SUPPORTED;
+        return dsERR_NONE;
 }
 
 dsError_t dsIsAudioMute(intptr_t handle, bool *muted)
@@ -2723,7 +2366,7 @@ dsError_t dsIsAudioMute(intptr_t handle, bool *muted)
         initAlsa(element_name, s_card, &mixer_elem);
         if (mixer_elem == NULL)
         {
-                printf("failed to initialize alsa!\n");
+                hal_err("failed to initialize alsa, mixer_elem is NULL!\n");
                 return dsERR_GENERAL;
         }
         int mute_status;
