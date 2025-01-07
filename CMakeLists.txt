@@ -25,7 +25,7 @@ include_directories(/usr/include/interface/vmcs_host/linux)
 # add DRI_CARD to the compile flags
 if (DRI_CARD)
 	message(STATUS "DRI_CARD is set to ${DRI_CARD}")
-	add_definitions(-DDRI_CARD="${DRI_CARD}")
+	add_definitions(-DDRI_CARD=\"${DRI_CARD}\")
 else()
 	message(FATAL_ERROR "DRI_CARD is not set")
 endif()
