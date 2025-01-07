@@ -39,7 +39,7 @@ int main(void) {
 	printf("Sample app listener for HDMI connection status changes.\n");
 	if (pthread_create(&thread_id, NULL, monitor_hdmi_status_changes,
 	                   (void *)print_hdmi_status) != 0) {
-		fprints(stderr, "Failed to create thread: %s\n",
+		fprintf(stderr, "Failed to create thread: %s\n",
 		        strerror(errno));
 		return 1;
 	} else {
