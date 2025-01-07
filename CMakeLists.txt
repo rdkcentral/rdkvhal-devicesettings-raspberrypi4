@@ -72,5 +72,14 @@ add_custom_target(clean-all
 
 # if TESTS is set, add the subdirectory tests and invoke its CMakeLists.txt
 if (TESTS)
-	add_subdirectory(tests)
+	set(TEST_RESOLUTION_SRC ${CMAKE_CURRENT_SOURCE_DIR}/tests/testResolutionChange.c)
+	add_executable(testResolutionChange ${TEST_RESOLUTION_SRC})
+	target_link_libraries(testResolutionChange PRIVATE ${LIBNAME})
+
+	set(TEST_HDMI_CONN_STATUS_SRC ${CMAKE_CURRENT_SOURCE_DIR}/tests/testHdmiConnectionMonitor.c)
+	add_executable(testHDMIConnectionMonitor ${TEST_HDMI_CONN_STATUS_SRC})
+	target_link_libraries(testHDMIConnectionMonitor PRIVATE ${LIBNAME})
+
+	install(TARGETS testResolutionChange testHDMIConnectionMonitor
+		RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
