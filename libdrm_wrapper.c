@@ -270,15 +270,6 @@ bool print_supported_resolutions(void) {
 			hal_dbg("  %dx%d@%dHz\n", mode.hdisplay, mode.vdisplay,
 			        mode.vrefresh);
 		}
-		if (connector->connection == DRM_MODE_CONNECTED &&
-		    connector->count_modes > 0) {
-			change_resolution(fd, connector, resources, interval);
-		} else {
-			fprintf(
-			    stderr,
-			    "Connector %d is not connected or has no modes\n",
-			    connector->connector_id);
-		}
 		drmModeFreeConnector(connector);
 	}
 	drmModeFreeResources(resources);
