@@ -282,7 +282,7 @@ dsError_t dsGetFreeSystemGraphicsMemory(uint64_t *memory) {
 	buffer[sizeof(buffer) - 1] = '\0';
 	/* Extract response after = */
 	char *equal = strchr(buffer, '=');
-	if (equal != nullptr) {
+	if (equal != NULL) {
 		equal++;
 	} else {
 		equal = buffer;

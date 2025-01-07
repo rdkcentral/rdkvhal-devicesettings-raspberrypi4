@@ -23,6 +23,8 @@
 
 #include "udev_wrapper.h"
 
+pthread_t thread_id;
+
 void print_hdmi_status(const char *devnode) {
 	if (devnode) {
 		hal_dbg("HDMI connector status changed: '%s'\n", devnode);
