@@ -43,9 +43,6 @@ set_target_properties(${LIBNAME} PROPERTIES
 )
 target_link_libraries(${LIBNAME} vchostif vchiq_arm vcos asound)
 
-# Target executable
-set(BINNAME change_resolutions_test)
-
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBDRM REQUIRED libdrm)
 
@@ -60,7 +57,6 @@ target_link_libraries(${LIBNAME} ${LIBDRM_LIBRARIES})
 
 # Installation
 install(TARGETS ${LIBNAME} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
-install(TARGETS ${BINNAME} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 # Clean target
 add_custom_target(clean-all
