@@ -45,15 +45,19 @@ target_link_libraries(${LIBNAME} vchostif vchiq_arm vcos asound)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBDRM REQUIRED libdrm)
+pkg_check_modules(UDEV REQUIRED libudev)
 
 if (NOT LIBDRM_FOUND)
     message(FATAL_ERROR "libdrm not found!")
 endif()
 
 include_directories(${LIBDRM_INCLUDE_DIRS})
+include_directories(${UDEV_INCLUDE_DIRS})
 link_directories(${LIBDRM_LIBRARY_DIRS})
+link_directories(${UDEV_LIBRARY_DIRS})
 add_definitions(${LIBDRM_CFLAGS_OTHER})
 target_link_libraries(${LIBNAME} ${LIBDRM_LIBRARIES})
+target_link_libraries(${LIBNAME} ${UDEV_LIBRARIES})
 
 # Installation
 install(TARGETS ${LIBNAME} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
