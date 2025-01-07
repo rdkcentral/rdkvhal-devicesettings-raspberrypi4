@@ -20,6 +20,8 @@
 #include <errno.h>
 #include <libudev.h>
 #include <pthread.h>
+#include <stdio.h>
+#include <string.h>
 
 #include "udev_wrapper.h"
 
