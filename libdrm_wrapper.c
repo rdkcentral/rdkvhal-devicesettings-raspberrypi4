@@ -16,7 +16,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 #include "libdrm_wrapper.h"
 
 #include <drm/drm.h>
@@ -42,6 +41,7 @@
  */
 bool validate_edid(unsigned char *edid, int length) {
 	if (length < EDID_LENGTH || edid == NULL) {
+		hal_err("Invalid parameters\n");
 		return false;
 	}
 
@@ -136,6 +136,7 @@ bool print_dri_edid(void) {
 	drmModeRes *resources = drmModeGetResources(fd);
 	if (!resources) {
 		hal_err("Failed to get DRM resources: '%s'\n", strerror(errno));
+		close(fd);
 		return false;
 	}
 
@@ -205,8 +206,7 @@ bool list_connector_status(void) {
 	}
 	drmModeRes *resources = drmModeGetResources(fd);
 	if (!resources) {
-		fprintf(stderr, "Failed to get DRM resources: %s\n",
-		        strerror(errno));
+		hal_err("Failed to get DRM resources: '%s'\n", strerror(errno));
 		close(fd);
 		return false;
 	}
@@ -215,7 +215,7 @@ bool list_connector_status(void) {
 		drmModeConnector *connector =
 		    drmModeGetConnector(fd, resources->connectors[i]);
 		if (!connector) {
-			fprintf(stderr, "Failed to get connector: %s\n",
+			hal_err("Failed to get connector: '%s'\n",
 			        strerror(errno));
 			continue;
 		}
@@ -249,8 +249,7 @@ bool print_supported_resolutions(void) {
 	}
 	drmModeRes *resources = drmModeGetResources(fd);
 	if (!resources) {
-		fprintf(stderr, "Failed to get DRM resources: %s\n",
-		        strerror(errno));
+		hal_err("Failed to get DRM resources: '%s'\n", strerror(errno));
 		close(fd);
 		return false;
 	}
@@ -259,14 +258,14 @@ bool print_supported_resolutions(void) {
 		drmModeConnector *connector =
 		    drmModeGetConnector(fd, resources->connectors[i]);
 		if (!connector) {
-			fprintf(stderr, "Failed to get connector: %s\n",
+			hal_err("Failed to get connector: '%s'\n",
 			        strerror(errno));
 			continue;
 		}
 		hal_dbg("Supported resolutions for connector %d:\n",
 		        connector->connector_id);
-		for (int i = 0; i < connector->count_modes; i++) {
-			drmModeModeInfo mode = connector->modes[i];
+		for (int j = 0; j < connector->count_modes; j++) {
+			drmModeModeInfo mode = connector->modes[j];
 			hal_dbg("  %dx%d@%dHz\n", mode.hdisplay, mode.vdisplay,
 			        mode.vrefresh);
 		}
@@ -285,8 +284,7 @@ bool change_resolution(int interval) {
 	}
 	drmModeRes *resources = drmModeGetResources(fd);
 	if (!resources) {
-		fprintf(stderr, "Failed to get DRM resources: %s\n",
-		        strerror(errno));
+		hal_err("Failed to get DRM resources: '%s'\n", strerror(errno));
 		close(fd);
 		return false;
 	}
@@ -295,21 +293,21 @@ bool change_resolution(int interval) {
 		drmModeConnector *connector =
 		    drmModeGetConnector(fd, resources->connectors[i]);
 		if (!connector) {
-			fprintf(stderr, "Failed to get connector: %s\n",
+			hal_err("Failed to get connector: '%s'\n",
 			        strerror(errno));
 			continue;
 		}
 		hal_dbg("Supported resolutions for connector %d:\n",
 		        connector->connector_id);
-		for (int i = 0; i < connector->count_modes; i++) {
-			drmModeModeInfo mode = connector->modes[i];
+		for (int j = 0; j < connector->count_modes; j++) {
+			drmModeModeInfo mode = connector->modes[j];
 			hal_dbg("  %dx%d@%dHz\n", mode.hdisplay, mode.vdisplay,
 			        mode.vrefresh);
 		}
 		if (connector->connection == DRM_MODE_CONNECTED &&
 		    connector->count_modes > 0) {
-			for (int i = 0; i < connector->count_modes; i++) {
-				drmModeModeInfo mode = connector->modes[i];
+			for (int j = 0; j < connector->count_modes; j++) {
+				drmModeModeInfo mode = connector->modes[j];
 				drmModeCrtc *crtc =
 				    drmModeGetCrtc(fd, resources->crtcs[0]);
 
@@ -355,7 +353,7 @@ bool change_resolution(int interval) {
 					continue;
 				}
 
-				hal_err("Mode %d: %dx%d@%d-%d\n", i,
+				hal_err("Mode %d: %dx%d@%d-%d\n", j,
 				        mode.hdisplay, mode.vdisplay,
 				        mode.vrefresh, mode.clock);
 				int ret = drmModeSetCrtc(
@@ -379,8 +377,7 @@ bool change_resolution(int interval) {
 				         &destroy_dumb);
 			}
 		} else {
-			fprintf(
-			    stderr,
+			hal_err(
 			    "Connector %d is not connected or has no modes\n",
 			    connector->connector_id);
 		}
@@ -396,6 +393,7 @@ bool change_resolution(int interval) {
  * @return The file descriptor of the DRM device, or -1 on error.
  */
 int open_drm_device() {
+	hal_dbg("Opening DRM device '%s'\n", DRI_CARD);
 	int fd = open(DRI_CARD, O_RDWR | O_CLOEXEC);
 	if (fd < 0) {
 		hal_err("Failed to open DRM device: '%s'\n", strerror(errno));

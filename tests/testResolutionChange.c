@@ -17,15 +17,8 @@
  * limitations under the License.
  */
 
-#include <drm/drm.h>
-#include <drm/drm_mode.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <sys/ioctl.h>
 #include <unistd.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
@@ -37,9 +30,9 @@ int main(int argc, char *argv[]) {
 		fprintf(stderr, "Usage: %s <INTERVAL>\n", argv[0]);
 		return 1;
 	}
-	int interval = atoi(argv[2]);
+	int interval = atoi(argv[1]);
 	if (interval <= 0) {
-		fprintf(stderr, "Invalid interval: %s\n", argv[2]);
+		fprintf(stderr, "Invalid interval: %s\n", argv[1]);
 		return 1;
 	}
 
