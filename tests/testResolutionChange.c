@@ -65,7 +65,7 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 	printf("Changing resolution every %d seconds\n", interval);
-	if (change_resolution() == false) {
+	if (change_resolution(interval) == false) {
 		fprintf(stderr, "Failed to change resolution\n");
 		return 1;
 	}
