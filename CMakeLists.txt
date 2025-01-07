@@ -56,9 +56,7 @@ endif()
 include_directories(${LIBDRM_INCLUDE_DIRS})
 link_directories(${LIBDRM_LIBRARY_DIRS})
 add_definitions(${LIBDRM_CFLAGS_OTHER})
-
-add_executable(${BINNAME} change_resolution.c)
-target_link_libraries(${BINNAME} ${LIBDRM_LIBRARIES})
+target_link_libraries(${LIBNAME} ${LIBDRM_LIBRARIES})
 
 # Installation
 install(TARGETS ${LIBNAME} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
