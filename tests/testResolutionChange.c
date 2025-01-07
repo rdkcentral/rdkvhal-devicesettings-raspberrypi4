@@ -30,7 +30,6 @@
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
-#include "dshalLogger.h"
 #include "libdrm_wrapper.h"
 
 int main(int argc, char *argv[]) {

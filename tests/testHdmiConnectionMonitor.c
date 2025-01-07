@@ -27,9 +27,9 @@ pthread_t thread_id;
 
 void print_hdmi_status(const char *devnode) {
 	if (devnode) {
-		hal_dbg("HDMI connector status changed: '%s'\n", devnode);
+		printf("HDMI connector status changed: '%s'\n", devnode);
 	} else {
-		hal_dbg("HDMI connector status changed: Unknown device\n");
+		printf("HDMI connector status changed: Unknown device\n");
 	}
 }
 
@@ -37,10 +37,11 @@ int main(void) {
 	printf("Sample app listener for HDMI connection status changes.\n");
 	if (pthread_create(&thread_id, NULL, monitor_hdmi_status_changes,
 	                   (void *)print_hdmi_status) != 0) {
-		hal_err("Failed to create thread: %s\n", strerror(errno));
+		fprints(stderr, "Failed to create thread: %s\n",
+		        strerror(errno));
 		return 1;
 	} else {
-		hal_dbg("Waiting 10s for HDMI status change.\n");
+		printf("Waiting 10s for HDMI status change.\n");
 	}
 	sleep(10);
 	signal_udevmon_exit();
