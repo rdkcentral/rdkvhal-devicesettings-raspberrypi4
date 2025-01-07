@@ -66,6 +66,7 @@ add_custom_target(clean-all
 
 # if TESTS is set, add the subdirectory tests and invoke its CMakeLists.txt
 if (TESTS)
+	include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 	set(TEST_RESOLUTION_SRC ${CMAKE_CURRENT_SOURCE_DIR}/tests/testResolutionChange.c)
 	add_executable(testResolutionChange ${TEST_RESOLUTION_SRC})
 	target_link_libraries(testResolutionChange PRIVATE ${LIBNAME})

@@ -37,5 +37,5 @@ bool print_dri_edid(void);
 bool print_connected_display_edid(void);
 bool list_connector_status(void);
 bool print_supported_resolutions(void);
-bool change_resolution(void);
+bool change_resolution(int interval);
 int open_drm_device();

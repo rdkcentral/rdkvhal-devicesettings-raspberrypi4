@@ -22,6 +22,7 @@
 #include <errno.h>
 #include <libudev.h>
 #include <pthread.h>
+#include <string.h>
 #include <unistd.h>
 
 #include "dshalLogger.h"

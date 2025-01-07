@@ -108,20 +108,12 @@ bool print_edid(int fd, drmModeConnector *connector) {
 					}
 				}
 				hal_dbg("\n");
-				if (drmModeFreePropertyBlob(edid_blob) < 0) {
-					hal_err(
-					    "Failed to free property blob: "
-					    "'%s'\n",
-					    strerror(errno));
-				}
+				drmModeFreePropertyBlob(edid_blob);
 			} else {
 				hal_err("EDID read error.\n");
 			}
 		}
-		if (drmModeFreeProperty(property) < 0) {
-			hal_err("Failed to free property: '%s'\n",
-			        strerror(errno));
-		}
+		drmModeFreeProperty(property);
 	}
 
 	if (!has_edid) {
@@ -157,16 +149,9 @@ bool print_dri_edid(void) {
 		}
 		hal_dbg("DRI Connector %d EDID:\n", connector->connector_id);
 		print_edid(fd, connector);
-		if (drmModeFreeConnector(connector) < 0) {
-			hal_err("Failed to free connector: '%s'\n",
-			        strerror(errno));
-		}
+		drmModeFreeConnector(connector);
 	}
-
-	if (drmModeFreeResources(resources) < 0) {
-		hal_err("Failed to free DRM resources: '%s'\n",
-		        strerror(errno));
-	}
+	drmModeFreeResources(resources);
 	close(fd);
 	return true;
 }
@@ -201,16 +186,9 @@ bool print_connected_display_edid(void) {
 			        connector->connector_id);
 			print_edid(fd, connector);
 		}
-		if (drmModeFreeConnector(connector) < 0) {
-			hal_err("Failed to free connector: '%s'\n",
-			        strerror(errno));
-		}
+		drmModeFreeConnector(connector);
 	}
-
-	if (drmModeFreeResources(resources) < 0) {
-		hal_err("Failed to free DRM resources: '%s'\n",
-		        strerror(errno));
-	}
+	drmModeFreeResources(resources);
 	close(fd);
 	return true;
 }
@@ -252,15 +230,9 @@ bool list_connector_status(void) {
 		hal_dbg("  Type: %d\n", connector->connector_type);
 		hal_dbg("  Size: %dx%d mm\n", connector->mmWidth,
 		        connector->mmHeight);
-		if (drmModeFreeConnector(connector) < 0) {
-			fprintf(stderr, "Failed to free connector: %s\n",
-			        strerror(errno));
-		}
+		drmModeFreeConnector(connector);
 	}
-	if (drmModeFreeResources(resources) < 0) {
-		fprintf(stderr, "Failed to free DRM resources: %s\n",
-		        strerror(errno));
-	}
+	drmModeFreeResources(resources);
 	close(fd);
 	return true;
 }
@@ -307,20 +279,14 @@ bool print_supported_resolutions(void) {
 			    "Connector %d is not connected or has no modes\n",
 			    connector->connector_id);
 		}
-		if (drmModeFreeConnector(connector) < 0) {
-			fprintf(stderr, "Failed to free connector: %s\n",
-			        strerror(errno));
-		}
+		drmModeFreeConnector(connector);
 	}
-	if (drmModeFreeResources(resources) < 0) {
-		fprintf(stderr, "Failed to free DRM resources: %s\n",
-		        strerror(errno));
-	}
+	drmModeFreeResources(resources);
 	close(fd);
 	return true;
 }
 
-bool change_resolution(void) {
+bool change_resolution(int interval) {
 	int fd = open_drm_device();
 	if (fd < 0) {
 		hal_err("Failed to open DRM device\n");
@@ -427,15 +393,9 @@ bool change_resolution(void) {
 			    "Connector %d is not connected or has no modes\n",
 			    connector->connector_id);
 		}
-		if (drmModeFreeConnector(connector) < 0) {
-			fprintf(stderr, "Failed to free connector: %s\n",
-			        strerror(errno));
-		}
+		drmModeFreeConnector(connector);
 	}
-	if (drmModeFreeResources(resources) < 0) {
-		fprintf(stderr, "Failed to free DRM resources: %s\n",
-		        strerror(errno));
-	}
+	drmModeFreeResources(resources);
 	close(fd);
 	return true;
 }
