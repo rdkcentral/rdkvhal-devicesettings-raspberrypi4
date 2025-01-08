@@ -32,21 +32,26 @@
 volatile int exit_udev_mon_thread = 0;
 
 void get_hdmi_status(const char *devpath) {
+	if (!devpath) {
+		hal_err("Invalid device path\n");
+		return;
+	}
+	hal_dbg("Getting HDMI status for device: %s\n", devpath);
 	char status_path[256];
 	snprintf(status_path, sizeof(status_path), "%s/status", devpath);
-
+	hal_dbg("Reading HDMI status from file: %s\n", status_path);
 	FILE *file = fopen(status_path, "r");
 	if (file == NULL) {
-		hal_err("Failed to open status file: '%s'\n", status_path);
+		hal_err("Failed to open status file: %s\n", status_path);
 		return;
 	}
 
 	char status[32] = {0};
 	if (fgets(status, sizeof(status), file) != NULL) {
 		status[strcspn(status, "\n")] = '\0';
-		hal_dbg("HDMI status for '%s': '%s'\n", status_path, status);
+		hal_dbg("HDMI status for %s: %s\n", status_path, status);
 	} else {
-		hal_err("Failed to read status from file: '%s'\n", status_path);
+		hal_err("Failed to read status from file: %s\n", status_path);
 	}
 
 	fclose(file);
@@ -54,6 +59,11 @@ void get_hdmi_status(const char *devpath) {
 
 void enumerate_hdmi_connectors(struct udev *udev) {
 	struct udev_enumerate *enumerate = udev_enumerate_new(udev);
+	if (!enumerate) {
+		hal_err("Failed to create udev enumerate object\n");
+		return;
+	}
+
 	udev_enumerate_add_match_subsystem(enumerate, "drm");
 	udev_enumerate_scan_devices(enumerate);
 
@@ -71,12 +81,33 @@ void enumerate_hdmi_connectors(struct udev *udev) {
 			if (devtype && strcmp(devtype, "drm_minor") == 0) {
 				const char *devnode =
 				    udev_device_get_devnode(dev);
-				if (devnode && strstr(devnode, "HDMI")) {
-					get_hdmi_status(
-					    udev_device_get_syspath(dev));
+				if (devnode) {
+					hal_dbg("Found DRM device: %s\n",
+					        devnode);
+					if (strstr(devnode, "HDMI")) {
+						hal_dbg(
+						    "Found HDMI connector: "
+						    "%s\n",
+						    devnode);
+						get_hdmi_status(
+						    udev_device_get_syspath(
+						        dev));
+					} else {
+						hal_dbg(
+						    "Non-HDMI DRM device: %s\n",
+						    devnode);
+					}
+				} else {
+					hal_dbg("DRM device without devnode\n");
 				}
+			} else {
+				hal_dbg("Non-DRM device type: %s\n", devtype);
 			}
 			udev_device_unref(dev);
+		} else {
+			hal_err(
+			    "Failed to create udev device from syspath: %s\n",
+			    path);
 		}
 	}
 
@@ -139,7 +170,7 @@ void *monitor_hdmi_status_changes(void *arg) {
 		FD_ZERO(&fds);
 		FD_SET(fd, &fds);
 		tv.tv_sec = 0;
-		tv.tv_usec = 250000;
+		tv.tv_usec = 250000;  // 250ms timeout
 
 		ret = select(fd + 1, &fds, NULL, NULL, &tv);
 		if (ret > 0 && FD_ISSET(fd, &fds)) {
