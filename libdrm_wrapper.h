@@ -38,6 +38,6 @@ bool print_connected_display_edid(void);
 bool list_connector_status(void);
 bool print_supported_resolutions(void);
 bool change_resolution(int interval);
-int open_drm_device(int node_type);
 int open_drm_device(const char *devnode, int node_type);
+int open_drm_device_by_type(int node_type);
 void close_drm_device(int fd);

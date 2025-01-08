@@ -126,7 +126,7 @@ bool print_edid(int fd, drmModeConnector *connector) {
  * @return true if success, false otherwise.
  */
 bool print_dri_edid(void) {
-	int fd = open_drm_device(DRM_NODE_PRIMARY);
+	int fd = open_drm_device_by_type(DRM_NODE_PRIMARY);
 	if (fd < 0) {
 		hal_err("Failed to open DRM device\n");
 		return false;
@@ -161,7 +161,7 @@ bool print_dri_edid(void) {
  * @return true if success, false otherwise.
  */
 bool print_connected_display_edid(void) {
-	int fd = open_drm_device(DRM_NODE_PRIMARY);
+	int fd = open_drm_device_by_type(DRM_NODE_PRIMARY);
 	if (fd < 0) {
 		hal_err("Failed to open DRM device\n");
 		return false;
@@ -199,7 +199,7 @@ bool print_connected_display_edid(void) {
  * @return true if success, false otherwise.
  */
 bool list_connector_status(void) {
-	int fd = open_drm_device(DRM_NODE_PRIMARY);
+	int fd = open_drm_device_by_type(DRM_NODE_PRIMARY);
 	if (fd < 0) {
 		hal_err("Failed to open DRM device\n");
 		return false;
@@ -241,7 +241,7 @@ bool list_connector_status(void) {
  * @return true if success, false otherwise.
  */
 bool print_supported_resolutions(void) {
-	int fd = open_drm_device(DRM_NODE_PRIMARY);
+	int fd = open_drm_device_by_type(DRM_NODE_PRIMARY);
 	if (fd < 0) {
 		hal_err("Failed to open DRM device\n");
 		return false;
@@ -275,7 +275,7 @@ bool print_supported_resolutions(void) {
 }
 
 bool change_resolution(int interval) {
-	int fd = open_drm_device(DRM_NODE_CONTROL);
+	int fd = open_drm_device_by_type(DRM_NODE_CONTROL);
 	if (fd < 0) {
 		hal_err("Failed to open DRM device\n");
 		return false;
@@ -387,12 +387,12 @@ bool change_resolution(int interval) {
 }
 
 /**
- * @brief Open the DRM device.
+ * @brief Open the DRI_CARD device.
  * @param [DRM_NODE_PRIMARY/DRM_NODE_CONTROL/DRM_NODE_RENDER] see
  * xf86drm.h
  * @return The file descriptor of the DRM device, or -1 on error.
  */
-int open_drm_device(int node_type) {
+int open_drm_device_by_type(int node_type) {
 	hal_dbg("Opening DRM device '%s' with node type %d\n", DRI_CARD,
 	        node_type);
 	int fd = drmOpenWithType(DRI_CARD, NULL, node_type);
