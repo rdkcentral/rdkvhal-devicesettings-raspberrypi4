@@ -28,11 +28,11 @@
 pthread_t thread_id;
 
 void print_hdmi_status(const char *devnode) {
-	if (devnode) {
-		printf("HDMI connector status changed: '%s'\n", devnode);
-	} else {
-		printf("HDMI connector status changed: Unknown device\n");
+	if (!devnode) {
+		printf("Invalid argument\n");
+		return;
 	}
+	printf("HDMI status changed: %s\n", devnode);
 }
 
 int main(int argc, char *argv[]) {
@@ -46,8 +46,9 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 	printf("Sample app listener for HDMI connection status changes.\n");
+	/* pass the CB function as arg at NULL to receive the callback */
 	if (pthread_create(&thread_id, NULL, monitor_hdmi_status_changes,
-	                   (void *)print_hdmi_status) != 0) {
+	                   (void *)NULL) != 0) {
 		fprintf(stderr, "Failed to create thread: %s\n",
 		        strerror(errno));
 		return 1;
