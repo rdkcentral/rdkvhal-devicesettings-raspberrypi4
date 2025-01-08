@@ -100,11 +100,11 @@ bool print_edid(int fd, drmModeConnector *connector) {
 				            ? "valid"
 				            : "invalid");
 				for (int j = 0; j < edid_blob->length; j++) {
-					hal_dbg("%02x ",
-					        ((unsigned char *)
-					             edid_blob->data)[j]);
+					printf("%02x ",
+					       ((unsigned char *)
+					            edid_blob->data)[j]);
 					if ((j + 1) % 16 == 0) {
-						hal_dbg("\n");
+						printf("\n");
 					}
 				}
 				hal_dbg("\n");
