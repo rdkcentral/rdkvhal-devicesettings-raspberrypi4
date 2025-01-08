@@ -395,7 +395,17 @@ bool change_resolution(int interval) {
  * @return The file descriptor of the DRM device, or -1 on error.
  */
 int open_drm_device_by_type(int node_type) {
-	return open_drm_device(DRI_CARD, node_type);
+	int fd = open_drm_device(DRI_CARD, node_type);
+	if (fd < 0) {
+		hal_err("Failed to open DRM device %s, using default.\n",
+		        DRI_CARD);
+		fd = open_drm_device("/dev/dri/card0", node_type);
+		if (fd < 0) {
+			hal_err("Failed to open DRM device /dev/dri/card0\n");
+			return -1;
+		}
+	}
+	return fd;
 }
 
 /**
@@ -428,6 +438,13 @@ int open_drm_device(const char *devnode, int node_type) {
 		}
 		return -1;
 	}
+	// try to set master. May fail if another process has already set master
+	if (drmSetMaster(fd) < 0) {
+		int err = errno;
+		hal_err("Failed to set DRM master: %s\n", strerror(err));
+		drmClose(fd);
+		return -1;
+	}
 	return fd;
 }
 
@@ -437,6 +454,7 @@ int open_drm_device(const char *devnode, int node_type) {
  */
 void close_drm_device(int fd) {
 	if (fd >= 0) {
+		drmDropMaster(fd);
 		drmClose(fd);
 		hal_dbg("Closed DRM device with file descriptor %d\n", fd);
 	}
