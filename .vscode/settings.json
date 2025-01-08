@@ -1,0 +1,14 @@
+{
+	"editor.tabSize": 4,
+	"editor.insertSpaces": false,
+	"editor.detectIndentation": false,
+	"files.trimTrailingWhitespace": true,
+	"files.insertFinalNewline": true,
+	"files.trimFinalNewlines": true,
+	"C_Cpp.clang_format_fallbackStyle": "Google",
+	"C_Cpp.clang_format_style": "{ BasedOnStyle: Google, IndentWidth: 8, TabWidth: 8, UseTab: ForIndentation, ColumnLimit: 80 }",
+	"editor.wordWrapColumn": 150,
+	"editor.rulers": [
+		150
+	]
+}
