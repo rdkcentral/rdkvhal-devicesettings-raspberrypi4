@@ -22,14 +22,66 @@
 #include <errno.h>
 #include <libudev.h>
 #include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
 #include "dshalLogger.h"
 
-typedef void (*hdmi_status_callback_t)(const char *devnode);
-
 volatile int exit_udev_mon_thread = 0;
+
+void get_hdmi_status(const char *devpath) {
+	char status_path[256];
+	snprintf(status_path, sizeof(status_path), "%s/status", devpath);
+
+	FILE *file = fopen(status_path, "r");
+	if (file == NULL) {
+		hal_err("Failed to open status file: '%s'\n", status_path);
+		return;
+	}
+
+	char status[32] = {0};
+	if (fgets(status, sizeof(status), file) != NULL) {
+		status[strcspn(status, "\n")] = '\0';
+		hal_dbg("HDMI status for '%s': '%s'\n", status_path, status);
+	} else {
+		hal_err("Failed to read status from file: '%s'\n", status_path);
+	}
+
+	fclose(file);
+}
+
+void enumerate_hdmi_connectors(struct udev *udev) {
+	struct udev_enumerate *enumerate = udev_enumerate_new(udev);
+	udev_enumerate_add_match_subsystem(enumerate, "drm");
+	udev_enumerate_scan_devices(enumerate);
+
+	struct udev_list_entry *devices =
+	    udev_enumerate_get_list_entry(enumerate);
+	struct udev_list_entry *entry;
+
+	udev_list_entry_foreach(entry, devices) {
+		const char *path = udev_list_entry_get_name(entry);
+		struct udev_device *dev =
+		    udev_device_new_from_syspath(udev, path);
+
+		if (dev) {
+			const char *devtype = udev_device_get_devtype(dev);
+			if (devtype && strcmp(devtype, "drm_minor") == 0) {
+				const char *devnode =
+				    udev_device_get_devnode(dev);
+				if (devnode && strstr(devnode, "HDMI")) {
+					get_hdmi_status(
+					    udev_device_get_syspath(dev));
+				}
+			}
+			udev_device_unref(dev);
+		}
+	}
+
+	udev_enumerate_unref(enumerate);
+}
 
 void *monitor_hdmi_status_changes(void *arg) {
 	if (!arg) {
@@ -80,6 +132,9 @@ void *monitor_hdmi_status_changes(void *arg) {
 		return NULL;
 	}
 
+	// Initial enumeration of HDMI connectors
+	enumerate_hdmi_connectors(udev);
+
 	while (!exit_udev_mon_thread) {
 		FD_ZERO(&fds);
 		FD_SET(fd, &fds);
@@ -97,6 +152,7 @@ void *monitor_hdmi_status_changes(void *arg) {
 				    udev_device_get_devnode(dev);
 				if (action && (strcmp(action, "change") == 0)) {
 					callback(devnode);
+					enumerate_hdmi_connectors(udev);
 				}
 				udev_device_unref(dev);
 			}
@@ -111,6 +167,14 @@ void *monitor_hdmi_status_changes(void *arg) {
 	udev_monitor_unref(mon);
 	udev_unref(udev);
 	return NULL;
+}
+
+void print_hdmi_status(const char *devnode) {
+	if (devnode) {
+		hal_dbg("HDMI connector status changed: '%s'\n", devnode);
+	} else {
+		hal_dbg("HDMI connector status changed: Unknown device\n");
+	}
 }
 
 void signal_udevmon_exit() { exit_udev_mon_thread = 1; }

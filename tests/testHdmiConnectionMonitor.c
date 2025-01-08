@@ -35,7 +35,16 @@ void print_hdmi_status(const char *devnode) {
 	}
 }
 
-int main(void) {
+int main(int argc, char *argv[]) {
+	if (argc != 2) {
+		fprintf(stderr, "Usage: %s <INTERVAL>\n", argv[0]);
+		return 1;
+	}
+	int interval = atoi(argv[1]);
+	if (interval <= 0) {
+		fprintf(stderr, "Invalid interval: %s\n", argv[1]);
+		return 1;
+	}
 	printf("Sample app listener for HDMI connection status changes.\n");
 	if (pthread_create(&thread_id, NULL, monitor_hdmi_status_changes,
 	                   (void *)print_hdmi_status) != 0) {
@@ -43,9 +52,9 @@ int main(void) {
 		        strerror(errno));
 		return 1;
 	} else {
-		printf("Waiting 10s for HDMI status change.\n");
+		printf("Waiting %ds for HDMI status change.\n", interval);
 	}
-	sleep(10);
+	sleep(interval);
 	signal_udevmon_exit();
 	pthread_join(thread_id, NULL);
 	return 0;
