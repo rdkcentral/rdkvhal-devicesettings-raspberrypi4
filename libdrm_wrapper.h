@@ -25,6 +25,7 @@
 #include <xf86drmMode.h>
 
 #define EDID_LENGTH 128
+#define MAX_EDID_LENGTH 256
 #define EDID_HEADER "\x00\xff\xff\xff\xff\xff\xff\x00"
 
 #ifndef DRI_CARD

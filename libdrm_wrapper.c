@@ -69,6 +69,33 @@ bool validate_edid(unsigned char *edid, int length) {
  * @return true if success, false otherwise.
  */
 bool print_edid(int fd, drmModeConnector *connector) {
+	hal_dbg("Printing DRI EDID from sysfs\n");
+	// read /sys/devices/platform/gpu/drm/card1/card1-HDMI-A-1/edid file and
+	// print edid data.
+	FILE *fp = fopen(
+	    "/sys/devices/platform/gpu/drm/card1/card1-HDMI-A-1/edid", "rb");
+	if (fp != NULL) {
+		unsigned char edid[MAX_EDID_LENGTH];
+		size_t size =
+		    fread(edid, sizeof(unsigned char), MAX_EDID_LENGTH, fp);
+		if (size == EDID_LENGTH || size == MAX_EDID_LENGTH) {
+			hal_dbg("Host EDID: '%s'\n", validate_edid(edid, size)
+			                                 ? "valid"
+			                                 : "invalid");
+			for (int i = 0; i < size; i++) {
+				printf("%02x ", edid[i]);
+				if ((i + 1) % 16 == 0) {
+					printf("\n");
+				}
+			}
+			hal_dbg("\n");
+		} else {
+			hal_err("Failed to read sysfs EDID data\n");
+		}
+		fclose(fp);
+	} else {
+		hal_err("Failed to open sysfs EDID file\n");
+	}
 	if (connector == NULL) {
 		hal_err("Invalid connector\n");
 		return false;
@@ -325,8 +352,7 @@ bool change_resolution(int interval) {
 				             &create_dumb) < 0) {
 					hal_err(
 					    "Failed to create dumb buffer for "
-					    "mode %dx%d: "
-					    "'%s'\n",
+					    "mode %dx%d: '%s'\n",
 					    mode.hdisplay, mode.vdisplay,
 					    strerror(errno));
 					drmModeFreeCrtc(crtc);
@@ -390,8 +416,7 @@ bool change_resolution(int interval) {
 
 /**
  * @brief Open the DRI_CARD device.
- * @param [DRM_NODE_PRIMARY/DRM_NODE_CONTROL/DRM_NODE_RENDER] see
- * xf86drm.h
+ * @param [DRM_NODE_PRIMARY/DRM_NODE_CONTROL/DRM_NODE_RENDER] see xf86drm.h
  * @return The file descriptor of the DRM device, or -1 on error.
  */
 int open_drm_device_by_type(int node_type) {
@@ -409,9 +434,9 @@ int open_drm_device_by_type(int node_type) {
 }
 
 /**
- * @brief Close the DRM device.
- * @param1 Eg /dev/dri/card0
- * @param2 DRM_NODE_PRIMARY/DRM_NODE_CONTROL/DRM_NODE_RENDER
+ * @brief Open the DRM device.
+ * @param devnode The device node, e.g., /dev/dri/card0.
+ * @param node_type DRM_NODE_PRIMARY/DRM_NODE_CONTROL/DRM_NODE_RENDER.
  * @return The file descriptor of the DRM device, or -1 on error.
  */
 int open_drm_device(const char *devnode, int node_type) {
@@ -421,6 +446,7 @@ int open_drm_device(const char *devnode, int node_type) {
 	}
 	hal_dbg("Opening DRM device '%s' with node type %d\n", devnode,
 	        node_type);
+#if 0
 	int fd = drmOpenWithType(devnode, NULL, node_type);
 	if (fd < 0) {
 		int err = errno;
@@ -445,6 +471,15 @@ int open_drm_device(const char *devnode, int node_type) {
 		drmClose(fd);
 		return -1;
 	}
+#else
+	hal_dbg("Opening DRM device witout node_type '%d'\n", node_type);
+	int fd = open(devnode, O_RDWR | O_CLOEXEC);
+	if (fd < 0) {
+		hal_err("Failed to open DRM device: %s\n", strerror(errno));
+		return -1;
+	}
+	drmDropMaster(fd);
+#endif
 	return fd;
 }
 
@@ -454,8 +489,7 @@ int open_drm_device(const char *devnode, int node_type) {
  */
 void close_drm_device(int fd) {
 	if (fd >= 0) {
-		drmDropMaster(fd);
-		drmClose(fd);
+		close(fd);
 		hal_dbg("Closed DRM device with file descriptor %d\n", fd);
 	}
 }

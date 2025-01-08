@@ -479,6 +479,7 @@ dsError_t dsEnableDTCP(intptr_t handle, bool contentProtect) {
  */
 dsError_t dsEnableHDCP(intptr_t handle, bool contentProtect, char *hdcpKey,
                        size_t keySize) {
+	// Ref: https://forums.raspberrypi.com/viewtopic.php?t=278193
 	hal_dbg("invoked.\n");
 	if (false == _bIsVideoPortInitialized) {
 		return dsERR_NOT_INITIALIZED;
@@ -561,6 +562,7 @@ dsError_t dsIsDTCPEnabled(intptr_t handle, bool *pContentProtected) {
  * @see dsEnableHDCP()
  */
 dsError_t dsIsHDCPEnabled(intptr_t handle, bool *pContentProtected) {
+	// Ref: https://forums.raspberrypi.com/viewtopic.php?t=278193
 	hal_dbg("invoked.\n");
 	if (false == _bIsVideoPortInitialized) {
 		return dsERR_NOT_INITIALIZED;
@@ -874,6 +876,7 @@ dsError_t dsIsVideoPortActive(intptr_t handle, bool *active) {
  */
 dsError_t dsGetHDCPProtocol(intptr_t handle,
                             dsHdcpProtocolVersion_t *protocolVersion) {
+	// Ref: https://forums.raspberrypi.com/viewtopic.php?t=278193
 	hal_dbg("invoked.\n");
 	if (false == _bIsVideoPortInitialized) {
 		return dsERR_NOT_INITIALIZED;
@@ -886,6 +889,7 @@ dsError_t dsGetHDCPProtocol(intptr_t handle,
 
 dsError_t dsGetHDCPReceiverProtocol(intptr_t handle,
                                     dsHdcpProtocolVersion_t *protocolVersion) {
+	// Ref: https://forums.raspberrypi.com/viewtopic.php?t=278193
 	hal_dbg("invoked.\n");
 	if (false == _bIsVideoPortInitialized) {
 		return dsERR_NOT_INITIALIZED;
@@ -898,6 +902,7 @@ dsError_t dsGetHDCPReceiverProtocol(intptr_t handle,
 
 dsError_t dsGetHDCPCurrentProtocol(intptr_t handle,
                                    dsHdcpProtocolVersion_t *protocolVersion) {
+	// Ref: https://forums.raspberrypi.com/viewtopic.php?t=278193
 	hal_dbg("invoked.\n");
 	if (false == _bIsVideoPortInitialized) {
 		return dsERR_NOT_INITIALIZED;
