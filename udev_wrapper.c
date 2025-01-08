@@ -30,6 +30,7 @@
 #include <xf86drmMode.h>
 
 #include "dshalLogger.h"
+#include "libdrm_wrapper.h"
 
 volatile int exit_udev_mon_thread = 0;
 
@@ -47,7 +48,7 @@ void get_hdmi_status_libdrm(const char *devnode) {
 	char card_path[32] = {0};
 	snprintf(card_path, sizeof(card_path), "/dev/dri/%s", card);
 	hal_dbg("Opening DRM device: %s\n", card_path);
-	int fd = open(card_path, O_RDWR | O_CLOEXEC);
+	int fd = open_drm_device(card_path, DRM_NODE_PRIMARY);
 	if (fd < 0) {
 		hal_err("Failed to open DRM device: %s\n", card_path);
 		return;
@@ -56,7 +57,7 @@ void get_hdmi_status_libdrm(const char *devnode) {
 	drmModeRes *resources = drmModeGetResources(fd);
 	if (!resources) {
 		hal_err("Failed to get DRM resources\n");
-		close(fd);
+		close_drm_device(fd);
 		return;
 	}
 
@@ -82,13 +83,12 @@ void get_hdmi_status_libdrm(const char *devnode) {
 	}
 
 	drmModeFreeResources(resources);
-	close(fd);
+	close_drm_device(fd);
 }
 
 void *monitor_hdmi_status_changes(void *arg) {
 	if (!arg) {
-		hal_err("Invalid argument\n");
-		return NULL;
+		hal_warn("No callback function passed to invoke.\n");
 	}
 	hdmi_status_callback_t callback = (hdmi_status_callback_t)arg;
 	struct udev *udev;

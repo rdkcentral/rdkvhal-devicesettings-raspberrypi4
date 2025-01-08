@@ -64,12 +64,12 @@ bool validate_edid(unsigned char *edid, int length) {
 
 /**
  * @brief Print the EDID data.
- * @param fd The file descriptor of the DRM device.
+ * @param fd The file descriptor of drmOpen().
  * @param connector The connector.
  * @return true if success, false otherwise.
  */
 bool print_edid(int fd, drmModeConnector *connector) {
-	if (NULL == connector) {
+	if (connector == NULL) {
 		hal_err("Invalid connector\n");
 		return false;
 	}
@@ -88,7 +88,6 @@ bool print_edid(int fd, drmModeConnector *connector) {
 		if (!property) {
 			continue;
 		}
-
 		if (strcmp(property->name, "EDID") == 0) {
 			has_edid = 1;
 			edid_blob = drmModeGetPropertyBlob(
@@ -115,7 +114,6 @@ bool print_edid(int fd, drmModeConnector *connector) {
 		}
 		drmModeFreeProperty(property);
 	}
-
 	if (!has_edid) {
 		hal_warn("No EDID property found.\n");
 		return false;
@@ -128,15 +126,16 @@ bool print_edid(int fd, drmModeConnector *connector) {
  * @return true if success, false otherwise.
  */
 bool print_dri_edid(void) {
-	int fd = open_drm_device();
+	int fd = open_drm_device(DRM_NODE_PRIMARY);
 	if (fd < 0) {
 		hal_err("Failed to open DRM device\n");
 		return false;
 	}
+
 	drmModeRes *resources = drmModeGetResources(fd);
 	if (!resources) {
 		hal_err("Failed to get DRM resources: '%s'\n", strerror(errno));
-		close(fd);
+		close_drm_device(fd);
 		return false;
 	}
 
@@ -153,7 +152,7 @@ bool print_dri_edid(void) {
 		drmModeFreeConnector(connector);
 	}
 	drmModeFreeResources(resources);
-	close(fd);
+	close_drm_device(fd);
 	return true;
 }
 
@@ -162,15 +161,16 @@ bool print_dri_edid(void) {
  * @return true if success, false otherwise.
  */
 bool print_connected_display_edid(void) {
-	int fd = open_drm_device();
+	int fd = open_drm_device(DRM_NODE_PRIMARY);
 	if (fd < 0) {
 		hal_err("Failed to open DRM device\n");
 		return false;
 	}
+
 	drmModeRes *resources = drmModeGetResources(fd);
 	if (!resources) {
 		hal_err("Failed to get DRM resources: '%s'\n", strerror(errno));
-		close(fd);
+		close_drm_device(fd);
 		return false;
 	}
 
@@ -190,7 +190,7 @@ bool print_connected_display_edid(void) {
 		drmModeFreeConnector(connector);
 	}
 	drmModeFreeResources(resources);
-	close(fd);
+	close_drm_device(fd);
 	return true;
 }
 
@@ -199,7 +199,7 @@ bool print_connected_display_edid(void) {
  * @return true if success, false otherwise.
  */
 bool list_connector_status(void) {
-	int fd = open_drm_device();
+	int fd = open_drm_device(DRM_NODE_PRIMARY);
 	if (fd < 0) {
 		hal_err("Failed to open DRM device\n");
 		return false;
@@ -207,10 +207,9 @@ bool list_connector_status(void) {
 	drmModeRes *resources = drmModeGetResources(fd);
 	if (!resources) {
 		hal_err("Failed to get DRM resources: '%s'\n", strerror(errno));
-		close(fd);
+		close_drm_device(fd);
 		return false;
 	}
-
 	for (int i = 0; i < resources->count_connectors; i++) {
 		drmModeConnector *connector =
 		    drmModeGetConnector(fd, resources->connectors[i]);
@@ -233,7 +232,7 @@ bool list_connector_status(void) {
 		drmModeFreeConnector(connector);
 	}
 	drmModeFreeResources(resources);
-	close(fd);
+	close_drm_device(fd);
 	return true;
 }
 
@@ -242,7 +241,7 @@ bool list_connector_status(void) {
  * @return true if success, false otherwise.
  */
 bool print_supported_resolutions(void) {
-	int fd = open_drm_device();
+	int fd = open_drm_device(DRM_NODE_PRIMARY);
 	if (fd < 0) {
 		hal_err("Failed to open DRM device\n");
 		return false;
@@ -250,10 +249,9 @@ bool print_supported_resolutions(void) {
 	drmModeRes *resources = drmModeGetResources(fd);
 	if (!resources) {
 		hal_err("Failed to get DRM resources: '%s'\n", strerror(errno));
-		close(fd);
+		close_drm_device(fd);
 		return false;
 	}
-
 	for (int i = 0; i < resources->count_connectors; i++) {
 		drmModeConnector *connector =
 		    drmModeGetConnector(fd, resources->connectors[i]);
@@ -272,12 +270,12 @@ bool print_supported_resolutions(void) {
 		drmModeFreeConnector(connector);
 	}
 	drmModeFreeResources(resources);
-	close(fd);
+	close_drm_device(fd);
 	return true;
 }
 
 bool change_resolution(int interval) {
-	int fd = open_drm_device();
+	int fd = open_drm_device(DRM_NODE_CONTROL);
 	if (fd < 0) {
 		hal_err("Failed to open DRM device\n");
 		return false;
@@ -285,7 +283,7 @@ bool change_resolution(int interval) {
 	drmModeRes *resources = drmModeGetResources(fd);
 	if (!resources) {
 		hal_err("Failed to get DRM resources: '%s'\n", strerror(errno));
-		close(fd);
+		close_drm_device(fd);
 		return false;
 	}
 
@@ -384,20 +382,75 @@ bool change_resolution(int interval) {
 		drmModeFreeConnector(connector);
 	}
 	drmModeFreeResources(resources);
-	close(fd);
+	close_drm_device(fd);
 	return true;
 }
 
 /**
  * @brief Open the DRM device.
+ * @param [DRM_NODE_PRIMARY/DRM_NODE_CONTROL/DRM_NODE_RENDER] see
+ * xf86drm.h
  * @return The file descriptor of the DRM device, or -1 on error.
  */
-int open_drm_device() {
-	hal_dbg("Opening DRM device '%s'\n", DRI_CARD);
-	int fd = open(DRI_CARD, O_RDWR | O_CLOEXEC);
+int open_drm_device(int node_type) {
+	hal_dbg("Opening DRM device '%s' with node type %d\n", DRI_CARD,
+	        node_type);
+	int fd = drmOpenWithType(DRI_CARD, NULL, node_type);
 	if (fd < 0) {
-		hal_err("Failed to open DRM device: '%s'\n", strerror(errno));
+		drmVersionPtr version = drmGetVersion(fd);
+		if (version) {
+			hal_err(
+			    "Failed to open DRM device: %s, version: %s, date: "
+			    "%s, desc: %s\n",
+			    DRI_CARD, version->name, version->date,
+			    version->desc);
+			drmFreeVersion(version);
+		} else {
+			hal_err("Failed to open DRM device: %s\n", DRI_CARD);
+		}
 		return -1;
 	}
 	return fd;
+}
+
+/**
+ * @brief Close the DRM device.
+ * @param1 Eg /dev/dri/card0
+ * @param2 DRM_NODE_PRIMARY/DRM_NODE_CONTROL/DRM_NODE_RENDER
+ * @return The file descriptor of the DRM device, or -1 on error.
+ */
+int open_drm_device(const char *devnode, int node_type) {
+	if (!devnode) {
+		hal_err("Invalid device node\n");
+		return -1;
+	}
+	hal_dbg("Opening DRM device '%s' with node type %d\n", devnode,
+	        node_type);
+	int fd = drmOpenWithType(devnode, NULL, node_type);
+	if (fd < 0) {
+		drmVersionPtr version = drmGetVersion(fd);
+		if (version) {
+			hal_err(
+			    "Failed to open DRM device: %s, version: %s, date: "
+			    "%s, desc: %s\n",
+			    DRI_CARD, version->name, version->date,
+			    version->desc);
+			drmFreeVersion(version);
+		} else {
+			hal_err("Failed to open DRM device: %s\n", DRI_CARD);
+		}
+		return -1;
+	}
+	return fd;
+}
+
+/**
+ * @brief Close the DRM device.
+ * @param fd The file descriptor of the DRM device.
+ */
+void close_drm_device(int fd) {
+	if (fd >= 0) {
+		drmClose(fd);
+		hal_dbg("Closed DRM device with file descriptor %d\n", fd);
+	}
 }
