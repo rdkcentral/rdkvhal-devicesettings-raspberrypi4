@@ -493,3 +493,166 @@ void close_drm_device(int fd) {
 		hal_dbg("Closed DRM device with file descriptor %d\n", fd);
 	}
 }
+
+/**
+ * @brief Get the current resolution.
+ * @param width The width of the resolution.
+ * @param height The height of the resolution.
+ * @param refresh_rate The refresh rate of the resolution.
+ * @param mode The mode of the resolution, interlaced(0) or progressive(1).
+ * @return true if success, false otherwise.
+ */
+bool get_current_resolution(int *width, int *height, int *refresh_rate,
+                            int *mode) {
+	int fd = open_drm_device_by_type(DRM_NODE_PRIMARY);
+	if (fd < 0) {
+		hal_err("Failed to open DRM device\n");
+		return false;
+	}
+	drmModeRes *resources = drmModeGetResources(fd);
+	if (!resources) {
+		hal_err("Failed to get DRM resources: '%s'\n", strerror(errno));
+		close_drm_device(fd);
+		return false;
+	}
+	drmModeCrtc *crtc = drmModeGetCrtc(fd, resources->crtcs[0]);
+	if (!crtc) {
+		hal_err("Failed to get CRTC: '%s'\n", strerror(errno));
+		drmModeFreeResources(resources);
+		close_drm_device(fd);
+		return false;
+	}
+	*width = crtc->mode.hdisplay;
+	*height = crtc->mode.vdisplay;
+	*refresh_rate = crtc->mode.vrefresh;
+	*mode = (crtc->mode.flags & DRM_MODE_FLAG_INTERLACE) ? 0 : 1;
+	drmModeFreeCrtc(crtc);
+	drmModeFreeResources(resources);
+	close_drm_device(fd);
+	return true;
+}
+
+/**
+ * @brief Check if the resolution is supported.
+ * @param width The width of the resolution.
+ * @param height The height of the resolution.
+ * @param refresh_rate The refresh rate of the resolution.
+ * @param mode The mode of the resolution, interlaced(0) or progressive(1).
+ * @return true if the resolution is supported, false otherwise.
+ */
+bool is_supported_resolution(int width, int height, int refresh_rate,
+                             int mode) {
+	int fd = open_drm_device_by_type(DRM_NODE_PRIMARY);
+	if (fd < 0) {
+		hal_err("Failed to open DRM device\n");
+		return false;
+	}
+	drmModeRes *resources = drmModeGetResources(fd);
+	if (!resources) {
+		hal_err("Failed to get DRM resources: '%s'\n", strerror(errno));
+		close_drm_device(fd);
+		return false;
+	}
+	for (int i = 0; i < resources->count_connectors; i++) {
+		drmModeConnector *connector =
+		    drmModeGetConnector(fd, resources->connectors[i]);
+		if (!connector) {
+			hal_err("Failed to get connector: '%s'\n",
+			        strerror(errno));
+			continue;
+		}
+		if (connector->connection == DRM_MODE_CONNECTED &&
+		    connector->count_modes > 0) {
+			for (int j = 0; j < connector->count_modes; j++) {
+				drmModeModeInfo mode_info = connector->modes[j];
+				if (mode_info.hdisplay == width &&
+				    mode_info.vdisplay == height &&
+				    mode_info.vrefresh == refresh_rate) {
+					drmModeFreeConnector(connector);
+					drmModeFreeResources(resources);
+					close_drm_device(fd);
+					return true;
+				}
+			}
+		}
+		drmModeFreeConnector(connector);
+	}
+	drmModeFreeResources(resources);
+	close_drm_device(fd);
+	return false;
+}
+
+/**
+ * @brief Set the current resolution.
+ * @param width The width of the resolution.
+ * @param height The height of the resolution.
+ * @param refresh_rate The refresh rate of the resolution.
+ * @param mode The mode of the resolution, interlaced(0) or progressive(1).
+ * @return true if success, false otherwise.
+ */
+bool set_current_resolution(int width, int height, int refresh_rate, int mode) {
+	int fd = open_drm_device_by_type(DRM_NODE_PRIMARY);
+	if (fd < 0) {
+		hal_err("Failed to open DRM device\n");
+		return false;
+	}
+	drmModeRes *resources = drmModeGetResources(fd);
+	if (!resources) {
+		hal_err("Failed to get DRM resources: '%s'\n", strerror(errno));
+		close_drm_device(fd);
+		return false;
+	}
+	for (int i = 0; i < resources->count_connectors; i++) {
+		drmModeConnector *connector =
+		    drmModeGetConnector(fd, resources->connectors[i]);
+		if (!connector) {
+			hal_err("Failed to get connector: '%s'\n",
+			        strerror(errno));
+			continue;
+		}
+		if (connector->connection == DRM_MODE_CONNECTED &&
+		    connector->count_modes > 0) {
+			for (int j = 0; j < connector->count_modes; j++) {
+				drmModeModeInfo mode_info = connector->modes[j];
+				if (mode_info.hdisplay == width &&
+				    mode_info.vdisplay == height &&
+				    mode_info.vrefresh == refresh_rate) {
+					drmModeCrtc *crtc = drmModeGetCrtc(
+					    fd, resources->crtcs[0]);
+					if (!crtc) {
+						hal_err(
+						    "Failed to get CRTC: "
+						    "'%s'\n",
+						    strerror(errno));
+						continue;
+					}
+					int ret = drmModeSetCrtc(
+					    fd, crtc->crtc_id, crtc->buffer_id,
+					    0, 0, &connector->connector_id, 1,
+					    &mode_info);
+					drmModeFreeCrtc(crtc);
+					if (ret) {
+						hal_err(
+						    "Failed to set mode %dx%d: "
+						    "%s\n",
+						    width, height,
+						    strerror(errno));
+					} else {
+						hal_dbg(
+						    "Changed resolution to "
+						    "%dx%d\n",
+						    width, height);
+						drmModeFreeConnector(connector);
+						drmModeFreeResources(resources);
+						close_drm_device(fd);
+						return true;
+					}
+				}
+			}
+		}
+		drmModeFreeConnector(connector);
+	}
+	drmModeFreeResources(resources);
+	close_drm_device(fd);
+	return false;
+}
