@@ -603,7 +603,7 @@ static dsError_t dsQueryHdmiResolution() {
 			        resolutionMap[i].rdkRes, resolutionMap[i].mode);
 			for (int j = 0; j < num_of_modes; j++) {
 				hal_dbg(
-				    "Mode %d: WxHxF ScanMode: %dx%dx%d-%s\n", j,
+				    "Mode %d: WxHxF ScanMode: %dx%dx%d%s\n", j,
 				    modeSupported[j].width,
 				    modeSupported[j].height,
 				    modeSupported[j].frame_rate,

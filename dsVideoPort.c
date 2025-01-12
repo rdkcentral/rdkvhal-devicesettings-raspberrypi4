@@ -385,6 +385,12 @@ dsError_t dsIsDisplayConnected(intptr_t handle, bool *connected) {
 
 	if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
 		hal_dbg("dsVIDEOPORT_TYPE_HDMI port\n");
+#ifdef USE_NEW_IMPLEMENTATION
+		if (!get_connector_status(connected)) {
+			hal_err("get_connector_status failed\n");
+			return dsERR_GENERAL;
+		}
+#else
 		if (vc_tv_get_display_state(&tvstate) == 0) {
 			hal_dbg("vc_tv_get_display_state: 0x%x\n",
 			        tvstate.state);
@@ -400,6 +406,7 @@ dsError_t dsIsDisplayConnected(intptr_t handle, bool *connected) {
 			hal_err("vc_tv_get_display_state failed\n");
 			return dsERR_GENERAL;
 		}
+#endif
 	} else {
 		return dsERR_OPERATION_NOT_SUPPORTED;
 	}

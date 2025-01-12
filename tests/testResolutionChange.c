@@ -47,7 +47,7 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 	printf("Printing Connector status\n");
-	if (list_connector_status() == false) {
+	if (get_connector_status(NULL) == false) {
 		fprintf(stderr, "Failed to list connector status\n");
 		return 1;
 	}

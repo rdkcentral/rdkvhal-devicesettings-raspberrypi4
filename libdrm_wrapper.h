@@ -36,7 +36,7 @@ bool validate_edid(unsigned char *edid, int length);
 bool print_edid(int fd, drmModeConnector *connector);
 bool print_dri_edid(void);
 bool print_connected_display_edid(void);
-bool list_connector_status(void);
+bool get_connector_status(bool *connectedStatus);
 bool print_supported_resolutions(void);
 bool change_resolution(int interval);
 int open_drm_device_by_type(int node_type);

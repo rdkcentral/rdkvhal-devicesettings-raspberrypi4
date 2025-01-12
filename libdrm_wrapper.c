@@ -224,10 +224,14 @@ bool print_connected_display_edid(void) {
 }
 
 /**
- * @brief List the status of the connector.
+ * @brief Get the status of the connector.
+ * @param connectedStatus The connected status, true if connected else false.
  * @return true if success, false otherwise.
  */
-bool list_connector_status(void) {
+bool get_connector_status(bool *connectedStatus) {
+	if (connectedStatus != NULL) {
+		*connectedStatus = false;
+	}
 	int fd = open_drm_device_by_type(DRM_NODE_PRIMARY);
 	if (fd < 0) {
 		hal_err("Failed to open DRM device\n");
@@ -251,6 +255,10 @@ bool list_connector_status(void) {
 		        connector->connection == DRM_MODE_CONNECTED
 		            ? "connected"
 		            : "disconnected");
+		if (connectedStatus != NULL) {
+			*connectedStatus =
+			    connector->connection == DRM_MODE_CONNECTED;
+		}
 		hal_dbg("  Modes: %d\n", connector->count_modes);
 		hal_dbg("  Properties: %d\n", connector->count_props);
 		hal_dbg("  Encoders: %d\n", connector->count_encoders);
