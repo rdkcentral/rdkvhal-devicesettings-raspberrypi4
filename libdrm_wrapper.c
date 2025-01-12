@@ -681,12 +681,16 @@ bool enable_hdmi_output(bool *enable) {
 		hal_err("Failed to open DRM device\n");
 		return false;
 	}
+	hal_dbg("Opened DRM device with file descriptor %d\n", fd);
+
 	drmModeRes *resources = drmModeGetResources(fd);
 	if (!resources) {
 		hal_err("Failed to get DRM resources: '%s'\n", strerror(errno));
 		close_drm_device(fd);
 		return false;
 	}
+	hal_dbg("Retrieved DRM resources\n");
+
 	for (int i = 0; i < resources->count_connectors; i++) {
 		drmModeConnector *connector =
 		    drmModeGetConnector(fd, resources->connectors[i]);
@@ -694,6 +698,9 @@ bool enable_hdmi_output(bool *enable) {
 		    (connector->connector_type == DRM_MODE_CONNECTOR_HDMIA ||
 		     connector->connector_type == DRM_MODE_CONNECTOR_HDMIB)) {
 			uint32_t connector_id = connector->connector_id;
+			hal_dbg("Found HDMI connector with ID %u\n",
+			        connector_id);
+
 			drmModeObjectProperties *props =
 			    drmModeObjectGetProperties(
 			        fd, connector_id, DRM_MODE_OBJECT_CONNECTOR);
@@ -702,6 +709,8 @@ bool enable_hdmi_output(bool *enable) {
 				drmModeFreeConnector(connector);
 				continue;
 			}
+			hal_dbg("Retrieved connector properties\n");
+
 			for (int j = 0; j < props->count_props; j++) {
 				drmModePropertyPtr property =
 				    drmModeGetProperty(fd, props->props[j]);
@@ -710,6 +719,8 @@ bool enable_hdmi_output(bool *enable) {
 					uint64_t value =
 					    *enable ? DRM_MODE_DPMS_ON
 					            : DRM_MODE_DPMS_OFF;
+					hal_dbg("Setting DPMS property to %s\n",
+					        *enable ? "on" : "off");
 					if (drmModeObjectSetProperty(
 					        fd, connector_id,
 					        DRM_MODE_OBJECT_CONNECTOR,
@@ -717,7 +728,8 @@ bool enable_hdmi_output(bool *enable) {
 					        value) != 0) {
 						hal_err(
 						    "Failed to set DPMS "
-						    "property\n");
+						    "property: %s\n",
+						    strerror(errno));
 					} else {
 						hal_dbg(
 						    "Set DPMS property to %s\n",
@@ -735,6 +747,7 @@ bool enable_hdmi_output(bool *enable) {
 	}
 	drmModeFreeResources(resources);
 	close_drm_device(fd);
+	hal_dbg("Closed DRM device with file descriptor %d\n", fd);
 	return ret;
 }
 
@@ -755,6 +768,7 @@ bool get_hdmi_output_status(bool *isEnabled) {
 		hal_err("Failed to open DRM device\n");
 		return false;
 	}
+	hal_dbg("Opened DRM device with file descriptor %d\n", fd);
 
 	drmModeRes *resources = drmModeGetResources(fd);
 	if (!resources) {
@@ -762,6 +776,7 @@ bool get_hdmi_output_status(bool *isEnabled) {
 		close_drm_device(fd);
 		return false;
 	}
+	hal_dbg("Retrieved DRM resources\n");
 
 	for (int i = 0; i < resources->count_connectors; i++) {
 		drmModeConnector *connector =
@@ -770,6 +785,9 @@ bool get_hdmi_output_status(bool *isEnabled) {
 		    (connector->connector_type == DRM_MODE_CONNECTOR_HDMIA ||
 		     connector->connector_type == DRM_MODE_CONNECTOR_HDMIB)) {
 			uint32_t connector_id = connector->connector_id;
+			hal_dbg("Found HDMI connector with ID %u\n",
+			        connector_id);
+
 			drmModeObjectProperties *props =
 			    drmModeObjectGetProperties(
 			        fd, connector_id, DRM_MODE_OBJECT_CONNECTOR);
@@ -778,6 +796,7 @@ bool get_hdmi_output_status(bool *isEnabled) {
 				drmModeFreeConnector(connector);
 				continue;
 			}
+			hal_dbg("Retrieved connector properties\n");
 
 			for (int j = 0; j < props->count_props; j++) {
 				drmModePropertyPtr property =
@@ -806,5 +825,6 @@ bool get_hdmi_output_status(bool *isEnabled) {
 
 	drmModeFreeResources(resources);
 	close_drm_device(fd);
+	hal_dbg("Closed DRM device with file descriptor %d\n", fd);
 	return ret;
 }
