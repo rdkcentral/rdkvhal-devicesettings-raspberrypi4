@@ -32,7 +32,25 @@
 #include "dshalLogger.h"
 #include "dshalUtils.h"
 
+#define MAX_HDMI_CODE_ID (127)
 dsDisplayEventCallback_t _halcallback = NULL;
+dsVideoPortResolution_t *HdmiSupportedResolution = NULL;
+static unsigned int numSupportedResn = 0;
+static bool _bDisplayInited = false;
+static bool isBootup = true;
+static dsError_t dsQueryHdmiResolution();
+TV_SUPPORTED_MODE_T dsVideoPortgetVideoFormatFromInfo(dsVideoResolution_t res,
+                                                      unsigned frameRate,
+                                                      bool interlaced);
+static dsVideoPortResolution_t *dsgetResolutionInfo(const char *res_name);
+
+typedef struct _VDISPHandle_t {
+	dsVideoPortType_t m_vType;
+	int m_index;
+	int m_nativeHandle;
+} VDISPHandle_t;
+
+static VDISPHandle_t _handles[dsVIDEOPORT_TYPE_MAX][2] = {};
 
 #ifdef USE_NEW_IMPLEMENTATION
 #include <pthread.h>
@@ -100,25 +118,6 @@ void *hdmi_status_change_handler(const char *devnode) {
 	return NULL;
 }
 #endif /* USE_NEW_IMPLEMENTATION */
-
-#define MAX_HDMI_CODE_ID (127)
-dsVideoPortResolution_t *HdmiSupportedResolution = NULL;
-static unsigned int numSupportedResn = 0;
-static bool _bDisplayInited = false;
-static bool isBootup = true;
-static dsError_t dsQueryHdmiResolution();
-TV_SUPPORTED_MODE_T dsVideoPortgetVideoFormatFromInfo(dsVideoResolution_t res,
-                                                      unsigned frameRate,
-                                                      bool interlaced);
-static dsVideoPortResolution_t *dsgetResolutionInfo(const char *res_name);
-
-typedef struct _VDISPHandle_t {
-	dsVideoPortType_t m_vType;
-	int m_index;
-	int m_nativeHandle;
-} VDISPHandle_t;
-
-static VDISPHandle_t _handles[dsVIDEOPORT_TYPE_MAX][2] = {};
 
 bool dsIsValidHandle(intptr_t m_handle) {
 	for (int i = 0; i < dsVIDEOPORT_TYPE_MAX; i++) {
