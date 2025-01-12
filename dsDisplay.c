@@ -41,26 +41,8 @@
 #include "udev_wrapper.h"
 
 pthread_t thread_udevmon;
-pthread_t oneshot_thread;
-pthread_attr_t oneshot_thread_attr;
 
-/**
- * @brief a detached thread started from dsDisplayInit to update the HDMI status
- * @param arg - NULL
- * @return NULL
- */
-void *one_shot_connector_status_updator(void *arg) {
-	// DSMgr expects connected status for initialization.
-	// wait till the callback is registered.
-	hal_dbg("Waiting for callback registration\n");
-	do {
-		sleep(1);
-	} while (_halcallback == NULL);
-	hdmi_status_change_handler(DRI_CARD);
-	return NULL;
-}
-
-void hdmi_status_change_handler(const char *devnode) {
+void *hdmi_status_change_handler(const char *devnode) {
 	if ((NULL != _halcallback) && (NULL != devnode)) {
 		/* Check the hdmi connection status and invoke CB */
 		const char *card = strrchr(devnode, '/');
@@ -226,31 +208,6 @@ dsError_t dsDisplayInit() {
 		hal_dbg(
 		    "monitor_hdmi_status_changes thread creation success.\n");
 	}
-	// start a detached thread to update the HDMI status
-	if (pthread_attr_init(&oneshot_thread_attr) != 0) {
-		perror("oneshot_thread_attr pthread_attr_init");
-		signal_udevmon_exit();
-		pthread_join(thread_udevmon, NULL);
-		return dsERR_GENERAL;
-	}
-	if (pthread_attr_setdetachstate(&oneshot_thread_attr,
-	                                PTHREAD_CREATE_DETACHED) != 0) {
-		perror("oneshot_thread_attr pthread_attr_setdetachstate");
-		pthread_attr_destroy(&attr);
-		signal_udevmon_exit();
-		pthread_join(thread_udevmon, NULL);
-		return dsERR_GENERAL;
-	}
-	if (pthread_create(&oneshot_thread, &oneshot_thread_attr,
-	                   (void *)one_shot_connector_status_updator,
-	                   (void *)NULL) != 0) {
-		perror("oneshot_thread pthread_create");
-		pthread_attr_destroy(&attr);
-		signal_udevmon_exit();
-		pthread_join(thread_udevmon, NULL);
-		return dsERR_GENERAL;
-	}
-	pthread_attr_destroy(&attr);
 #endif /* USE_NEW_IMPLEMENTATION */
 	if (dsQueryHdmiResolution() != dsERR_NONE) {
 		hal_err("dsQueryHdmiResolution failed.\n");
@@ -551,6 +508,10 @@ dsError_t dsRegisterDisplayEventCallback(intptr_t handle,
 		    "Callback already registered; override with new one.\n");
 	}
 	_halcallback = cb;
+#ifdef USE_NEW_IMPLEMENTATION
+	/* trigger the connection status update once. */
+	hdmi_status_change_handler("card0");
+#endif /* USE_NEW_IMPLEMENTATION */
 	return dsERR_NONE;
 }
 
