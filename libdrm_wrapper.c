@@ -690,22 +690,29 @@ bool enable_hdmi_output(bool *enable) {
 	for (int i = 0; i < resources->count_connectors; i++) {
 		drmModeConnector *connector =
 		    drmModeGetConnector(fd, resources->connectors[i]);
-		if ((connector != NULL) && (connector->connector_type ==
-		                            DRM_MODE_CONNECTOR_HDMIA) ||
-		    (connector->connector_type == DRM_MODE_CONNECTOR_HDMIB)) {
+		if ((connector != NULL) &&
+		    (connector->connector_type == DRM_MODE_CONNECTOR_HDMIA ||
+		     connector->connector_type == DRM_MODE_CONNECTOR_HDMIB)) {
 			uint32_t connector_id = connector->connector_id;
-			drmModePropertyPtr property;
-			// find DPMS property
-			for (int j = 0; j < connector->count_props; j++) {
-				property =
-				    drmModeGetProperty(fd, connector->props[j]);
+			drmModeObjectProperties *props =
+			    drmModeObjectGetProperties(
+			        fd, connector_id, DRM_MODE_OBJECT_CONNECTOR);
+			if (!props) {
+				hal_err("Failed to get connector properties\n");
+				drmModeFreeConnector(connector);
+				continue;
+			}
+			for (int j = 0; j < props->count_props; j++) {
+				drmModePropertyPtr property =
+				    drmModeGetProperty(fd, props->props[j]);
 				if ((property != NULL) &&
 				    (strcmp(property->name, "DPMS") == 0)) {
 					uint64_t value =
 					    *enable ? DRM_MODE_DPMS_ON
 					            : DRM_MODE_DPMS_OFF;
-					if (drmModeConnectorSetProperty(
+					if (drmModeObjectSetProperty(
 					        fd, connector_id,
+					        DRM_MODE_OBJECT_CONNECTOR,
 					        property->prop_id,
 					        value) != 0) {
 						hal_err(
@@ -718,16 +725,13 @@ bool enable_hdmi_output(bool *enable) {
 						ret = true;
 					}
 					drmModeFreeProperty(property);
-					property = NULL;
-				} else {
-					hal_err(
-					    "Failed to get DPMS property\n");
+					break;
 				}
 				drmModeFreeProperty(property);
 			}
+			drmModeFreeObjectProperties(props);
 		}
 		drmModeFreeConnector(connector);
-		connector = NULL;
 	}
 	drmModeFreeResources(resources);
 	close_drm_device(fd);
