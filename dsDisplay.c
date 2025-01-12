@@ -512,7 +512,7 @@ dsError_t dsRegisterDisplayEventCallback(intptr_t handle,
 	_halcallback = cb;
 #ifdef USE_NEW_IMPLEMENTATION
 	/* trigger the connection status update once. */
-	hdmi_status_change_handler("card0");
+	hdmi_status_change_handler(DRI_CARD);
 #endif /* USE_NEW_IMPLEMENTATION */
 	return dsERR_NONE;
 }
@@ -599,22 +599,16 @@ static dsError_t dsQueryHdmiResolution() {
 	    sizeof(dsVideoPortResolution_t) * iCount);
 	if (HdmiSupportedResolution) {
 		for (size_t i = 0; i < iCount; i++) {
+			hal_dbg("Resolution from Table '%s' - Mode %d\n",
+			        resolutionMap[i].rdkRes, resolutionMap[i].mode);
 			for (int j = 0; j < num_of_modes; j++) {
 				hal_dbg(
-				    "Resolution from Table '%s' - Mode %d\n",
-				    resolutionMap[i].rdkRes,
-				    resolutionMap[i].mode);
-				hal_dbg("Mode %d:\n", j);
-				hal_dbg("  Width: %d\n",
-				        modeSupported[j].width);
-				hal_dbg("  Height: %d\n",
-				        modeSupported[j].height);
-				hal_dbg("  Frame Rate: %d\n",
-				        modeSupported[j].frame_rate);
-				hal_dbg("  Scan Mode: %s\n",
-				        modeSupported[j].scan_mode
-				            ? "Interlaced"
-				            : "Progressive");
+				    "Mode %d: WxHxF ScanMode: %dx%dx%d-%s\n", j,
+				    modeSupported[j].width,
+				    modeSupported[j].height,
+				    modeSupported[j].frame_rate,
+				    (modeSupported[j].scan_mode ? "i" : "p"));
+				/*
 				hal_dbg("  Native: %s\n",
 				        modeSupported[j].native ? "Yes" : "No");
 				hal_dbg("  Aspect Ratio: %d\n",
@@ -628,6 +622,7 @@ static dsError_t dsQueryHdmiResolution() {
 				hal_dbg("  Code: %d\n", modeSupported[j].code);
 				hal_dbg("  3D Structure Mask: 0x%X\n",
 				        modeSupported[j].struct_3d_mask);
+				*/
 				if (modeSupported[j].code ==
 				    resolutionMap[i].mode) {
 					dsVideoPortResolution_t *resolution =
