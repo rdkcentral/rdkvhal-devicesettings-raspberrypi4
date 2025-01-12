@@ -32,6 +32,8 @@
 #include "dshalLogger.h"
 #include "dshalUtils.h"
 
+dsDisplayEventCallback_t _halcallback = NULL;
+
 #ifdef USE_NEW_IMPLEMENTATION
 #include <pthread.h>
 #include <stdbool.h>
@@ -48,7 +50,7 @@ void *hdmi_status_change_handler(const char *devnode) {
 		const char *card = strrchr(devnode, '/');
 		if (!card) {
 			hal_err("Invalid device node: %s\n", devnode);
-			return;
+			return NULL;
 		}
 		card++;
 		char card_path[32] = {0};
@@ -57,13 +59,13 @@ void *hdmi_status_change_handler(const char *devnode) {
 		int fd = open_drm_device(card_path, DRM_NODE_PRIMARY);
 		if (fd < 0) {
 			hal_err("Failed to open DRM device: %s\n", card_path);
-			return;
+			return NULL;
 		}
 		drmModeRes *resources = drmModeGetResources(fd);
 		if (!resources) {
 			hal_err("Failed to get DRM resources\n");
 			close_drm_device(fd);
-			return;
+			return NULL;
 		}
 		for (int i = 0; i < resources->count_connectors; i++) {
 			drmModeConnector *connector =
@@ -82,7 +84,8 @@ void *hdmi_status_change_handler(const char *devnode) {
 				                         : "disconnected";
 				hal_dbg("HDMI connector %d status: %s\n",
 				        connector->connector_id, status);
-				_halcallback((int)(hdmiHandle->m_nativeHandle),
+				_halcallback(_handles[dsVIDEOPORT_TYPE_HDMI][0]
+				                 .m_nativeHandle,
 				             (connector->connection ==
 				              DRM_MODE_CONNECTED)
 				                 ? dsDISPLAY_EVENT_CONNECTED
@@ -94,11 +97,11 @@ void *hdmi_status_change_handler(const char *devnode) {
 		drmModeFreeResources(resources);
 		close_drm_device(fd);
 	}
+	return NULL;
 }
 #endif /* USE_NEW_IMPLEMENTATION */
 
 #define MAX_HDMI_CODE_ID (127)
-dsDisplayEventCallback_t _halcallback = NULL;
 dsVideoPortResolution_t *HdmiSupportedResolution = NULL;
 static unsigned int numSupportedResn = 0;
 static bool _bDisplayInited = false;
