@@ -8,6 +8,7 @@ set(LIBNAME ds-hal)
 set(DEFAULT_BUILD_TYPE "Release")
 
 option(DRI_CARD "Path to the dri device" "/dev/dri/card0")
+option(USE_NEW_IMPLEMENTATION "Use new implementation" ON)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 	message(STATUS "Setting build type to '${DEFAULT_BUILD_TYPE}' as none was specified.")
@@ -28,6 +29,11 @@ if (DRI_CARD)
 	add_definitions(-DDRI_CARD=\"${DRI_CARD}\")
 else()
 	message(FATAL_ERROR "DRI_CARD is not set")
+endif()
+
+if (USE_NEW_IMPLEMENTATION)
+	message(STATUS "Using new implementation")
+	add_definitions(-DUSE_NEW_IMPLEMENTATION)
 endif()
 
 # Compiler flags , add security flags as well

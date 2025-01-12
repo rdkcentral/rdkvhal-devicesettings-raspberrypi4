@@ -32,6 +32,89 @@
 #include "dshalLogger.h"
 #include "dshalUtils.h"
 
+#ifdef USE_NEW_IMPLEMENTATION
+#include <pthread.h>
+#include <stdbool.h>
+#include <stdint.h>
+
+#include "libdrm_wrapper.h"
+#include "udev_wrapper.h"
+
+pthread_t thread_udevmon;
+pthread_t oneshot_thread;
+pthread_attr_t oneshot_thread_attr;
+
+/**
+ * @brief a detached thread started from dsDisplayInit to update the HDMI status
+ * @param arg - NULL
+ * @return NULL
+ */
+void *one_shot_connector_status_updator(void *arg) {
+	// DSMgr expects connected status for initialization.
+	// wait till the callback is registered.
+	hal_dbg("Waiting for callback registration\n");
+	do {
+		sleep(1);
+	} while (_halcallback == NULL);
+	hdmi_status_change_handler(DRI_CARD);
+	return NULL;
+}
+
+void hdmi_status_change_handler(const char *devnode) {
+	if ((NULL != _halcallback) && (NULL != devnode)) {
+		/* Check the hdmi connection status and invoke CB */
+		const char *card = strrchr(devnode, '/');
+		if (!card) {
+			hal_err("Invalid device node: %s\n", devnode);
+			return;
+		}
+		card++;
+		char card_path[32] = {0};
+		snprintf(card_path, sizeof(card_path), "/dev/dri/%s", card);
+		hal_dbg("Opening DRM device: %s\n", card_path);
+		int fd = open_drm_device(card_path, DRM_NODE_PRIMARY);
+		if (fd < 0) {
+			hal_err("Failed to open DRM device: %s\n", card_path);
+			return;
+		}
+		drmModeRes *resources = drmModeGetResources(fd);
+		if (!resources) {
+			hal_err("Failed to get DRM resources\n");
+			close_drm_device(fd);
+			return;
+		}
+		for (int i = 0; i < resources->count_connectors; i++) {
+			drmModeConnector *connector =
+			    drmModeGetConnector(fd, resources->connectors[i]);
+			if (!connector) {
+				hal_err("Failed to get connector\n");
+				continue;
+			}
+			if (connector->connector_type ==
+			        DRM_MODE_CONNECTOR_HDMIA ||
+			    connector->connector_type ==
+			        DRM_MODE_CONNECTOR_HDMIB) {
+				const char *status = (connector->connection ==
+				                      DRM_MODE_CONNECTED)
+				                         ? "connected"
+				                         : "disconnected";
+				hal_dbg("HDMI connector %d status: %s\n",
+				        connector->connector_id, status);
+				_halcallback((int)(hdmiHandle->m_nativeHandle),
+				             (connector->connection ==
+				              DRM_MODE_CONNECTED)
+				                 ? dsDISPLAY_EVENT_CONNECTED
+				                 : dsDISPLAY_EVENT_DISCONNECTED,
+				             NULL);
+			}
+			drmModeFreeConnector(connector);
+		}
+		drmModeFreeResources(resources);
+		close_drm_device(fd);
+	}
+}
+#endif /* USE_NEW_IMPLEMENTATION */
+
 #define MAX_HDMI_CODE_ID (127)
 dsDisplayEventCallback_t _halcallback = NULL;
 dsVideoPortResolution_t *HdmiSupportedResolution = NULL;
@@ -133,6 +216,42 @@ dsError_t dsDisplayInit() {
 	vc_tv_register_callback(&tvservice_callback,
 	                        &_handles[dsVIDEOPORT_TYPE_HDMI][0]);
 	/*Query the HDMI Resolution */
+#ifdef USE_NEW_IMPLEMENTATION
+	if (pthread_create(&thread_udevmon, NULL, monitor_hdmi_status_changes,
+	                   (void *)hdmi_status_change_handler) != 0) {
+		hal_err(
+		    "monitor_hdmi_status_changes thread creation failed.\n");
+		return dsERR_GENERAL;
+	} else {
+		hal_dbg(
+		    "monitor_hdmi_status_changes thread creation success.\n");
+	}
+	// start a detached thread to update the HDMI status
+	if (pthread_attr_init(&oneshot_thread_attr) != 0) {
+		perror("oneshot_thread_attr pthread_attr_init");
+		signal_udevmon_exit();
+		pthread_join(thread_udevmon, NULL);
+		return dsERR_GENERAL;
+	}
+	if (pthread_attr_setdetachstate(&oneshot_thread_attr,
+	                                PTHREAD_CREATE_DETACHED) != 0) {
+		perror("oneshot_thread_attr pthread_attr_setdetachstate");
+		pthread_attr_destroy(&attr);
+		signal_udevmon_exit();
+		pthread_join(thread_udevmon, NULL);
+		return dsERR_GENERAL;
+	}
+	if (pthread_create(&oneshot_thread, &oneshot_thread_attr,
+	                   (void *)one_shot_connector_status_updator,
+	                   (void *)NULL) != 0) {
+		perror("oneshot_thread pthread_create");
+		pthread_attr_destroy(&attr);
+		signal_udevmon_exit();
+		pthread_join(thread_udevmon, NULL);
+		return dsERR_GENERAL;
+	}
+	pthread_attr_destroy(&attr);
+#endif /* USE_NEW_IMPLEMENTATION */
 	if (dsQueryHdmiResolution() != dsERR_NONE) {
 		hal_err("dsQueryHdmiResolution failed.\n");
 		return dsERR_GENERAL;
@@ -463,6 +582,11 @@ dsError_t dsDisplayTerm() {
 		return dsERR_NOT_INITIALIZED;
 	}
 	vchi_tv_uninit();
+#ifdef USE_NEW_IMPLEMENTATION
+	hal_dbg("Signaling udevmon thread to exit.\n");
+	signal_udevmon_exit();
+	pthread_join(thread_udevmon, NULL);
+#endif /* USE_NEW_IMPLEMENTATION */
 	if (HdmiSupportedResolution) {
 		free(HdmiSupportedResolution);
 		HdmiSupportedResolution = NULL;
