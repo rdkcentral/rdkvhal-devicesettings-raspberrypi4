@@ -664,3 +664,141 @@ bool set_current_resolution(int width, int height, int refresh_rate, int mode) {
 	close_drm_device(fd);
 	return false;
 }
+
+/**
+ * @brief Enable or disable HDMI output.
+ * @param enable true to enable HDMI output, false to disable.
+ * @return true if success, false otherwise.
+ */
+bool enable_hdmi_output(bool *enable) {
+	bool ret = false;
+	if (enable == NULL) {
+		hal_err("Invalid parameter\n");
+		return false;
+	}
+	int fd = open_drm_device_by_type(DRM_NODE_PRIMARY);
+	if (fd < 0) {
+		hal_err("Failed to open DRM device\n");
+		return false;
+	}
+	drmModeRes *resources = drmModeGetResources(fd);
+	if (!resources) {
+		hal_err("Failed to get DRM resources: '%s'\n", strerror(errno));
+		close_drm_device(fd);
+		return false;
+	}
+	for (int i = 0; i < resources->count_connectors; i++) {
+		drmModeConnector *connector =
+		    drmModeGetConnector(fd, resources->connectors[i]);
+		if ((connector != NULL) && (connector->connector_type ==
+		                            DRM_MODE_CONNECTOR_HDMIA) ||
+		    (connector->connector_type == DRM_MODE_CONNECTOR_HDMIB)) {
+			uint32_t connector_id = connector->connector_id;
+			drmModePropertyPtr property;
+			// find DPMS property
+			for (int j = 0; j < connector->count_props; j++) {
+				property =
+				    drmModeGetProperty(fd, connector->props[j]);
+				if ((property != NULL) &&
+				    (strcmp(property->name, "DPMS") == 0)) {
+					uint64_t value =
+					    *enable ? DRM_MODE_DPMS_ON
+					            : DRM_MODE_DPMS_OFF;
+					if (drmModeConnectorSetProperty(
+					        fd, connector_id,
+					        property->prop_id,
+					        value) != 0) {
+						hal_err(
+						    "Failed to set DPMS "
+						    "property\n");
+					} else {
+						hal_dbg(
+						    "Set DPMS property to %s\n",
+						    *enable ? "on" : "off");
+						ret = true;
+					}
+					drmModeFreeProperty(property);
+					property = NULL;
+				} else {
+					hal_err(
+					    "Failed to get DPMS property\n");
+				}
+				drmModeFreeProperty(property);
+			}
+		}
+		drmModeFreeConnector(connector);
+		connector = NULL;
+	}
+	drmModeFreeResources(resources);
+	close_drm_device(fd);
+	return ret;
+}
+
+/**
+ * @brief get HDMI output status enabled/disabled.
+ * @param isEnabled true if HDMI output is enabled, false otherwise.
+ * @return true if success, false otherwise.
+ */
+bool get_hdmi_output_status(bool *isEnabled) {
+	bool ret = false;
+	if (isEnabled == NULL) {
+		hal_err("Invalid parameter\n");
+		return false;
+	}
+	int fd = open_drm_device_by_type(DRM_NODE_PRIMARY);
+	if (fd < 0) {
+		hal_err("Failed to open DRM device\n");
+		return false;
+	}
+	drmModeRes *resources = drmModeGetResources(fd);
+	if (!resources) {
+		hal_err("Failed to get DRM resources: '%s'\n", strerror(errno));
+		close_drm_device(fd);
+		return false;
+	}
+	for (int i = 0; i < resources->count_connectors; i++) {
+		drmModeConnector *connector =
+		    drmModeGetConnector(fd, resources->connectors[i]);
+		if ((connector != NULL) && (connector->connector_type ==
+		                            DRM_MODE_CONNECTOR_HDMIA) ||
+		    (connector->connector_type == DRM_MODE_CONNECTOR_HDMIB)) {
+			uint32_t connector_id = connector->connector_id;
+			drmModePropertyPtr property;
+			// find DPMS property
+			for (int j = 0; j < connector->count_props; j++) {
+				property =
+				    drmModeGetProperty(fd, connector->props[j]);
+				if ((property != NULL) &&
+				    (strcmp(property->name, "DPMS") == 0)) {
+					uint64_t value;
+					if (drmModeConnectorGetProperty(
+					        fd, connector_id,
+					        property->prop_id,
+					        &value) != 0) {
+						hal_err(
+						    "Failed to get DPMS "
+						    "property\n");
+					} else {
+						*isEnabled =
+						    value == DRM_MODE_DPMS_ON;
+						hal_dbg(
+						    "Get DPMS property: %s\n",
+						    *isEnabled ? "on" : "off");
+						ret = true;
+					}
+					drmModeFreeProperty(property);
+					property = NULL;
+				} else {
+					hal_err(
+					    "Failed to get DPMS property\n");
+				}
+				drmModeFreeProperty(property);
+			}
+		}
+		drmModeFreeConnector(connector);
+		connector = NULL;
+	}
+	drmModeFreeResources(resources);
+	close_drm_device(fd);
+	return ret;
+}

@@ -253,7 +253,14 @@ dsError_t dsIsVideoPortEnabled(intptr_t handle, bool *enabled) {
 
 	*enabled = false;
 	if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
+#ifdef USE_NEW_IMPLEMENTATION
+		if (get_hdmi_output_status(&enabled) == false) {
+			hal_err("Failed to get HDMI output status\n");
+			return dsERR_GENERAL;
+		}
+#else  /* !USE_NEW_IMPLEMENTATION */
 		*enabled = vopHandle->m_isEnabled;
+#endif /* !USE_NEW_IMPLEMENTATION */
 	} else {
 		return dsERR_OPERATION_NOT_SUPPORTED;
 	}
@@ -300,6 +307,12 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled) {
 	}
 
 	if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
+#ifdef USE_NEW_IMPLEMENTATION
+		if (enable_hdmi_output(&enabled) == false) {
+			hal_err("Failed to enable/disable HDMI\n");
+			return dsERR_GENERAL;
+		}
+#else  /* !USE_NEW_IMPLEMENTATION */
 		if (enabled != vopHandle->m_isEnabled) {
 			if (enabled) {
 				res = vc_tv_hdmi_power_on_preferred();
@@ -338,6 +351,7 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled) {
 			}
 		}
 		vopHandle->m_isEnabled = enabled;
+#endif /* !USE_NEW_IMPLEMENTATION */
 	} else {
 		return dsERR_OPERATION_NOT_SUPPORTED;
 	}
@@ -390,7 +404,7 @@ dsError_t dsIsDisplayConnected(intptr_t handle, bool *connected) {
 			hal_err("get_connector_status failed\n");
 			return dsERR_GENERAL;
 		}
-#else
+#else  /* !USE_NEW_IMPLEMENTATION */
 		if (vc_tv_get_display_state(&tvstate) == 0) {
 			hal_dbg("vc_tv_get_display_state: 0x%x\n",
 			        tvstate.state);
@@ -406,7 +420,7 @@ dsError_t dsIsDisplayConnected(intptr_t handle, bool *connected) {
 			hal_err("vc_tv_get_display_state failed\n");
 			return dsERR_GENERAL;
 		}
-#endif
+#endif /* !USE_NEW_IMPLEMENTATION */
 	} else {
 		return dsERR_OPERATION_NOT_SUPPORTED;
 	}

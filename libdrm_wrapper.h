@@ -42,3 +42,5 @@ bool change_resolution(int interval);
 int open_drm_device_by_type(int node_type);
 int open_drm_device(const char *devnode, int node_type);
 void close_drm_device(int fd);
+bool enable_hdmi_output(bool *enable);
+bool get_hdmi_output_status(bool *isEnabled);
