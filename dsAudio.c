@@ -188,7 +188,7 @@ dsError_t dsGetAudioEncoding(intptr_t handle, dsAudioEncoding_t *encoding)
         return ret;
 }
 
-dsError_t dsGetAudioCompression(intptr_t handle, dsAudioCompression_t *compression)
+dsError_t dsGetAudioCompression(intptr_t handle, int *compression)
 {
         if (false == _bIsAudioInitialized)
         {
@@ -535,7 +535,7 @@ dsError_t dsSetAudioEncoding(intptr_t handle, dsAudioEncoding_t encoding)
 	return ret;
 }
 
-dsError_t dsSetAudioCompression(intptr_t handle, dsAudioCompression_t compression)
+dsError_t dsSetAudioCompression(intptr_t handle, int compression)
 {
 	if (false == _bIsAudioInitialized)
 	{
