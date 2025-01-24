@@ -22,8 +22,6 @@ file(GLOB SOURCES "*.c")
 
 include_directories(/usr/include/interface/vmcs_host/linux)
 
-add_definitions(-DENABLE_4K_RESOLUTION)
-
 # add DRI_CARD to the compile flags
 if (DRI_CARD)
 	message(STATUS "DRI_CARD is set to ${DRI_CARD}")

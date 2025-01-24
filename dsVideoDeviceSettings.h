@@ -39,7 +39,7 @@ static const dsVideoConfig_t kConfigs[]= {
 		{
 		/*.numSupportedDFCs = */ 		dsUTL_DIM(kSupportedDFCs), // 0 means "Info available at runtime"
 		/*.supportedDFCs = */			kSupportedDFCs,
-		/*.defaultDFC = */			    dsVIDEO_ZOOM_FULL,
+		/*.defaultDFC = */			    dsVIDEO_ZOOM_PLATFORM,
 		},
 };
 

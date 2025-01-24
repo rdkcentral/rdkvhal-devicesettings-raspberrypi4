@@ -412,7 +412,7 @@ static dsError_t dsQueryHdmiResolution()
             }
         }
     } else {
-        hal_dbg("mallc failed\n");
+        hal_err("malloc failed\n");
         return dsERR_GENERAL;
     }
     hal_dbg("Total Device supported resolutions on HDMI = %d\n", numSupportedResn);

@@ -170,7 +170,6 @@ static dsVideoPortResolution_t kResolutions[] = {
         /*.frameRate = */				dsVIDEO_FRAMERATE_60,
         /*.interlaced = */				_INTERLACED,
     },
-#ifdef ENABLE_4K_RESOLUTION
     {   /*2160p24*/
         /*.name = */                    "2160p24",
         /*.pixelResolution = */         dsVIDEO_PIXELRES_3840x2160,
@@ -211,7 +210,6 @@ static dsVideoPortResolution_t kResolutions[] = {
         /*.frameRate = */				dsVIDEO_FRAMERATE_60,
         /*.interlaced = */				_PROGRESSIVE,
     },
-#endif /* ENABLE_4K_RESOLUTION */
 };
 
 static hdmiSupportedRes_t resolutionMap[] = {
@@ -228,13 +226,11 @@ static hdmiSupportedRes_t resolutionMap[] = {
     {"1080p60", 16},
     {"1080i50", 20},
     {"1080i", 5},
-#ifdef ENABLE_4K_RESOLUTION
     {"2160p24", 93},
     {"2160p25", 94},
     {"2160p30", 95},
     {"2160p50", 99},
     {"2160p60", 100}
-#endif /* ENABLE_4K_RESOLUTION */
 };
 
 /* Pick one resolution from kResolutions[] as default - 720p */
