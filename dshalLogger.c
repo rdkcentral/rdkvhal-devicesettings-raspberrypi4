@@ -30,18 +30,17 @@ static int logflag = 0;
 
 const char *log_type_to_string(int type)
 {
-    switch (type)
-    {
-   case DSHAL_LOG_ERROR:
-        return "DSHAL-ERROR";
-    case DSHAL_LOG_WARNING:
-        return "DSHAL-WARNING";
-    case DSHAL_LOG_INFO:
-        return "DSHAL-INFO";
-    case DSHAL_LOG_DEBUG:
-        return "DSHAL-DEBUG";
-    default:
-        return "DSHAL-DEFAULT";
+    switch (type) {
+        case DSHAL_LOG_ERROR:
+            return "DSHAL-ERROR";
+        case DSHAL_LOG_WARNING:
+            return "DSHAL-WARNING";
+        case DSHAL_LOG_INFO:
+            return "DSHAL-INFO";
+        case DSHAL_LOG_DEBUG:
+            return "DSHAL-DEBUG";
+        default:
+            return "DSHAL-DEFAULT";
     }
 }
 
@@ -60,21 +59,18 @@ int getLogFlag(void)
 
 void configDSHALLogging(void)
 {
-    if (access(LOG_CONFIG_FILE, F_OK) == -1)
-    {
+    if (access(LOG_CONFIG_FILE, F_OK) == -1) {
         perror("DSHAL configDSHALLogging error accessing debug.ini\n");
         return;
     }
     FILE *file = fopen(LOG_CONFIG_FILE, "r");
-    if (!file)
-    {
+    if (!file) {
         perror("DSHAL configDSHALLogging error fopen debug.ini\n");
         return;
     }
 
     char line[512] = {0};
-    const struct
-    {
+    const struct {
         const char *nameEnabled;
         const char *nameDisabled;
         int flag;
@@ -82,22 +78,17 @@ void configDSHALLogging(void)
         {"ERROR", "!ERROR", LOG_ERROR},
         {"WARNING", "!WARNING", LOG_WARNING},
         {"INFO", "!INFO", LOG_INFO},
-        {"DEBUG", "!DEBUG", LOG_DEBUG}};
+        {"DEBUG", "!DEBUG", LOG_DEBUG}
+    };
 
-    while (fgets(line, sizeof(line), file))
-    {
+    while (fgets(line, sizeof(line), file)) {
         line[strcspn(line, "\n")] = '\0';
         // Check for the LOG.RDK.DSMGR entry
-        if (strncmp(line, "LOG.RDK.DSMGR", 13) == 0)
-        {
-            for (size_t i = 0; i < sizeof(log_levels) / sizeof(log_levels[0]); ++i)
-            {
-                if (strstr(line, log_levels[i].nameEnabled))
-                {
+        if (strncmp(line, "LOG.RDK.DSMGR", 13) == 0) {
+            for (size_t i = 0; i < sizeof(log_levels) / sizeof(log_levels[0]); ++i) {
+                if (strstr(line, log_levels[i].nameEnabled)) {
                     logflag |= log_levels[i].flag;
-                }
-                else if (strstr(line, log_levels[i].nameDisabled))
-                {
+                } else if (strstr(line, log_levels[i].nameDisabled)) {
                     logflag &= ~log_levels[i].flag;
                 }
             }
@@ -114,3 +105,4 @@ static void __attribute__((constructor)) initDSHALLogging(void)
 {
     configDSHALLogging();
 }
+

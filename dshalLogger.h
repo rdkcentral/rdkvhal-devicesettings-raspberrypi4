@@ -22,13 +22,12 @@
 
 #define LOG_CONFIG_FILE "/etc/debug.ini"
 
-#define LOG_ERROR (1 << 0)
+#define LOG_ERROR   (1 << 0)
 #define LOG_WARNING (1 << 1)
-#define LOG_INFO (1 << 2)
-#define LOG_DEBUG (1 << 3)
+#define LOG_INFO    (1 << 2)
+#define LOG_DEBUG   (1 << 3)
 
-enum
-{
+enum {
     DSHAL_LOG_ERROR = 0,
     DSHAL_LOG_WARNING,
     DSHAL_LOG_INFO,
@@ -41,16 +40,18 @@ void configDSHALLogging(void);
 
 #define log_generic(log_flag, format, ...) \
     do                                     \
-    {                                      \
-        if (getLogFlag() & (log_flag))     \
-        {                                  \
-            logger(format, ##__VA_ARGS__); \
-        }                                  \
-    } while (0)
+{                                      \
+    if (getLogFlag() & (log_flag))     \
+    {                                  \
+        logger(format, ##__VA_ARGS__); \
+    }                                  \
+} while (0)
 
 // public use logging macros
-#define hal_err(format, ...) log_generic(LOG_ERROR, "[DSHAL:%s:%d] " format, __func__, __LINE__, ##__VA_ARGS__)
-#define hal_warn(format, ...) log_generic(LOG_WARNING, "[DSHAL:%s:%d] " format, __func__, __LINE__, ##__VA_ARGS__)
-#define hal_info(format, ...) log_generic(LOG_INFO, "[DSHAL:%s:%d] " format, __func__, __LINE__, ##__VA_ARGS__)
-#define hal_dbg(format, ...) log_generic(LOG_DEBUG, "[DSHAL:%s:%d] " format, __func__, __LINE__, ##__VA_ARGS__)
+#define hal_err(format, ...)    log_generic(LOG_ERROR, "[DSHAL:%s:%d] " format, __func__, __LINE__, ##__VA_ARGS__)
+#define hal_warn(format, ...)   log_generic(LOG_WARNING, "[DSHAL:%s:%d] " format, __func__, __LINE__, ##__VA_ARGS__)
+#define hal_info(format, ...)   log_generic(LOG_INFO, "[DSHAL:%s:%d] " format, __func__, __LINE__, ##__VA_ARGS__)
+#define hal_dbg(format, ...)    log_generic(LOG_DEBUG, "[DSHAL:%s:%d] " format, __func__, __LINE__, ##__VA_ARGS__)
+
 #endif // __DSHALLOGGER_H
+
