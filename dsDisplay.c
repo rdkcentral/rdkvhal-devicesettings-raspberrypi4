@@ -67,31 +67,29 @@ static void tvservice_callback( void *callback_data,
 {
     VDISPHandle_t *hdmiHandle = (VDISPHandle_t*)callback_data;
     unsigned char  eventData=0;
-   switch ( reason )
-   {
-      case VC_HDMI_UNPLUGGED:
-      {
-         printf( "HDMI cable is unplugged" );
-         _halcallback((int)(hdmiHandle->m_nativeHandle),dsDISPLAY_EVENT_DISCONNECTED,&eventData);
-         break;
-      }
-      case VC_HDMI_ATTACHED:
-      {
-         printf( "HDMI is attached" );
-         _halcallback((int)(hdmiHandle->m_nativeHandle),dsDISPLAY_EVENT_CONNECTED,&eventData);
-         break;
-      }
-      default:
-      {
-         if(isBootup == true)
-         {
-             printf( "For Rpi - HDMI is attached by default" );
-             _halcallback((int)(hdmiHandle->m_nativeHandle),dsDISPLAY_EVENT_CONNECTED,&eventData);
-             isBootup = false;
-         }
-         break;
-      }
-  }
+    switch (reason) {
+        case VC_HDMI_UNPLUGGED:
+            hal_dbg("HDMI cable is unplugged\n");
+            _halcallback((int)(hdmiHandle->m_nativeHandle), dsDISPLAY_EVENT_DISCONNECTED, &eventData);
+            break;
+        case VC_HDMI_ATTACHED:
+        case VC_HDMI_DVI:
+        case VC_HDMI_HDMI:
+        case VC_HDMI_HDCP_UNAUTH:
+        case VC_HDMI_HDCP_AUTH:
+        case VC_HDMI_HDCP_KEY_DOWNLOAD:
+        case VC_HDMI_HDCP_SRM_DOWNLOAD:
+            hal_dbg("HDMI is attached\n");
+            _halcallback((int)(hdmiHandle->m_nativeHandle), dsDISPLAY_EVENT_CONNECTED, &eventData);
+            break;
+        default:
+            if (isBootup == true) {
+                hal_dbg("For Rpi - HDMI is attached by default\n");
+                _halcallback((int)(hdmiHandle->m_nativeHandle), dsDISPLAY_EVENT_CONNECTED, &eventData);
+                isBootup = false;
+            }
+            break;
+    }
 }
 
 /**
@@ -104,7 +102,6 @@ static void tvservice_callback( void *callback_data,
  */
 dsError_t dsDisplayInit()
 {
-
 	dsError_t ret = dsERR_NONE;
         int32_t res = 0;
 	if(true == _bDisplayInited)
@@ -125,7 +122,7 @@ dsError_t dsDisplayInit()
         return dsERR_GENERAL;
     }
     // Register callback for HDMI hotplug
-    vc_tv_register_callback( &tvservice_callback, &_handles[dsVIDEOPORT_TYPE_HDMI][0] );
+    vc_tv_register_callback(&tvservice_callback, &_handles[dsVIDEOPORT_TYPE_HDMI][0]);
 	/*Query the HDMI Resolution */
     dsQueryHdmiResolution();
     _bDisplayInited = true;
@@ -280,38 +277,37 @@ dsError_t dsRegisterDisplayEventCallback(intptr_t handle, dsDisplayEventCallback
  */
 dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
 {
-	dsError_t ret = dsERR_NONE;
-	VDISPHandle_t *vDispHandle = (VDISPHandle_t *) handle;
-	if(false == _bDisplayInited)
-    	{
-	    return dsERR_NOT_INITIALIZED;
-    	}
+    dsError_t ret = dsERR_NONE;
+    VDISPHandle_t *vDispHandle = (VDISPHandle_t *) handle;
+    if(false == _bDisplayInited)
+    {
+        return dsERR_NOT_INITIALIZED;
+    }
 
-	if (vDispHandle == NULL || NULL == edid)
-	{
-		printf("DIsplay Handle/edid is NULL .......... \r\n");
-		return dsERR_INVALID_PARAM;
-	}
-        unsigned char *raw = NULL;
-        int length = 0;
-        edid->numOfSupportedResolution = 0;
-        if (vDispHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
-            dsGetEDIDBytes(handle, raw, &length);
-            fill_edid_struct(raw, edid, length);
-            dsQueryHdmiResolution();
+    if (vDispHandle == NULL || NULL == edid)
+    {
+        hal_err("DIsplay Handle/edid is NULL.\n");
+        return dsERR_INVALID_PARAM;
+    }
+    unsigned char *raw = NULL;
+    int length = 0;
+    edid->numOfSupportedResolution = 0;
+    if (vDispHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
+        dsGetEDIDBytes(handle, raw, &length);
+        fill_edid_struct(raw, edid, length);
+        dsQueryHdmiResolution();
 
-            printf("numSupportedResn - %d .......... \r\n",numSupportedResn);
-            for (size_t i = 0; i < numSupportedResn; i++)
-            {
-                edid->suppResolutionList[edid->numOfSupportedResolution] = HdmiSupportedResolution[i];
-                edid->numOfSupportedResolution++;
-            }
-            free(raw);
-                
-        } else {
-               ret = dsERR_OPERATION_NOT_SUPPORTED;
+        hal_dbg("numSupportedResn - %d\n", numSupportedResn);
+        for (size_t i = 0; i < numSupportedResn; i++)
+        {
+            edid->suppResolutionList[edid->numOfSupportedResolution] = HdmiSupportedResolution[i];
+            edid->numOfSupportedResolution++;
         }
-	return ret;
+        free(raw);
+    } else {
+        ret = dsERR_OPERATION_NOT_SUPPORTED;
+    }
+    return ret;
 }
 
 /**
@@ -376,51 +372,51 @@ dsError_t dsDisplaygetNativeHandle(intptr_t handle, int *native)
  **/
 static dsError_t dsQueryHdmiResolution()
 {
-
     dsError_t ret = dsERR_NONE;
-   static TV_SUPPORTED_MODE_NEW_T modeSupported[MAX_HDMI_CODE_ID];
-   HDMI_RES_GROUP_T group;
-   uint32_t mode;
-   int num_of_modes;
-   memset(modeSupported, 0, sizeof(modeSupported));
+    static TV_SUPPORTED_MODE_NEW_T modeSupported[MAX_HDMI_CODE_ID];
+    HDMI_RES_GROUP_T group;
+    uint32_t mode;
+    int num_of_modes;
+    memset(modeSupported, 0, sizeof(modeSupported));
 
-   num_of_modes = vc_tv_hdmi_get_supported_modes_new( HDMI_RES_GROUP_CEA, modeSupported,
-                                               vcos_countof(modeSupported),
-                                               &group,
-                                               &mode );
-   if ( num_of_modes < 0 )
-   {
-      printf( "Failed to get modes" );
-      return ret;
-   }
-    if(HdmiSupportedResolution)
+    num_of_modes = vc_tv_hdmi_get_supported_modes_new(HDMI_RES_GROUP_CEA, modeSupported,
+            vcos_countof(modeSupported),
+            &group,
+            &mode);
+    if (num_of_modes < 0)
     {
-                  free(HdmiSupportedResolution);
-                  HdmiSupportedResolution=NULL;
+        hal_err("Failed to get modes vc_tv_hdmi_get_supported_modes_new\n");
+        return dsERR_GENERAL;
+    }
+    if (HdmiSupportedResolution)
+    {
+        free(HdmiSupportedResolution);
+        HdmiSupportedResolution = NULL;
     }
     numSupportedResn = 0;
     size_t iCount = (sizeof(resolutionMap) / sizeof(resolutionMap[0]));
-    HdmiSupportedResolution=(dsVideoPortResolution_t*)malloc(sizeof(dsVideoPortResolution_t)*iCount);
-    if(HdmiSupportedResolution)
+    HdmiSupportedResolution = (dsVideoPortResolution_t*)malloc(sizeof(dsVideoPortResolution_t)*iCount);
+    if (HdmiSupportedResolution)
     {
-		for (size_t i = 0; i < iCount; i++)
-		{
-                        for ( int j = 0; j < num_of_modes; j++ )
-                        {
-                            if (modeSupported[j].code == resolutionMap[i].mode)
-                            {
-                                dsVideoPortResolution_t *resolution = dsgetResolutionInfo(resolutionMap[i].rdkRes);
-                                memcpy(&HdmiSupportedResolution[numSupportedResn], resolution, sizeof(dsVideoPortResolution_t));
-				printf("Supported Resolution %s \r\n",HdmiSupportedResolution[numSupportedResn].name);
-				numSupportedResn++;
-                            }
-                        }
-		}
-	}
-	printf("%s: Total Device supported resolutions on HDMI = %d \r\n",__FUNCTION__, numSupportedResn);
-
-
-return dsERR_NONE;
+        for (size_t i = 0; i < iCount; i++)
+        {
+            for ( int j = 0; j < num_of_modes; j++ )
+            {
+                if (modeSupported[j].code == resolutionMap[i].mode)
+                {
+                    dsVideoPortResolution_t *resolution = dsgetResolutionInfo(resolutionMap[i].rdkRes);
+                    memcpy(&HdmiSupportedResolution[numSupportedResn], resolution, sizeof(dsVideoPortResolution_t));
+                    hal_dbg("Supported Resolution %s\n.", HdmiSupportedResolution[numSupportedResn].name);
+                    numSupportedResn++;
+                }
+            }
+        }
+    } else {
+        hal_dbg("mallc failed\n");
+        return dsERR_GENERAL;
+    }
+    hal_dbg("Total Device supported resolutions on HDMI = %d\n", numSupportedResn);
+    return dsERR_NONE;
 }
 
 static dsVideoPortResolution_t* dsgetResolutionInfo(const char *res_name)
