@@ -20,18 +20,13 @@
 #ifndef __DSHALUTILS_H
 #define __DSHALUTILS_H
 
-extern "C" {
 #include "interface/vmcs_host/vc_tvservice.h"
 #include "interface/vmcs_host/vc_vchi_gencmd.h"
-}
 #include "dsTypes.h"
 
 int vchi_tv_init();
-
 int vchi_tv_uninit();
-
-void fill_edid_struct(unsigned char *edid, dsDisplayEDID_t *display, int size);
-
+int fill_edid_struct(unsigned char *edid, dsDisplayEDID_t *display, int size);
 bool dsIsValidHandle(intptr_t uHandle);
 
 #endif

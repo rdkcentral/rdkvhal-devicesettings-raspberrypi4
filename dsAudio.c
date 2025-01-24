@@ -25,6 +25,7 @@
 #include "dsUtl.h"
 #include "dshalUtils.h"
 #include <alsa/asoundlib.h>
+#include "dshalLogger.h"
 
 #define ALSA_CARD_NAME "hw:0"
 #if (SND_LIB_MAJOR >= 1) && (SND_LIB_MINOR >= 2)

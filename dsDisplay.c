@@ -28,18 +28,19 @@
 #include "dsUtl.h"
 #include "dsError.h"
 #include "dsVideoResolutionSettings.h"
+#include "dshalLogger.h"
 #include "dshalUtils.h"
 
 #define MAX_HDMI_CODE_ID (127)
 dsDisplayEventCallback_t _halcallback = NULL;
-dsVideoPortResolution_t *HdmiSupportedResolution=NULL;
+dsVideoPortResolution_t *HdmiSupportedResolution = NULL;
 static unsigned int numSupportedResn = 0;
 static bool _bDisplayInited = false;
 static bool isBootup = true;
 static dsError_t dsQueryHdmiResolution();
 TV_SUPPORTED_MODE_T dsVideoPortgetVideoFormatFromInfo(dsVideoResolution_t res,
                                                        unsigned frameRate, bool interlaced);
-static dsVideoPortResolution_t* dsgetResolutionInfo(const char *res_name);
+static dsVideoPortResolution_t *dsgetResolutionInfo(const char *res_name);
 
 typedef struct _VDISPHandle_t {
 	dsVideoPortType_t m_vType;
@@ -50,6 +51,14 @@ typedef struct _VDISPHandle_t {
 static VDISPHandle_t _handles[dsVIDEOPORT_TYPE_MAX][2] = {
 };
 
+bool dsIsValidHandle(intptr_t m_handle) {
+	for (int i = 0; i < dsVIDEOPORT_TYPE_MAX; i++) {
+		if ((intptr_t)&_handles[i][0] == m_handle) {
+			return true;
+		}
+	}
+	return false;
+}
 
 static void tvservice_callback( void *callback_data,
                                 uint32_t reason,
@@ -84,6 +93,7 @@ static void tvservice_callback( void *callback_data,
       }
   }
 }
+
 /**
  * @brief Initialize underlying Video display units
  *

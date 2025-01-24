@@ -46,7 +46,7 @@ static dsVideoPortResolution_t kResolutions[] = {
                         /*.stereoscopicMode = */                dsVIDEO_SSMODE_2D,
                         /*.frameRate = */                               dsVIDEO_FRAMERATE_60,
                         /*.interlaced = */                              _PROGRESSIVE,
-                },
+                }, /* Index 0 */
 
                 {                                            "576p50",
                         /*.pixelResolution = */                 dsVIDEO_PIXELRES_720x576,
@@ -54,7 +54,7 @@ static dsVideoPortResolution_t kResolutions[] = {
                         /*.stereoscopicMode = */                dsVIDEO_SSMODE_2D,
                         /*.frameRate = */                               dsVIDEO_FRAMERATE_50,
                         /*.interlaced = */                              _PROGRESSIVE,
-                },
+                }, /* Index 1 */
 
                 {                                            "720p",
                         /*.pixelResolution = */                 dsVIDEO_PIXELRES_1280x720,
@@ -62,7 +62,7 @@ static dsVideoPortResolution_t kResolutions[] = {
                         /*.stereoscopicMode = */                dsVIDEO_SSMODE_2D,
                         /*.frameRate = */                               dsVIDEO_FRAMERATE_60,
                         /*.interlaced = */                              _PROGRESSIVE,
-                },
+                }, /* Index 2 */
 
                 {                                            "720p50",
                         /*.pixelResolution = */                 dsVIDEO_PIXELRES_1280x720,
@@ -70,7 +70,7 @@ static dsVideoPortResolution_t kResolutions[] = {
                         /*.stereoscopicMode = */                dsVIDEO_SSMODE_2D,
                         /*.frameRate = */                               dsVIDEO_FRAMERATE_50,
                         /*.interlaced = */                              _PROGRESSIVE,
-                },
+                }, /* Index 3 */
 
                 {                                            "1080i",
                         /*.pixelResolution = */                 dsVIDEO_PIXELRES_1920x1080,
@@ -78,7 +78,7 @@ static dsVideoPortResolution_t kResolutions[] = {
                         /*.stereoscopicMode = */                dsVIDEO_SSMODE_2D,
                         /*.frameRate = */                               dsVIDEO_FRAMERATE_60,
                         /*.interlaced = */                              _INTERLACED,
-                },
+                }, /* Index 4 */
 
                 {                                            "1080p",
                         /*.pixelResolution = */                 dsVIDEO_PIXELRES_1920x1080,
@@ -86,7 +86,7 @@ static dsVideoPortResolution_t kResolutions[] = {
                         /*.stereoscopicMode = */                dsVIDEO_SSMODE_2D,
                         /*.frameRate = */                               dsVIDEO_FRAMERATE_25,
                         /*.interlaced = */                              _PROGRESSIVE,
-                },
+                }, /* Index 5 */
 
                 {                                            "1080i50",
                         /*.pixelResolution = */                 dsVIDEO_PIXELRES_1920x1080,
@@ -94,7 +94,7 @@ static dsVideoPortResolution_t kResolutions[] = {
                         /*.stereoscopicMode = */                dsVIDEO_SSMODE_2D,
                         /*.frameRate = */                               dsVIDEO_FRAMERATE_50,
                         /*.interlaced = */                              _INTERLACED,
-                },
+                }, /* Index 6 */
 
                 {                                            "1080p50",
                         /*.pixelResolution = */                 dsVIDEO_PIXELRES_1920x1080,
@@ -102,7 +102,7 @@ static dsVideoPortResolution_t kResolutions[] = {
                         /*.stereoscopicMode = */                dsVIDEO_SSMODE_2D,
                         /*.frameRate = */                               dsVIDEO_FRAMERATE_50,
                         /*.interlaced = */                              _PROGRESSIVE,
-                },
+                }, /* Index 7 */
 
                 {                                            "1080p24",
                         /*.pixelResolution = */                 dsVIDEO_PIXELRES_1920x1080,
@@ -110,7 +110,7 @@ static dsVideoPortResolution_t kResolutions[] = {
                         /*.stereoscopicMode = */                dsVIDEO_SSMODE_2D,
                         /*.frameRate = */                               dsVIDEO_FRAMERATE_24,
                         /*.interlaced = */                              _PROGRESSIVE,
-                },
+                }, /* Index 8 */
 
                 {                                            "1080p30",
                         /*.pixelResolution = */                 dsVIDEO_PIXELRES_1920x1080,
@@ -118,7 +118,7 @@ static dsVideoPortResolution_t kResolutions[] = {
                         /*.stereoscopicMode = */                dsVIDEO_SSMODE_2D,
                         /*.frameRate = */                               dsVIDEO_FRAMERATE_30,
                         /*.interlaced = */                              _PROGRESSIVE,
-                },
+                }, /* Index 9 */
 
                 {                                            "1080p60",
                         /*.pixelResolution = */                 dsVIDEO_PIXELRES_1920x1080,
@@ -126,7 +126,7 @@ static dsVideoPortResolution_t kResolutions[] = {
                         /*.stereoscopicMode = */                dsVIDEO_SSMODE_2D,
                         /*.frameRate = */                               dsVIDEO_FRAMERATE_60,
                         /*.interlaced = */                              _PROGRESSIVE,
-                }
+                } /* Index 10 */
 };
 
 static hdmiSupportedRes_t resolutionMap[] = {
@@ -142,7 +142,9 @@ static hdmiSupportedRes_t resolutionMap[] = {
                 {"1080p30", 34},
                 {"1080p60", 16}
 };
-static const int kDefaultResIndex = 2; //Pick one resolution from kResolutions[] as default
+
+/* Pick one resolution from kResolutions[] as default - 1080p30 */
+static const int kDefaultResIndex = 9;
 
 #ifdef __cplusplus
 }

@@ -20,13 +20,16 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <errno.h>
 #include "dsFPD.h"
 
+#include "dshalLogger.h"
+
 void setValue (int pin, int value);
 
-char fName [128] ;
-FILE *fd ;
+char fName[128] = {0};
+FILE *fd;
 
 int LED_RED = 9;
 int LED_YELLOW = 10;
