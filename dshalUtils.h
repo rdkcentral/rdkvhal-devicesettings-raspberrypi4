@@ -28,6 +28,6 @@ int vchi_tv_init();
 int vchi_tv_uninit();
 int fill_edid_struct(unsigned char *edid, dsDisplayEDID_t *display, int size);
 bool dsIsValidHandle(intptr_t uHandle);
-bool westerosRWWrapper(const char *cmd, char *resp);
+bool westerosRWWrapper(const char *cmd, char *resp, size_t respSize)
 
 #endif

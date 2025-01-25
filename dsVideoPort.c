@@ -776,52 +776,43 @@ static uint32_t dsGetHdmiMode(dsVideoPortResolution_t *resolution)
  */
 dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 {
-	/* Auto Select uses 720p. Should be converted to dsVideoPortResolution_t = 720p in DS-VOPConfig, not here */
-        hal_info("invoked.\n");
-        VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
-        int res = 0;
-	if(false == _bIsVideoPortInitialized)
-	{
-		return dsERR_NOT_INITIALIZED;
-	}
-        if (!isValidVopHandle(handle) || NULL == resolution)
-	{
-        	return dsERR_INVALID_PARAM;
+    /* Auto Select uses 720p. Should be converted to dsVideoPortResolution_t = 720p in DS-VOPConfig, not here */
+    hal_info("invoked.\n");
+    VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
+    int res = 0;
+    if (false == _bIsVideoPortInitialized) {
+        return dsERR_NOT_INITIALIZED;
+    }
+    if (!isValidVopHandle(handle) || NULL == resolution) {
+        return dsERR_INVALID_PARAM;
+    }
+    if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
+        hal_dbg("Setting HDMI resolution '%s'\n", resolution->name);
+        uint32_t hdmi_mode;
+        hdmi_mode = dsGetHdmiMode(resolution);
+        res = vc_tv_hdmi_power_on_explicit_new(HDMI_MODE_HDMI, HDMI_RES_GROUP_CEA, hdmi_mode);
+        if (res != 0) {
+            hal_err("Failed to set resolution\n");
+            return dsERR_GENERAL;
         }
-        if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
-                hal_dbg("Setting HDMI resolution '%s'\n", resolution->name);
-	        uint32_t hdmi_mode;
-                hdmi_mode = dsGetHdmiMode(resolution);
-		res = vc_tv_hdmi_power_on_explicit_new(HDMI_MODE_HDMI, HDMI_RES_GROUP_CEA, hdmi_mode);
-		if (res != 0)
-		{
-			hal_err("Failed to set resolution\n");
-			return dsERR_GENERAL;
-		}
-                sleep(1);
-                system("fbset -depth 16");
-		system("fbset -depth 32");
+        sleep(1);
+        system("fbset -depth 16");
+        system("fbset -depth 32");
+    } else if (vopHandle->m_vType == dsVIDEOPORT_TYPE_BB) {
+        SDTV_OPTIONS_T options;
+        options.aspect = SDTV_ASPECT_16_9;
+        if (!strncmp(resolution->name, "480i", strlen("480i"))) {
+            hal_dbg("Setting SDTV default resolution SDTV_MODE_NTSC\n");
+            res = vc_tv_sdtv_power_on(SDTV_MODE_NTSC, &options);
+        } else {
+            hal_dbg("Setting SDTV resolution SDTV_MODE_PAL\n");
+            res = vc_tv_sdtv_power_on(SDTV_MODE_PAL, &options);
         }
-        else if (vopHandle->m_vType == dsVIDEOPORT_TYPE_BB)
-        {
-             SDTV_OPTIONS_T options;
-             options.aspect = SDTV_ASPECT_16_9;
-             if (!strncmp(resolution->name, "480i", strlen("480i"))) {
-		hal_dbg("Setting SDTV default resolution SDTV_MODE_NTSC\n");
-                 res = vc_tv_sdtv_power_on(SDTV_MODE_NTSC, &options);
-             }
-             else
-             {
-		hal_dbg("Setting SDTV resolution SDTV_MODE_PAL\n");
-                 res = vc_tv_sdtv_power_on(SDTV_MODE_PAL, &options);
-             }
-        }
-        else
-        {
-            hal_err("Video port type not supported\n");
-		return dsERR_OPERATION_NOT_SUPPORTED;
-        }
-	return dsERR_NONE;
+    } else {
+        hal_err("Video port type not supported\n");
+        return dsERR_OPERATION_NOT_SUPPORTED;
+    }
+    return dsERR_NONE;
 }
 
 /**
@@ -843,14 +834,13 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
  */
 dsError_t  dsVideoPortTerm()
 {
-    	hal_info("invoked.\n");
-	if(false == _bIsVideoPortInitialized)
-    	{
-		return dsERR_NOT_INITIALIZED;
-    	}
-    	vchi_tv_uninit();
-	_bIsVideoPortInitialized = false;
-    	return dsERR_NONE;
+    hal_info("invoked.\n");
+    if (false == _bIsVideoPortInitialized) {
+        return dsERR_NOT_INITIALIZED;
+    }
+    vchi_tv_uninit();
+    _bIsVideoPortInitialized = false;
+    return dsERR_NONE;
 }
 
 /**
@@ -900,35 +890,33 @@ static bool isValidVopHandle(intptr_t m_handle) {
  */
 dsError_t dsIsVideoPortActive(intptr_t handle, bool *active)
 {
-	hal_info("invoked.\n");
-	VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
-        TV_DISPLAY_STATE_T tvstate;
-	if(false == _bIsVideoPortInitialized)
-    	{
-		return dsERR_NOT_INITIALIZED;
-    	}
-	if (!isValidVopHandle(handle) || NULL == active)
-	{
-         	return dsERR_INVALID_PARAM;
-    	}
-	/* Default to false */
-	*active = false;
+    hal_info("invoked.\n");
+    VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
+    TV_DISPLAY_STATE_T tvstate;
+    if (false == _bIsVideoPortInitialized) {
+        return dsERR_NOT_INITIALIZED;
+    }
+    if (!isValidVopHandle(handle) || NULL == active) {
+        return dsERR_INVALID_PARAM;
+    }
+    /* Default to false */
+    *active = false;
 
-	if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
-                if( vc_tv_get_display_state( &tvstate ) == 0) {
-			hal_dbg("vc_tv_get_display_state: 0x%x\n", tvstate.state);
-                     if (tvstate.state & VC_HDMI_HDMI)
-                         *active = true;
-                     else if (tvstate.state & VC_HDMI_UNPLUGGED)
-                         *active = false;
-                     else
-                         hal_warn("Cannot find HDMI state\n");
-                }
-	} else {
-		hal_err("Video port type not supported\n");
-		return dsERR_INVALID_PARAM;
-	}
-	return dsERR_NONE;
+    if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
+        if (vc_tv_get_display_state( &tvstate ) == 0) {
+            hal_dbg("vc_tv_get_display_state: 0x%x\n", tvstate.state);
+            if (tvstate.state & VC_HDMI_HDMI)
+                *active = true;
+            else if (tvstate.state & VC_HDMI_UNPLUGGED)
+                *active = false;
+            else
+                hal_warn("Cannot find HDMI state\n");
+        }
+    } else {
+        hal_err("Video port type not supported\n");
+        return dsERR_INVALID_PARAM;
+    }
+    return dsERR_NONE;
 }
 
 /**
@@ -985,7 +973,7 @@ dsError_t dsGetHDCPReceiverProtocol (intptr_t handle, dsHdcpProtocolVersion_t *p
 	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
-dsError_t dsGetHDCPCurrentProtocol (intptr_t handle, dsHdcpProtocolVersion_t *protocolVersion)
+dsError_t dsGetHDCPCurrentProtocol(intptr_t handle, dsHdcpProtocolVersion_t *protocolVersion)
 {
 	// Ref: https://forums.raspberrypi.com/viewtopic.php?t=278193
 	hal_info("invoked.\n");
@@ -1042,9 +1030,8 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
 {
     hal_info("invoked.\n");
     VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
-    if (false == _bIsVideoPortInitialized)
-    {
-	return dsERR_NOT_INITIALIZED;
+    if (false == _bIsVideoPortInitialized) {
+        return dsERR_NOT_INITIALIZED;
     }
 
     if (resolutions != NULL && isValidVopHandle(handle) && vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
@@ -1054,81 +1041,78 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
         int num_of_modes;
         int i;
         num_of_modes = vc_tv_hdmi_get_supported_modes_new( HDMI_RES_GROUP_CEA, modeSupported,
-                                                   vcos_countof(modeSupported),
-                                                   &group,
-                                                   &mode);
-        if (num_of_modes < 0)
-        {
-           hal_err("Failed to get modes vc_tv_hdmi_get_supported_modes_new\n");
-           return dsERR_GENERAL;
+                vcos_countof(modeSupported),
+                &group,
+                &mode);
+        if (num_of_modes < 0) {
+            hal_err("Failed to get modes vc_tv_hdmi_get_supported_modes_new\n");
+            return dsERR_GENERAL;
         }
         for (i = 0; i < num_of_modes; i++) {
             switch(modeSupported[i].code) {
                 case HDMI_CEA_480p60:
-				case HDMI_CEA_480p60H:
-				case HDMI_CEA_480p60_2x:
-				case HDMI_CEA_480p60_2xH:
-				case HDMI_CEA_480p60_4x:
-				case HDMI_CEA_480p60_4xH:
-					*resolutions |= dsTV_RESOLUTION_480p;
-					break;
-				case HDMI_CEA_480i60:
-				case HDMI_CEA_480i60H:
-				case HDMI_CEA_480i60_4x:
-				case HDMI_CEA_480i60_4xH:
-					*resolutions |= dsTV_RESOLUTION_480i;
-					break;
-				case HDMI_CEA_576i50:
-				case HDMI_CEA_576i50H:
-				case HDMI_CEA_576i50_4x:
-				case HDMI_CEA_576i50_4xH:
-					*resolutions |= dsTV_RESOLUTION_576i;
-					break;
-				case HDMI_CEA_576p50:
-				case HDMI_CEA_576p50H:
-				case HDMI_CEA_576p50_2x:
-				case HDMI_CEA_576p50_2xH:
-				case HDMI_CEA_576p50_4x:
-				case HDMI_CEA_576p50_4xH:
-					*resolutions |= dsTV_RESOLUTION_576p50;
-					break;
-				case HDMI_CEA_720p50:
-					*resolutions |= dsTV_RESOLUTION_720p50;
-					break;
-				case HDMI_CEA_720p60:
-					*resolutions |= dsTV_RESOLUTION_720p;
-					break;
-				case HDMI_CEA_1080p50:
-					*resolutions |= dsTV_RESOLUTION_1080p50;
-					break;
-				case HDMI_CEA_1080p24:
-					*resolutions |= dsTV_RESOLUTION_1080p24;
-					break;
-				case HDMI_CEA_1080p25:
-					*resolutions |= dsTV_RESOLUTION_1080p25;
-					break;
-				case HDMI_CEA_1080p30:
-					*resolutions |= dsTV_RESOLUTION_1080p30;
-					break;
-				case HDMI_CEA_1080p60:
-					*resolutions |= dsTV_RESOLUTION_1080p60;
-					break;
-				case HDMI_CEA_1080i50:
-					*resolutions |= dsTV_RESOLUTION_1080i50;
-					break;
-				case HDMI_CEA_1080i60:
-					*resolutions |= dsTV_RESOLUTION_1080i;
-					break;
-				default:
-					*resolutions |= dsTV_RESOLUTION_480p;
-					break;
+                case HDMI_CEA_480p60H:
+                case HDMI_CEA_480p60_2x:
+                case HDMI_CEA_480p60_2xH:
+                case HDMI_CEA_480p60_4x:
+                case HDMI_CEA_480p60_4xH:
+                    *resolutions |= dsTV_RESOLUTION_480p;
+                    break;
+                case HDMI_CEA_480i60:
+                case HDMI_CEA_480i60H:
+                case HDMI_CEA_480i60_4x:
+                case HDMI_CEA_480i60_4xH:
+                    *resolutions |= dsTV_RESOLUTION_480i;
+                    break;
+                case HDMI_CEA_576i50:
+                case HDMI_CEA_576i50H:
+                case HDMI_CEA_576i50_4x:
+                case HDMI_CEA_576i50_4xH:
+                    *resolutions |= dsTV_RESOLUTION_576i;
+                    break;
+                case HDMI_CEA_576p50:
+                case HDMI_CEA_576p50H:
+                case HDMI_CEA_576p50_2x:
+                case HDMI_CEA_576p50_2xH:
+                case HDMI_CEA_576p50_4x:
+                case HDMI_CEA_576p50_4xH:
+                    *resolutions |= dsTV_RESOLUTION_576p50;
+                    break;
+                case HDMI_CEA_720p50:
+                    *resolutions |= dsTV_RESOLUTION_720p50;
+                    break;
+                case HDMI_CEA_720p60:
+                    *resolutions |= dsTV_RESOLUTION_720p;
+                    break;
+                case HDMI_CEA_1080p50:
+                    *resolutions |= dsTV_RESOLUTION_1080p50;
+                    break;
+                case HDMI_CEA_1080p24:
+                    *resolutions |= dsTV_RESOLUTION_1080p24;
+                    break;
+                case HDMI_CEA_1080p25:
+                    *resolutions |= dsTV_RESOLUTION_1080p25;
+                    break;
+                case HDMI_CEA_1080p30:
+                    *resolutions |= dsTV_RESOLUTION_1080p30;
+                    break;
+                case HDMI_CEA_1080p60:
+                    *resolutions |= dsTV_RESOLUTION_1080p60;
+                    break;
+                case HDMI_CEA_1080i50:
+                    *resolutions |= dsTV_RESOLUTION_1080i50;
+                    break;
+                case HDMI_CEA_1080i60:
+                    *resolutions |= dsTV_RESOLUTION_1080i;
+                    break;
+                default:
+                    *resolutions |= dsTV_RESOLUTION_480p;
+                    break;
             }
         }
-    }
-    else
-    {
+    } else {
         hal_err("Get supported resolution for TV on Non HDMI Port\n");
-	return dsERR_INVALID_PARAM;
+        return dsERR_INVALID_PARAM;
     }
     hal_dbg("Supported resolutions: 0x%x\n", *resolutions);
     return dsERR_NONE;
@@ -1161,24 +1145,24 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
  */
 dsError_t  dsIsDisplaySurround(intptr_t handle, bool *surround)
 {
-	hal_info("invoked.\n");
+    hal_info("invoked.\n");
     if(false == _bIsVideoPortInitialized)
     {
-	return dsERR_NOT_INITIALIZED;
+        return dsERR_NOT_INITIALIZED;
     }
     if(!dsIsValidHandle(handle) ||surround == NULL)
     {
         return dsERR_INVALID_PARAM;
     }
-	// TODO: RPI4 does support this feature; implement later.
-	/* config.txt with the following
-	 * hdmi_group=1
-	 * hdmi_mode=16
-	 * hdmi_drive=2
-	 * hdmi_force_hotplug=1 (optional)
-	 * Check the current audion output: amixer cget numid=3
-	 * Set the audio output to HDMI: amixer cset numid=3 2
-	 */
+    // TODO: RPI4 does support this feature; implement later.
+    /* config.txt with the following
+     * hdmi_group=1
+     * hdmi_mode=16
+     * hdmi_drive=2
+     * hdmi_force_hotplug=1 (optional)
+     * Check the current audion output: amixer cget numid=3
+     * Set the audio output to HDMI: amixer cset numid=3 2
+     */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -1207,10 +1191,10 @@ dsError_t  dsIsDisplaySurround(intptr_t handle, bool *surround)
  */
 dsError_t  dsGetSurroundMode(intptr_t handle, int *surround)
 {
-	hal_info("invoked.\n");
+    hal_info("invoked.\n");
     if(false == _bIsVideoPortInitialized)
     {
-	return dsERR_NOT_INITIALIZED;
+        return dsERR_NOT_INITIALIZED;
     }
     if(!dsIsValidHandle(handle)|| surround == NULL)
     {
@@ -1219,7 +1203,7 @@ dsError_t  dsGetSurroundMode(intptr_t handle, int *surround)
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
-dsError_t dsVideoFormatUpdateRegisterCB (dsVideoFormatUpdateCB_t cb)
+dsError_t dsVideoFormatUpdateRegisterCB(dsVideoFormatUpdateCB_t cb)
 {
 	hal_info("invoked.\n");
     return dsERR_OPERATION_NOT_SUPPORTED;
