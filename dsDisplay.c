@@ -291,7 +291,7 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
         hal_err("DIsplay Handle/edid is NULL.\n");
         return dsERR_INVALID_PARAM;
     }
-    unsigned char *raw = NULL;
+    unsigned char *raw = (unsigned char *)calloc(MAX_EDID_BYTES_LEN, sizeof(unsigned char));
     int length = 0;
     edid->numOfSupportedResolution = 0;
     if (vDispHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
@@ -313,7 +313,9 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
             edid->suppResolutionList[edid->numOfSupportedResolution] = HdmiSupportedResolution[i];
             edid->numOfSupportedResolution++;
         }
-        free(raw);
+        if (NULL != raw) {
+            free(raw);
+        }
     } else {
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
