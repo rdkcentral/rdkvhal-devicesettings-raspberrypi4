@@ -150,6 +150,15 @@ dsError_t  dsVideoPortInit()
 	_handles[dsVIDEOPORT_TYPE_BB][0].m_index = 0;
 	_handles[dsVIDEOPORT_TYPE_BB][0].m_isEnabled = false;
 
+    hal_info("&_handles = %p\n", &_handles);
+    hal_info("&_handles[dsVIDEOPORT_TYPE_HDMI][0].m_vType = %p\n", &_handles[dsVIDEOPORT_TYPE_HDMI][0].m_vType);
+    hal_info("&_handles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle = %p\n", &_handles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle);
+    hal_info("&_handles[dsVIDEOPORT_TYPE_HDMI][0].m_index = %p\n", &_handles[dsVIDEOPORT_TYPE_HDMI][0].m_index);
+    hal_info("&_handles[dsVIDEOPORT_TYPE_HDMI][0].m_isEnabled = %p\n", &_handles[dsVIDEOPORT_TYPE_HDMI][0].m_isEnabled);
+    hal_info("&_handles[dsVIDEOPORT_TYPE_BB][0].m_vType = %p\n", &_handles[dsVIDEOPORT_TYPE_BB][0].m_vType);
+    hal_info("&_handles[dsVIDEOPORT_TYPE_BB][0].m_nativeHandle = %p\n", &_handles[dsVIDEOPORT_TYPE_BB][0].m_nativeHandle);
+    hal_info("&_handles[dsVIDEOPORT_TYPE_BB][0].m_index = %p\n", &_handles[dsVIDEOPORT_TYPE_BB][0].m_index);
+    hal_info("&_handles[dsVIDEOPORT_TYPE_BB][0].m_isEnabled = %p\n", &_handles[dsVIDEOPORT_TYPE_BB][0].m_isEnabled);
 	_resolution = kResolutions[kDefaultResIndex];
 	int rc = vchi_tv_init();
 	if (rc != 0) {
@@ -196,19 +205,20 @@ dsError_t  dsVideoPortInit()
  * @warning  This API is Not thread safe.
  */
 
-dsError_t  dsGetVideoPort(dsVideoPortType_t type, int index, intptr_t *handle)
+dsError_t dsGetVideoPort(dsVideoPortType_t type, int index, intptr_t *handle)
 {
-	hal_info("invoked.\n");
-	if (false == _bIsVideoPortInitialized)
-	{
-	    	return dsERR_NOT_INITIALIZED;
-	}
+    hal_info("invoked.\n");
+    if (false == _bIsVideoPortInitialized) {
+        return dsERR_NOT_INITIALIZED;
+    }
 
-	if (index != 0 || !dsVideoPortType_isValid(type) || NULL == handle) {
-		return dsERR_INVALID_PARAM;
-	}
-	*handle = (intptr_t)&_handles[type][index];
-	return dsERR_NONE;
+    if (index != 0 || !dsVideoPortType_isValid(type) || NULL == handle) {
+        hal_err("index = %d, type = %d, handle = %p\n", index, type, handle);
+        return dsERR_INVALID_PARAM;
+    }
+    *handle = (intptr_t)&_handles[type][index];
+    hal_dbg("*handle = %p\n", *handle);
+    return dsERR_NONE;
 }
 /**
  * @brief Enable/disable all video port.
@@ -313,90 +323,90 @@ dsError_t dsIsVideoPortEnabled(intptr_t handle, bool *enabled)
  */
 dsError_t  dsEnableVideoPort(intptr_t handle, bool enabled)
 {
-	hal_info("invoked.\n");
-	VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
-        SDTV_OPTIONS_T options;
-        int res = 0, rc = 0;
-	if(false == _bIsVideoPortInitialized)
-	{
-		return dsERR_NOT_INITIALIZED;
-	}
+    hal_info("invoked.\n");
+    VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
+    SDTV_OPTIONS_T options;
+    int res = 0, rc = 0;
+    if(false == _bIsVideoPortInitialized)
+    {
+        return dsERR_NOT_INITIALIZED;
+    }
 
-	if (!isValidVopHandle(handle))
-	{
-		return dsERR_INVALID_PARAM;
-    	}
+    if (!isValidVopHandle(handle))
+    {
+        return dsERR_INVALID_PARAM;
+    }
 
-	if(vopHandle->m_vType == dsVIDEOPORT_TYPE_BB)
-	{
-		if(enabled != vopHandle->m_isEnabled)
-		{
-                     if (enabled)
-                     {
-                         options.aspect = SDTV_ASPECT_16_9;
-                         res = vc_tv_sdtv_power_on(SDTV_MODE_NTSC, &options);
-                         if (res != 0) {
-                             hal_err("Failed to enable composite video port\n");
-				return dsERR_GENERAL;
-			}
-                     }
-                     else
-                     {
-                         res = vc_tv_power_off();
-                         if (res != 0)
-                         {
-                             hal_err("Failed to disbale composite video port\n");
-				return dsERR_GENERAL;
-                         }
-                     }
-		}
-		vopHandle->m_isEnabled = enabled;
-	}
-	else if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI)
-	{
-		if(enabled != vopHandle->m_isEnabled)
-		{
-                     if (enabled)
-                     {
-                         res = vc_tv_hdmi_power_on_preferred();
-                         if (res != 0)
-                         {
-				hal_err("Failed to power on HDMI with preferred settings\n");
-				return dsERR_GENERAL;
-                         }
+    if(vopHandle->m_vType == dsVIDEOPORT_TYPE_BB)
+    {
+        if(enabled != vopHandle->m_isEnabled)
+        {
+            if (enabled)
+            {
+                options.aspect = SDTV_ASPECT_16_9;
+                res = vc_tv_sdtv_power_on(SDTV_MODE_NTSC, &options);
+                if (res != 0) {
+                    hal_err("Failed to enable composite video port\n");
+                    return dsERR_GENERAL;
+                }
+            }
+            else
+            {
+                res = vc_tv_power_off();
+                if (res != 0)
+                {
+                    hal_err("Failed to disbale composite video port\n");
+                    return dsERR_GENERAL;
+                }
+            }
+        }
+        vopHandle->m_isEnabled = enabled;
+    }
+    else if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI)
+    {
+        if(enabled != vopHandle->m_isEnabled)
+        {
+            if (enabled)
+            {
+                res = vc_tv_hdmi_power_on_preferred();
+                if (res != 0)
+                {
+                    hal_err("Failed to power on HDMI with preferred settings\n");
+                    return dsERR_GENERAL;
+                }
 
-                         rc = system("/lib/rdk/rpiDisplayEnable.sh 1");
-                         if (rc == -1)
-                         {
-                                hal_err("Failed to run script rpiDisplayEnable.sh with enable=1 rc=%d\n", rc);
-				return dsERR_GENERAL;
-                         }
-                     }
-                     else
-                     {
-                         rc = system("/lib/rdk/rpiDisplayEnable.sh 0");
-                         if(rc == -1)
-                         {
-                                hal_err("Failed to run script rpiDisplayEnable.sh with enable=0 rc=%d\n", rc);
-				return dsERR_GENERAL;
-                         }
-                         sleep(1);
+                rc = system("/lib/rdk/rpiDisplayEnable.sh 1");
+                if (rc == -1)
+                {
+                    hal_err("Failed to run script rpiDisplayEnable.sh with enable=1 rc=%d\n", rc);
+                    return dsERR_GENERAL;
+                }
+            }
+            else
+            {
+                rc = system("/lib/rdk/rpiDisplayEnable.sh 0");
+                if(rc == -1)
+                {
+                    hal_err("Failed to run script rpiDisplayEnable.sh with enable=0 rc=%d\n", rc);
+                    return dsERR_GENERAL;
+                }
+                sleep(1);
 
-                         res = vc_tv_power_off();
-                         if (res != 0)
-                         {
-				hal_err("Failed to disbale HDMI video port\n");
-				return dsERR_GENERAL;
-                         }
-                     }
-		}
-		vopHandle->m_isEnabled = enabled;
-	}
-	else
-	{
-		return dsERR_OPERATION_NOT_SUPPORTED;
-	}
-	return dsERR_NONE;
+                res = vc_tv_power_off();
+                if (res != 0)
+                {
+                    hal_err("Failed to disbale HDMI video port\n");
+                    return dsERR_GENERAL;
+                }
+            }
+        }
+        vopHandle->m_isEnabled = enabled;
+    }
+    else
+    {
+        return dsERR_OPERATION_NOT_SUPPORTED;
+    }
+    return dsERR_NONE;
 }
 
 /**
@@ -1033,14 +1043,20 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
+    if (!isValidVopHandle(handle) || (NULL == resolutions)) {
+        hal_err("resolutions or handle is invalid.\n");
+        return dsERR_INVALID_PARAM;
+    }
 
-    if (resolutions != NULL && isValidVopHandle(handle) && vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
+    hal_info("handle = %p\n", vopHandle);
+    hal_info("*handle = %p\n", *vopHandle);
+    if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
         TV_SUPPORTED_MODE_NEW_T modeSupported[MAX_HDMI_MODE_ID];
         HDMI_RES_GROUP_T group;
         uint32_t mode;
         int num_of_modes;
         int i;
-        num_of_modes = vc_tv_hdmi_get_supported_modes_new( HDMI_RES_GROUP_CEA, modeSupported,
+        num_of_modes = vc_tv_hdmi_get_supported_modes_new(HDMI_RES_GROUP_CEA, modeSupported,
                 vcos_countof(modeSupported),
                 &group,
                 &mode);
