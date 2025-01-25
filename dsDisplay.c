@@ -528,35 +528,52 @@ TV_SUPPORTED_MODE_T dsVideoPortgetVideoFormatFromInfo(dsVideoResolution_t res, u
  */
 dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
 {
-	hal_info("Invoked\n");
-	uint8_t buffer[128];
-	size_t offset = 0;
-	int i, extensions = 0;
-	VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
-	if (false == _bDisplayInited) {
-	    return dsERR_NOT_INITIALIZED;
-	}
-	if (edid == NULL || length == NULL) {
-		hal_err("invalid params\n");
-		return dsERR_INVALID_PARAM;
-	} else if (vDispHandle == NULL || vDispHandle != &_handles[dsVIDEOPORT_TYPE_HDMI][0]) {
-		hal_err("invalid handle\n");
-		return dsERR_INVALID_PARAM;
-	}
-	*length = 0;
-	int siz = vc_tv_hdmi_ddc_read(offset, sizeof (buffer), buffer);
-	if (siz <= 0) {
-		hal_err("vc_tv_hdmi_ddc_read returned %d.\n", siz);
-		return dsERR_GENERAL;
-	}
-	offset += sizeof( buffer);
-	extensions = buffer[0x7e]; /* This tells you how many more blocks to read */
-	memcpy(edid, (unsigned char *)buffer, sizeof(buffer));
-	/* First block always exist */
-	for (i = 0; i < extensions; i++, offset += sizeof( buffer)) {
-		siz = vc_tv_hdmi_ddc_read(offset, sizeof( buffer), buffer);
-		memcpy(edid+offset, (unsigned char *)buffer, sizeof(buffer));
-	}
-	*length = offset;
+    hal_info("Invoked\n");
+    uint8_t buffer[128] = {0};
+    size_t offset = 0;
+    int i, extensions = 0;
+    VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
+
+    if (false == _bDisplayInited) {
+        return dsERR_NOT_INITIALIZED;
+    }
+    if (edid == NULL || length == NULL) {
+        hal_err("invalid params\n");
+        return dsERR_INVALID_PARAM;
+    } else if (vDispHandle == NULL || vDispHandle != &_handles[dsVIDEOPORT_TYPE_HDMI][0]) {
+        hal_err("invalid handle\n");
+        return dsERR_INVALID_PARAM;
+    }
+
+    *length = 0;
+    int siz = vc_tv_hdmi_ddc_read(offset, sizeof (buffer), buffer);
+    if (siz <= 0) {
+        hal_err("vc_tv_hdmi_ddc_read returned %d.\n", siz);
+        return dsERR_GENERAL;
+    }
+    offset += sizeof( buffer);
+    extensions = buffer[0x7e]; /* This tells you how many more blocks to read */
+    memcpy(edid, (unsigned char *)buffer, sizeof(buffer));
+    /* First block always exist */
+    for (i = 0; i < extensions; i++, offset += sizeof( buffer)) {
+        memset(buffer, 0, sizeof(buffer));
+        siz = vc_tv_hdmi_ddc_read(offset, sizeof(buffer), buffer);
+        if (siz <= 0) {
+            hal_err("subsequent vc_tv_hdmi_ddc_read returned %d.\n", siz);
+            return dsERR_GENERAL;
+        }
+        memcpy(edid + offset, buffer, sizeof(buffer));
+    }
+    *length = offset;
+#if 1 // Print EDID bytes for debugging
+    FILE *file = fopen("/tmp/.hal-edid-bytes.dat", "wb");
+    if (file != NULL) {
+        fwrite(edid, 1, offset, file);
+        fclose(file);
+        hal_info("EDID bytes written to /tmp/edid-bytes.dat\n");
+    } else {
+        hal_err("Failed to open /tmp/edid-bytes.dat for writing\n");
+    }
+#endif
     return dsERR_NONE;
 }
