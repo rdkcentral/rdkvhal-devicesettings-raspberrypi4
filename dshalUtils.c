@@ -33,7 +33,7 @@ VCHI_CONNECTION_T *vchi_connection;
 
 int vchi_tv_init()
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     int res = 0;
     if (!initialised)
     {
@@ -63,7 +63,7 @@ int vchi_tv_init()
 
 int vchi_tv_uninit()
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     int res = 0;
     if (initialised)
     {
@@ -140,7 +140,7 @@ static int parse_cea_block(unsigned char *x, dsDisplayEDID_t *displayEdidInfo)
 
 int fill_edid_struct(unsigned char *edidBytes, dsDisplayEDID_t *displayEdidInfo, int size)
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     unsigned char *x;
     time_t t;
     struct tm *localtm;
@@ -182,4 +182,3 @@ int fill_edid_struct(unsigned char *edidBytes, dsDisplayEDID_t *displayEdidInfo,
     }
     return 0;
 }
-

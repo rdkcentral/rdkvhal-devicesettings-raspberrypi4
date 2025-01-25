@@ -22,8 +22,8 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <time.h>
-#include "dsTypes.h"
 
+#include "dsTypes.h"
 #include "dsDisplay.h"
 #include "dsUtl.h"
 #include "dsError.h"
@@ -48,8 +48,7 @@ typedef struct _VDISPHandle_t {
 	int m_nativeHandle;
 } VDISPHandle_t;
 
-static VDISPHandle_t _handles[dsVIDEOPORT_TYPE_MAX][2] = {
-};
+static VDISPHandle_t _handles[dsVIDEOPORT_TYPE_MAX][2] = {};
 
 bool dsIsValidHandle(intptr_t m_handle) {
 	for (int i = 0; i < dsVIDEOPORT_TYPE_MAX; i++) {
@@ -66,7 +65,7 @@ static void tvservice_callback( void *callback_data,
                                 uint32_t param2 )
 {
     VDISPHandle_t *hdmiHandle = (VDISPHandle_t*)callback_data;
-    unsigned char  eventData=0;
+    unsigned char eventData = 0;
     switch (reason) {
         case VC_HDMI_UNPLUGGED:
             hal_dbg("HDMI cable is unplugged\n");
@@ -102,10 +101,8 @@ static void tvservice_callback( void *callback_data,
  */
 dsError_t dsDisplayInit()
 {
-	dsError_t ret = dsERR_NONE;
-        int32_t res = 0;
-	if(true == _bDisplayInited)
-	{
+	hal_info("Invoked\n");
+	if (true == _bDisplayInited) {
 	    return dsERR_ALREADY_INITIALIZED;
 	}
 
@@ -116,9 +113,9 @@ dsError_t dsDisplayInit()
 	_handles[dsVIDEOPORT_TYPE_COMPONENT][0].m_vType  = dsVIDEOPORT_TYPE_BB;
 	_handles[dsVIDEOPORT_TYPE_COMPONENT][0].m_nativeHandle = dsVIDEOPORT_TYPE_BB;
 	_handles[dsVIDEOPORT_TYPE_COMPONENT][0].m_index = 0;
-    res = vchi_tv_init();
+    int32_t res = vchi_tv_init();
     if (res != 0) {
-        printf("Unable to initialise tv servic\n");
+        hal_err("vchi_tv_init failed.\n");
         return dsERR_GENERAL;
     }
     // Register callback for HDMI hotplug
@@ -126,7 +123,7 @@ dsError_t dsDisplayInit()
 	/*Query the HDMI Resolution */
     dsQueryHdmiResolution();
     _bDisplayInited = true;
-    return ret;
+    return dsERR_NONE;
 }
 
 /**
@@ -140,24 +137,18 @@ dsError_t dsDisplayInit()
  */
 dsError_t dsGetDisplay(dsVideoPortType_t m_vType, int index, intptr_t *handle)
 {
-    dsError_t ret = dsERR_NONE;
-    if(false == _bDisplayInited)
-    {
+	hal_info("Invoked\n");
+    if (false == _bDisplayInited) {
         return dsERR_NOT_INITIALIZED;
     }
 
-    if (index != 0 || !dsVideoPortType_isValid(m_vType) || NULL == handle) 
-    {
-        ret = dsERR_INVALID_PARAM;
+    if (index != 0 || !dsVideoPortType_isValid(m_vType) || NULL == handle) {
+        return dsERR_INVALID_PARAM;
     }
 
-    if (ret == dsERR_NONE) 
-    {
-        *handle = (intptr_t)&_handles[m_vType][index];
-    }
+    *handle = (intptr_t)&_handles[m_vType][index];
 
-    return ret;
-
+	return dsERR_NONE;
 }
 
 /**
@@ -172,52 +163,52 @@ dsError_t dsGetDisplay(dsVideoPortType_t m_vType, int index, intptr_t *handle)
  */
 dsError_t dsGetDisplayAspectRatio(intptr_t handle, dsVideoAspectRatio_t *aspect)
 {
-	dsError_t ret = dsERR_NONE;
-        TV_DISPLAY_STATE_T tvstate;
-        VDISPHandle_t *vDispHandle = (VDISPHandle_t *) handle;
-	if(false == _bDisplayInited)
-    	{
+	hal_info("Invoked\n");
+    TV_DISPLAY_STATE_T tvstate;
+    VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
+	if (false == _bDisplayInited) {
 	    return dsERR_NOT_INITIALIZED;
-    	}
-	if (vDispHandle == NULL || NULL == aspect)
-	{
-		printf("DIsplay Handle/aspect is NULL .......... \r\n");
+    }
+	if (vDispHandle == NULL || NULL == aspect) {
+		hal_err("DIsplay Handle/aspect is NULL.\n");
 		return dsERR_INVALID_PARAM;
 	}
-        	
-        if( vc_tv_get_display_state( &tvstate ) == 0) {
-            if (vDispHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
-                switch(tvstate.display.hdmi.aspect_ratio) {
-                case HDMI_ASPECT_4_3:
-                    *aspect = dsVIDEO_ASPECT_RATIO_4x3;
-                    break;
-                case HDMI_ASPECT_16_9:
-                    *aspect = dsVIDEO_ASPECT_RATIO_16x9;
-                    break;
-                 default:
-                   *aspect = dsVIDEO_ASPECT_RATIO_4x3;
-                   break;
-                 } 
-            } else if (vDispHandle->m_vType == dsVIDEOPORT_TYPE_BB) {
-                switch(tvstate.display.sdtv.display_options.aspect) {
-                case SDTV_ASPECT_4_3:
-                    *aspect = dsVIDEO_ASPECT_RATIO_4x3;
-                    break;
-                case SDTV_ASPECT_16_9:
-                    *aspect = dsVIDEO_ASPECT_RATIO_16x9;
-                    break;
-                 default:
-                   *aspect = dsVIDEO_ASPECT_RATIO_4x3;
-                   break;
-                }
-            }
-        }
-        else {
-           printf("Error getting current display state");
-        }
-    return ret;
-}
 
+	if (vc_tv_get_display_state(&tvstate) == 0) {
+		if (vDispHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
+			hal_info("Video port type is HDMI\n");
+			switch (tvstate.display.hdmi.aspect_ratio) {
+				case HDMI_ASPECT_4_3:
+					*aspect = dsVIDEO_ASPECT_RATIO_4x3;
+					break;
+				case HDMI_ASPECT_16_9:
+					*aspect = dsVIDEO_ASPECT_RATIO_16x9;
+					break;
+				default:
+					*aspect = dsVIDEO_ASPECT_RATIO_4x3;
+					break;
+			}
+		} else if (vDispHandle->m_vType == dsVIDEOPORT_TYPE_BB) {
+			hal_info("Video port type is BB\n");
+			switch (tvstate.display.sdtv.display_options.aspect) {
+				case SDTV_ASPECT_4_3:
+					*aspect = dsVIDEO_ASPECT_RATIO_4x3;
+					break;
+				case SDTV_ASPECT_16_9:
+					*aspect = dsVIDEO_ASPECT_RATIO_16x9;
+					break;
+				default:
+					*aspect = dsVIDEO_ASPECT_RATIO_4x3;
+					break;
+			}
+		}
+	} else {
+		hal_err("Error getting current display state\n");
+		return dsERR_GENERAL;
+	}
+	hal_dbg("Aspect ratio is %d\n", *aspect);
+    return dsERR_NONE;
+}
 
 /**
  * @brief Callback registration for display related events.
@@ -248,19 +239,18 @@ dsError_t dsGetDisplayAspectRatio(intptr_t handle, dsVideoAspectRatio_t *aspect)
  */
 dsError_t dsRegisterDisplayEventCallback(intptr_t handle, dsDisplayEventCallback_t cb)
 {
-    VDISPHandle_t *vDispHandle = (VDISPHandle_t *) handle;
+	hal_info("Invoked\n");
+    VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
     // TODD: add handle validation
-    if (false == _bDisplayInited)
-    {
+    if (false == _bDisplayInited) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (NULL == cb)
-    {
+    if (NULL == cb) {
         return dsERR_INVALID_PARAM;
     }
     /* Register The call Back */
     if (NULL != _halcallback) {
-        printf("Callback already registered; override with new one.\n");
+        hal_warn("Callback already registered; override with new one.\n");
     }
     _halcallback = cb;
     return dsERR_NONE;
@@ -277,15 +267,13 @@ dsError_t dsRegisterDisplayEventCallback(intptr_t handle, dsDisplayEventCallback
  */
 dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
 {
-    dsError_t ret = dsERR_NONE;
-    VDISPHandle_t *vDispHandle = (VDISPHandle_t *) handle;
-    if(false == _bDisplayInited)
-    {
+	hal_info("Invoked\n");
+    VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
+    if (false == _bDisplayInited) {
         return dsERR_NOT_INITIALIZED;
     }
 
-    if (vDispHandle == NULL || NULL == edid)
-    {
+    if (vDispHandle == NULL || NULL == edid) {
         hal_err("DIsplay Handle/edid is NULL.\n");
         return dsERR_INVALID_PARAM;
     }
@@ -293,21 +281,29 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
     int length = 0;
     edid->numOfSupportedResolution = 0;
     if (vDispHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
-        dsGetEDIDBytes(handle, raw, &length);
-        fill_edid_struct(raw, edid, length);
-        dsQueryHdmiResolution();
+        if (dsGetEDIDBytes(handle, raw, &length) != dsERR_NONE) {
+			hal_err("Failed to get EDID bytes\n");
+			return dsERR_GENERAL;
+		}
+        if (fill_edid_struct(raw, edid, length) != 0) {
+			hal_err("Failed to fill EDID struct\n");
+			return dsERR_GENERAL;
+		}
+        if (dsQueryHdmiResolution() != dsERR_NONE) {
+			hal_err("Failed to query HDMI resolution\n");
+			return dsERR_GENERAL;
+		}
 
         hal_dbg("numSupportedResn - %d\n", numSupportedResn);
-        for (size_t i = 0; i < numSupportedResn; i++)
-        {
+        for (size_t i = 0; i < numSupportedResn; i++) {
             edid->suppResolutionList[edid->numOfSupportedResolution] = HdmiSupportedResolution[i];
             edid->numOfSupportedResolution++;
         }
         free(raw);
     } else {
-        ret = dsERR_OPERATION_NOT_SUPPORTED;
+        return dsERR_OPERATION_NOT_SUPPORTED;
     }
-    return ret;
+    return dsERR_NONE;
 }
 
 /**
@@ -320,19 +316,17 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
  */
 dsError_t dsDisplayTerm()
 {
-    dsError_t res = dsERR_NONE;
-    if(false == _bDisplayInited)
-    {
+	hal_info("Invoked\n");
+    if (false == _bDisplayInited) {
         return dsERR_NOT_INITIALIZED;
     }
     vchi_tv_uninit();
-    if(HdmiSupportedResolution)
-    {
+    if (HdmiSupportedResolution) {
         free(HdmiSupportedResolution);
-        HdmiSupportedResolution=NULL;
+        HdmiSupportedResolution = NULL;
     }
     _bDisplayInited = false;
-    return res;
+    return dsERR_NONE;
 }
 
 /**
@@ -347,22 +341,19 @@ dsError_t dsDisplayTerm()
  */
 dsError_t dsDisplaygetNativeHandle(intptr_t handle, int *native)
 {
-	dsError_t ret = dsERR_NONE;
-	VDISPHandle_t *vDispHandle = (VDISPHandle_t *) handle;
+	hal_info("Invoked\n");
+	VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
 
-	if (vDispHandle == NULL)
-	{
-		ret = dsERR_NONE;
+	if (vDispHandle == NULL || NULL == native) {
+		return dsERR_INVALID_PARAM;
 	}
 	if (vDispHandle->m_vType == dsVIDEOPORT_TYPE_HDMI && vDispHandle->m_index == 0) {
 		*native = vDispHandle->m_nativeHandle;
-    }
-	else {
-		ret = dsERR_NONE;
+		return dsERR_NONE;
+    } else {
+		hal_warn("Failed to get native handle\n");
 	}
-
-    return ret;
-
+    return dsERR_GENERAL;
 }
 
 
@@ -372,7 +363,7 @@ dsError_t dsDisplaygetNativeHandle(intptr_t handle, int *native)
  **/
 static dsError_t dsQueryHdmiResolution()
 {
-    dsError_t ret = dsERR_NONE;
+	hal_info("Invoked\n");
     static TV_SUPPORTED_MODE_NEW_T modeSupported[MAX_HDMI_CODE_ID];
     HDMI_RES_GROUP_T group;
     uint32_t mode;
@@ -383,30 +374,24 @@ static dsError_t dsQueryHdmiResolution()
             vcos_countof(modeSupported),
             &group,
             &mode);
-    if (num_of_modes < 0)
-    {
+    if (num_of_modes < 0) {
         hal_err("Failed to get modes vc_tv_hdmi_get_supported_modes_new\n");
         return dsERR_GENERAL;
     }
-    if (HdmiSupportedResolution)
-    {
+    if (HdmiSupportedResolution) {
         free(HdmiSupportedResolution);
         HdmiSupportedResolution = NULL;
     }
     numSupportedResn = 0;
     size_t iCount = (sizeof(resolutionMap) / sizeof(resolutionMap[0]));
     HdmiSupportedResolution = (dsVideoPortResolution_t*)malloc(sizeof(dsVideoPortResolution_t)*iCount);
-    if (HdmiSupportedResolution)
-    {
-        for (size_t i = 0; i < iCount; i++)
-        {
-            for ( int j = 0; j < num_of_modes; j++ )
-            {
-                if (modeSupported[j].code == resolutionMap[i].mode)
-                {
+    if (HdmiSupportedResolution) {
+        for (size_t i = 0; i < iCount; i++) {
+            for (int j = 0; j < num_of_modes; j++) {
+                if (modeSupported[j].code == resolutionMap[i].mode) {
                     dsVideoPortResolution_t *resolution = dsgetResolutionInfo(resolutionMap[i].rdkRes);
                     memcpy(&HdmiSupportedResolution[numSupportedResn], resolution, sizeof(dsVideoPortResolution_t));
-                    hal_dbg("Supported Resolution %s\n.", HdmiSupportedResolution[numSupportedResn].name);
+                    hal_dbg("Supported Resolution '%s'\n.", HdmiSupportedResolution[numSupportedResn].name);
                     numSupportedResn++;
                 }
             }
@@ -421,6 +406,7 @@ static dsError_t dsQueryHdmiResolution()
 
 static dsVideoPortResolution_t* dsgetResolutionInfo(const char *res_name)
 {
+	hal_info("Invoked\n");
     size_t iCount = 0;
     iCount = (sizeof(kResolutions) / sizeof(kResolutions[0]));
     for (size_t i=0; i < iCount; i++) {
@@ -433,54 +419,76 @@ static dsVideoPortResolution_t* dsgetResolutionInfo(const char *res_name)
 
 TV_SUPPORTED_MODE_T dsVideoPortgetVideoFormatFromInfo(dsVideoResolution_t res, unsigned frameRate, bool interlaced)
 {
+	hal_info("Invoked\n");
     TV_SUPPORTED_MODE_T format = {0};
-    switch(res) {
-        case dsVIDEO_PIXELRES_720x480:
-                format.height = 480;
-                break;
-        case dsVIDEO_PIXELRES_720x576:
-                format.height = 576;
-                break;
-        case dsVIDEO_PIXELRES_1280x720:
-                format.height = 720;
-                break;
-        case dsVIDEO_PIXELRES_1920x1080:
-                format.height = 1080;
-                break;
-        case dsVIDEO_PIXELRES_MAX: //to mute compiler warning
-        default:
-                break;
-        }
-      
-    switch(frameRate) {
-       case dsVIDEO_FRAMERATE_24:
-            format.frame_rate = 24;
-            break;
-       case dsVIDEO_FRAMERATE_25:
-            format.frame_rate = 25;
-            break;
-       case dsVIDEO_FRAMERATE_30:
-            format.frame_rate = 30;
-            break;
-       case dsVIDEO_FRAMERATE_50:
-            format.frame_rate = 50;
-            break;
-
-       case dsVIDEO_FRAMERATE_60:
-            format.frame_rate = 60;
-            break;
+    switch (res) {
+	    case dsVIDEO_PIXELRES_720x480:
+			format.height = 480;
+			break;
+	    case dsVIDEO_PIXELRES_720x576:
+			format.height = 576;
+			break;
+	    case dsVIDEO_PIXELRES_1280x720:
+			format.height = 720;
+			break;
+	    case dsVIDEO_PIXELRES_1366x768:
+			format.height = 768;
+			break;
+	    case dsVIDEO_PIXELRES_1920x1080:
+			format.height = 1080;
+			break;
+	    case dsVIDEO_PIXELRES_3840x2160:
+			format.height = 2160;
+			break;
+	    case dsVIDEO_PIXELRES_4096x2160:
+			format.height = 2160;
+			break;
+	    case dsVIDEO_PIXELRES_MAX:
+		default:
+			break;
     }
-   if (interlaced) {
-        format.scan_mode = 1; // Interlaced
-   } else {
-        format.scan_mode = 0; // Progressive
-   } 
-   return format; 
+
+    switch (frameRate) {
+		case dsVIDEO_FRAMERATE_24:
+			format.frame_rate = 24;
+			break;
+		case dsVIDEO_FRAMERATE_25:
+			format.frame_rate = 25;
+			break;
+		case dsVIDEO_FRAMERATE_30:
+			format.frame_rate = 30;
+			break;
+		case dsVIDEO_FRAMERATE_60:
+			format.frame_rate = 60;
+			break;
+		case dsVIDEO_FRAMERATE_23dot98:
+			format.frame_rate = 23.98;
+			break;
+		case dsVIDEO_FRAMERATE_29dot97:
+			format.frame_rate = 29.97;
+			break;
+		case dsVIDEO_FRAMERATE_50:
+			format.frame_rate = 50;
+			break;
+		case dsVIDEO_FRAMERATE_59dot94:
+			format.frame_rate = 59.94;
+			break;
+		case dsVIDEO_FRAMERATE_MAX:
+		case dsVIDEO_FRAMERATE_UNKNOWN:
+		default:
+			break;
+	}
+	if (interlaced) {
+		format.scan_mode = 1; // Interlaced
+	} else {
+		format.scan_mode = 0; // Progressive
+	}
+   	return format;
 }
 
 /**
- * @brief Gets the EDID buffer and EDID length of connected display device. 
- * 
+ * @brief Gets the EDID buffer and EDID length of connected display device.
+ *
  * This function is used to get the EDID buffer and EDID size of the connected display corresponding to
  * the specified display device handle.
  *
@@ -496,46 +504,43 @@ TV_SUPPORTED_MODE_T dsVideoPortgetVideoFormatFromInfo(dsVideoResolution_t res, u
  * @retval dsERR_NOT_INITIALIZED            - Module is not initialised
  * @retval dsERR_OPERATION_NOT_SUPPORTED    - The attempted operation is not supported
  * @retval dsERR_GENERAL                    - Underlying undefined platform error
- * 
+ *
  * @pre  dsDisplayInit() and dsGetDisplay() must be called before calling this API
- * 
+ *
  * @warning  This API is Not thread safe
- * 
+ *
  */
 dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
 {
+	hal_info("Invoked\n");
 	uint8_t buffer[128];
 	size_t offset = 0;
 	int i, extensions = 0;
-	VDISPHandle_t *vDispHandle = (VDISPHandle_t *) handle;
-	if(false == _bDisplayInited)
-	{
+	VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
+	if (false == _bDisplayInited) {
 	    return dsERR_NOT_INITIALIZED;
 	}
 	if (edid == NULL || length == NULL) {
-		printf("[%s] invalid params\n", __FUNCTION__);
+		hal_err("invalid params\n");
 		return dsERR_INVALID_PARAM;
-	}
-	else if (vDispHandle == NULL || vDispHandle != &_handles[dsVIDEOPORT_TYPE_HDMI][0])
-	{
-		printf("[%s] invalid handle\n", __FUNCTION__);
+	} else if (vDispHandle == NULL || vDispHandle != &_handles[dsVIDEOPORT_TYPE_HDMI][0]) {
+		hal_err("invalid handle\n");
 		return dsERR_INVALID_PARAM;
 	}
 	*length = 0;
 	int siz = vc_tv_hdmi_ddc_read(offset, sizeof (buffer), buffer);
 	if (siz <= 0) {
-		printf("[%s] vc_tv_hdmi_ddc_read returned %d.\n", __FUNCTION__, siz);
+		hal_err("vc_tv_hdmi_ddc_read returned %d.\n", siz);
 		return dsERR_GENERAL;
 	}
 	offset += sizeof( buffer);
 	extensions = buffer[0x7e]; /* This tells you how many more blocks to read */
 	memcpy(edid, (unsigned char *)buffer, sizeof(buffer));
 	/* First block always exist */
-	for(i = 0; i < extensions; i++, offset += sizeof( buffer)) {
+	for (i = 0; i < extensions; i++, offset += sizeof( buffer)) {
 		siz = vc_tv_hdmi_ddc_read(offset, sizeof( buffer), buffer);
 		memcpy(edid+offset, (unsigned char *)buffer, sizeof(buffer));
 	}
 	*length = offset;
     return dsERR_NONE;
 }
-

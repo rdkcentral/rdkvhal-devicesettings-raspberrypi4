@@ -22,12 +22,6 @@
 
 #include "dsTypes.h"
 
-#ifdef __cplusplus
-extern "C" {
-namespace {
-#endif
-
-
 #define  _INTERLACED true
 #define _PROGRESSIVE false
 
@@ -88,7 +82,7 @@ static dsVideoPortResolution_t kResolutions[] = {
         /*.aspectRatio = */				dsVIDEO_ASPECT_RATIO_16x9,
         /*.stereoscopicMode = */		dsVIDEO_SSMODE_2D,
         /*.frameRate = */				dsVIDEO_FRAMERATE_50,
-        /*.interlaced = */				_INTERLACED, 
+        /*.interlaced = */				_INTERLACED,
     },
     {   /*576p*/
         /*.name = */					"576p",
@@ -235,10 +229,5 @@ static hdmiSupportedRes_t resolutionMap[] = {
 
 /* Pick one resolution from kResolutions[] as default - 720p */
 static const int kDefaultResIndex = 4;
-
-#ifdef __cplusplus
-}
-}
-#endif
 
 #endif /* VIDEORESOLUTIONSETTINGS_H_ */

@@ -16,8 +16,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
- 
-#include <string.h> 
+
+#include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -121,13 +121,13 @@ dsError_t dsRegisterHdcpStatusCallback(intptr_t handle, dsHDCPStatusCallback_t c
  */
 dsError_t  dsVideoPortInit()
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	if(true == _bIsVideoPortInitialized)
         {
 		return dsERR_ALREADY_INITIALIZED;
    	}
 	/*
-	 * Video Port configuration for HDMI and Analog ports. 
+	 * Video Port configuration for HDMI and Analog ports.
 	 */
 
 	_handles[dsVIDEOPORT_TYPE_HDMI][0].m_vType = dsVIDEOPORT_TYPE_HDMI;
@@ -188,12 +188,12 @@ dsError_t  dsVideoPortInit()
 
 dsError_t  dsGetVideoPort(dsVideoPortType_t type, int index, intptr_t *handle)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	if (false == _bIsVideoPortInitialized)
 	{
 	    	return dsERR_NOT_INITIALIZED;
 	}
-	
+
 	if (index != 0 || !dsVideoPortType_isValid(type) || NULL == handle) {
 		return dsERR_INVALID_PARAM;
 	}
@@ -214,7 +214,7 @@ dsError_t  dsGetVideoPort(dsVideoPortType_t type, int index, intptr_t *handle)
  */
 dsError_t dsEnableAllVideoPort(bool enabled)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	/* We cannot enable all ports in raspberrypi  because by default other
 	 * port will be disabled when we enable any videoport on rpi */
 	return dsERR_NONE;
@@ -249,14 +249,14 @@ dsError_t dsEnableAllVideoPort(bool enabled)
  */
 dsError_t dsIsVideoPortEnabled(intptr_t handle, bool *enabled)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
 	if(false == _bIsVideoPortInitialized)
 	{
 		return dsERR_NOT_INITIALIZED;
 	}
-		
-	if (!isValidVopHandle(handle) || NULL == enabled) 
+
+	if (!isValidVopHandle(handle) || NULL == enabled)
 	{
      		return dsERR_INVALID_PARAM;
     	}
@@ -303,7 +303,7 @@ dsError_t dsIsVideoPortEnabled(intptr_t handle, bool *enabled)
  */
 dsError_t  dsEnableVideoPort(intptr_t handle, bool enabled)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
         SDTV_OPTIONS_T options;
         int res = 0, rc = 0;
@@ -417,7 +417,7 @@ dsError_t  dsEnableVideoPort(intptr_t handle, bool enabled)
  */
 dsError_t  dsIsDisplayConnected(intptr_t handle, bool *connected)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
         TV_DISPLAY_STATE_T tvstate;
 	if(false == _bIsVideoPortInitialized)
@@ -430,7 +430,7 @@ dsError_t  dsIsDisplayConnected(intptr_t handle, bool *connected)
     	}
 	/*Default is false*/
 	*connected = false;
-    	
+
 	if(vopHandle->m_vType == dsVIDEOPORT_TYPE_BB)
 	{
 		*connected = true;
@@ -496,12 +496,12 @@ dsError_t  dsIsDisplayConnected(intptr_t handle, bool *connected)
  */
 dsError_t  dsEnableDTCP(intptr_t handle, bool contentProtect)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	if(false == _bIsVideoPortInitialized)
 	{
 	    return dsERR_NOT_INITIALIZED;
 	}
-	if (!isValidVopHandle(handle)) 
+	if (!isValidVopHandle(handle))
 	{
 	    return dsERR_INVALID_PARAM;
 	}
@@ -542,12 +542,12 @@ dsError_t  dsEnableDTCP(intptr_t handle, bool contentProtect)
 dsError_t  dsEnableHDCP(intptr_t handle, bool contentProtect, char *hdcpKey, size_t keySize)
 {
 	// Ref: https://forums.raspberrypi.com/viewtopic.php?t=278193
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	if(false == _bIsVideoPortInitialized)
 	{
 	    return dsERR_NOT_INITIALIZED;
 	}
-	if (!isValidVopHandle(handle) || NULL == hdcpKey || keySize >= HDCP_KEY_MAX_SIZE) 
+	if (!isValidVopHandle(handle) || NULL == hdcpKey || keySize >= HDCP_KEY_MAX_SIZE)
 	{
 	    return dsERR_INVALID_PARAM;
 	}
@@ -584,12 +584,12 @@ dsError_t  dsEnableHDCP(intptr_t handle, bool contentProtect, char *hdcpKey, siz
  * @see dsEnableDTCP()
  */dsError_t dsIsDTCPEnabled(intptr_t handle, bool *pContentProtected)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	if (false == _bIsVideoPortInitialized)
 	{
 	    return dsERR_NOT_INITIALIZED;
 	}
-	if (!isValidVopHandle(handle) || NULL == pContentProtected) 
+	if (!isValidVopHandle(handle) || NULL == pContentProtected)
 	{
 	    return dsERR_INVALID_PARAM;
 	}
@@ -629,7 +629,7 @@ dsError_t  dsEnableHDCP(intptr_t handle, bool contentProtect, char *hdcpKey, siz
 dsError_t dsIsHDCPEnabled(intptr_t handle, bool *pContentProtected)
 {
 	// Ref: https://forums.raspberrypi.com/viewtopic.php?t=278193
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
     if (false == _bIsVideoPortInitialized)
     {
 	return dsERR_NOT_INITIALIZED;
@@ -670,17 +670,17 @@ dsError_t dsIsHDCPEnabled(intptr_t handle, bool *pContentProtected)
  */
 dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	dsError_t ret = dsERR_NONE;
 	const char *resolution_name = NULL;
-	TV_DISPLAY_STATE_T tvstate; 
+	TV_DISPLAY_STATE_T tvstate;
 	uint32_t hdmi_mode;
 	if(false == _bIsVideoPortInitialized)
 	{
 		return dsERR_NOT_INITIALIZED;
 	}
 
-	if (!isValidVopHandle(handle) || NULL == resolution) 
+	if (!isValidVopHandle(handle) || NULL == resolution)
 	{
 		return dsERR_INVALID_PARAM;
 	}
@@ -717,19 +717,19 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 // TODO: refactor with  proper error return.
 static const char* dsVideoGetResolution(uint32_t hdmiMode)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
     const char *res_name = NULL;
     size_t iCount = (sizeof(resolutionMap) / sizeof(resolutionMap[0]));
     for (size_t i = 0; i < iCount; i++) {
         if (resolutionMap[i].mode == (int)hdmiMode)
         res_name = resolutionMap[i].rdkRes;
-    }    
+    }
     return res_name;
 }
 
 static uint32_t dsGetHdmiMode(dsVideoPortResolution_t *resolution)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
     uint32_t hdmi_mode = 0;
     size_t iCount = (sizeof(resolutionMap) / sizeof(resolutionMap[0]));
     for (size_t i = 0; i < iCount; i++) {
@@ -776,14 +776,14 @@ static uint32_t dsGetHdmiMode(dsVideoPortResolution_t *resolution)
 dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 {
 	/* Auto Select uses 720p. Should be converted to dsVideoPortResolution_t = 720p in DS-VOPConfig, not here */
-        hal_dbg("invoked.\n");
+        hal_info("invoked.\n");
         VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
         int res = 0;
 	if(false == _bIsVideoPortInitialized)
 	{
 		return dsERR_NOT_INITIALIZED;
 	}
-        if (!isValidVopHandle(handle) || NULL == resolution) 
+        if (!isValidVopHandle(handle) || NULL == resolution)
 	{
         	return dsERR_INVALID_PARAM;
         }
@@ -809,7 +809,7 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 		hal_dbg("Setting SDTV default resolution SDTV_MODE_NTSC\n");
                  res = vc_tv_sdtv_power_on(SDTV_MODE_NTSC, &options);
              }
-             else 
+             else
              {
 		hal_dbg("Setting SDTV resolution SDTV_MODE_PAL\n");
                  res = vc_tv_sdtv_power_on(SDTV_MODE_PAL, &options);
@@ -842,7 +842,7 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
  */
 dsError_t  dsVideoPortTerm()
 {
-    	hal_dbg("invoked.\n");
+    	hal_info("invoked.\n");
 	if(false == _bIsVideoPortInitialized)
     	{
 		return dsERR_NOT_INITIALIZED;
@@ -899,7 +899,7 @@ static bool isValidVopHandle(intptr_t m_handle) {
  */
 dsError_t dsIsVideoPortActive(intptr_t handle, bool *active)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
         TV_DISPLAY_STATE_T tvstate;
 	if(false == _bIsVideoPortInitialized)
@@ -920,9 +920,9 @@ dsError_t dsIsVideoPortActive(intptr_t handle, bool *active)
                          *active = true;
                      else if (tvstate.state & VC_HDMI_UNPLUGGED)
                          *active = false;
-                     else 
+                     else
                          hal_warn("Cannot find HDMI state\n");
-                } 
+                }
 	} else {
 		hal_err("Video port type not supported\n");
 		return dsERR_INVALID_PARAM;
@@ -957,7 +957,7 @@ dsError_t dsIsVideoPortActive(intptr_t handle, bool *active)
 dsError_t dsGetHDCPProtocol(intptr_t handle, dsHdcpProtocolVersion_t *protocolVersion)
 {
 	// Ref: https://forums.raspberrypi.com/viewtopic.php?t=278193
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	if(false == _bIsVideoPortInitialized)
 	{
 		return dsERR_NOT_INITIALIZED;
@@ -972,7 +972,7 @@ dsError_t dsGetHDCPProtocol(intptr_t handle, dsHdcpProtocolVersion_t *protocolVe
 dsError_t dsGetHDCPReceiverProtocol (intptr_t handle, dsHdcpProtocolVersion_t *protocolVersion)
 {
 	// Ref: https://forums.raspberrypi.com/viewtopic.php?t=278193
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	if(false == _bIsVideoPortInitialized)
 	{
 		return dsERR_NOT_INITIALIZED;
@@ -987,7 +987,7 @@ dsError_t dsGetHDCPReceiverProtocol (intptr_t handle, dsHdcpProtocolVersion_t *p
 dsError_t dsGetHDCPCurrentProtocol (intptr_t handle, dsHdcpProtocolVersion_t *protocolVersion)
 {
 	// Ref: https://forums.raspberrypi.com/viewtopic.php?t=278193
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	if(false == _bIsVideoPortInitialized)
 	{
 		return dsERR_NOT_INITIALIZED;
@@ -1001,7 +1001,7 @@ dsError_t dsGetHDCPCurrentProtocol (intptr_t handle, dsHdcpProtocolVersion_t *pr
 
 dsError_t dsGetTVHDRCapabilities(intptr_t handle, int *capabilities)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	if(false == _bIsVideoPortInitialized)
 	{
 		return dsERR_NOT_INITIALIZED;
@@ -1039,7 +1039,7 @@ dsError_t dsGetTVHDRCapabilities(intptr_t handle, int *capabilities)
  */
 dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
     if (false == _bIsVideoPortInitialized)
     {
@@ -1160,7 +1160,7 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
  */
 dsError_t  dsIsDisplaySurround(intptr_t handle, bool *surround)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
     if(false == _bIsVideoPortInitialized)
     {
 	return dsERR_NOT_INITIALIZED;
@@ -1206,7 +1206,7 @@ dsError_t  dsIsDisplaySurround(intptr_t handle, bool *surround)
  */
 dsError_t  dsGetSurroundMode(intptr_t handle, int *surround)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
     if(false == _bIsVideoPortInitialized)
     {
 	return dsERR_NOT_INITIALIZED;
@@ -1220,7 +1220,7 @@ dsError_t  dsGetSurroundMode(intptr_t handle, int *surround)
 
 dsError_t dsVideoFormatUpdateRegisterCB (dsVideoFormatUpdateCB_t cb)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -1248,7 +1248,7 @@ dsError_t dsVideoFormatUpdateRegisterCB (dsVideoFormatUpdateCB_t cb)
  */
 dsError_t dsSetActiveSource(intptr_t handle)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	if (false == _bIsVideoPortInitialized) {
 		return dsERR_NOT_INITIALIZED;
 	}
@@ -1284,7 +1284,7 @@ dsError_t dsSetActiveSource(intptr_t handle)
  */
 dsError_t dsGetHDCPStatus(intptr_t handle, dsHdcpStatus_t *status)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	if (false == _bIsVideoPortInitialized) {
 		return dsERR_NOT_INITIALIZED;
 	}
@@ -1296,7 +1296,7 @@ dsError_t dsGetHDCPStatus(intptr_t handle, dsHdcpStatus_t *status)
 
 dsError_t dsSetForceDisable4KSupport(intptr_t handle, bool disable)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	if (false == _bIsVideoPortInitialized) {
 		return dsERR_NOT_INITIALIZED;
 	}
@@ -1308,7 +1308,7 @@ dsError_t dsSetForceDisable4KSupport(intptr_t handle, bool disable)
 
 dsError_t dsGetForceDisable4KSupport(intptr_t handle, bool *disable)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	if (false == _bIsVideoPortInitialized) {
 		return dsERR_NOT_INITIALIZED;
 	}
@@ -1320,7 +1320,7 @@ dsError_t dsGetForceDisable4KSupport(intptr_t handle, bool *disable)
 
 dsError_t dsGetVideoEOTF(intptr_t handle, dsHDRStandard_t *video_eotf)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	if (false == _bIsVideoPortInitialized) {
 		return dsERR_NOT_INITIALIZED;
 	}
@@ -1331,7 +1331,7 @@ dsError_t dsGetVideoEOTF(intptr_t handle, dsHDRStandard_t *video_eotf)
 }
 dsError_t dsGetMatrixCoefficients(intptr_t handle, dsDisplayMatrixCoefficients_t *matrix_coefficients)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	if (false == _bIsVideoPortInitialized) {
 		return dsERR_NOT_INITIALIZED;
 	}
@@ -1343,7 +1343,7 @@ dsError_t dsGetMatrixCoefficients(intptr_t handle, dsDisplayMatrixCoefficients_t
 
 dsError_t dsGetColorDepth(intptr_t handle, unsigned int *color_depth)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	if (false == _bIsVideoPortInitialized) {
 		return dsERR_NOT_INITIALIZED;
 	}
@@ -1355,7 +1355,7 @@ dsError_t dsGetColorDepth(intptr_t handle, unsigned int *color_depth)
 
 dsError_t dsGetColorSpace(intptr_t handle, dsDisplayColorSpace_t *color_space)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	if (false == _bIsVideoPortInitialized) {
 		return dsERR_NOT_INITIALIZED;
 	}
@@ -1366,7 +1366,7 @@ dsError_t dsGetColorSpace(intptr_t handle, dsDisplayColorSpace_t *color_space)
 }
 dsError_t dsGetQuantizationRange(intptr_t handle, dsDisplayQuantizationRange_t *quantization_range)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	if (false == _bIsVideoPortInitialized) {
 		return dsERR_NOT_INITIALIZED;
 	}
@@ -1377,7 +1377,7 @@ dsError_t dsGetQuantizationRange(intptr_t handle, dsDisplayQuantizationRange_t *
 }
 dsError_t dsGetCurrentOutputSettings(intptr_t handle, dsHDRStandard_t *video_eotf, dsDisplayMatrixCoefficients_t *matrix_coefficients, dsDisplayColorSpace_t *color_space, unsigned int *color_depth, dsDisplayQuantizationRange_t *quantization_range)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	if (false == _bIsVideoPortInitialized) {
 		return dsERR_NOT_INITIALIZED;
 	}
@@ -1391,7 +1391,7 @@ dsError_t dsGetCurrentOutputSettings(intptr_t handle, dsHDRStandard_t *video_eot
 
 dsError_t dsIsOutputHDR(intptr_t handle, bool *hdr)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	if (false == _bIsVideoPortInitialized) {
 		return dsERR_NOT_INITIALIZED;
 	}
@@ -1403,7 +1403,7 @@ dsError_t dsIsOutputHDR(intptr_t handle, bool *hdr)
 
 dsError_t dsResetOutputToSDR()
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	if (false == _bIsVideoPortInitialized) {
 		return dsERR_NOT_INITIALIZED;
 	}
@@ -1412,7 +1412,7 @@ dsError_t dsResetOutputToSDR()
 
 dsError_t dsSetHdmiPreference(intptr_t handle, dsHdcpProtocolVersion_t *hdcpCurrentProtocol)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
     if(false == _bIsVideoPortInitialized)
     {
 	return dsERR_NOT_INITIALIZED;
@@ -1426,7 +1426,7 @@ dsError_t dsSetHdmiPreference(intptr_t handle, dsHdcpProtocolVersion_t *hdcpCurr
 
 dsError_t dsGetHdmiPreference(intptr_t handle, dsHdcpProtocolVersion_t *hdcpCurrentProtocol)
 {
-		hal_dbg("invoked.\n");
+		hal_info("invoked.\n");
     if(false == _bIsVideoPortInitialized)
     {
 	return dsERR_NOT_INITIALIZED;
@@ -1440,7 +1440,7 @@ dsError_t dsGetHdmiPreference(intptr_t handle, dsHdcpProtocolVersion_t *hdcpCurr
 
 dsError_t dsGetIgnoreEDIDStatus(intptr_t handle, bool *status)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
     if(false == _bIsVideoPortInitialized)
     {
 	return dsERR_NOT_INITIALIZED;
@@ -1454,7 +1454,7 @@ dsError_t dsGetIgnoreEDIDStatus(intptr_t handle, bool *status)
 
 dsError_t dsSetBackgroundColor(intptr_t handle, dsVideoBackgroundColor_t color)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
     if(false == _bIsVideoPortInitialized)
     {
 	return dsERR_NOT_INITIALIZED;
@@ -1468,7 +1468,7 @@ dsError_t dsSetBackgroundColor(intptr_t handle, dsVideoBackgroundColor_t color)
 
 dsError_t dsSetForceHDRMode(intptr_t handle, dsHDRStandard_t mode)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
     if(false == _bIsVideoPortInitialized)
     {
 	return dsERR_NOT_INITIALIZED;
@@ -1482,7 +1482,7 @@ dsError_t dsSetForceHDRMode(intptr_t handle, dsHDRStandard_t mode)
 
 dsError_t dsColorDepthCapabilities(intptr_t handle, unsigned int *colorDepthCapability )
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
     if(false == _bIsVideoPortInitialized)
     {
 	return dsERR_NOT_INITIALIZED;
@@ -1496,7 +1496,7 @@ dsError_t dsColorDepthCapabilities(intptr_t handle, unsigned int *colorDepthCapa
 
 dsError_t dsGetPreferredColorDepth(intptr_t handle, dsDisplayColorDepth_t *colorDepth)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
     if(false == _bIsVideoPortInitialized)
     {
 	return dsERR_NOT_INITIALIZED;
@@ -1510,7 +1510,7 @@ dsError_t dsGetPreferredColorDepth(intptr_t handle, dsDisplayColorDepth_t *color
 
 dsError_t dsSetPreferredColorDepth(intptr_t handle,dsDisplayColorDepth_t colorDepth)
 {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
     if(false == _bIsVideoPortInitialized)
     {
 	return dsERR_NOT_INITIALIZED;
@@ -1521,4 +1521,3 @@ dsError_t dsSetPreferredColorDepth(intptr_t handle,dsDisplayColorDepth_t colorDe
     }
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
- 

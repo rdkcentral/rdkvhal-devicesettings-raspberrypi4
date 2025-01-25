@@ -67,7 +67,7 @@ bool dsAudioIsValidHandle(intptr_t uHandle)
 
 static int8_t initAlsa(const char *selemname, const char *s_card, snd_mixer_elem_t **element)
 {
-        hal_dbg("invoked.\n");
+        hal_info("invoked.\n");
         int ret = 0;
         snd_mixer_t *smixer = NULL;
         snd_mixer_selem_id_t *sid;
@@ -137,145 +137,138 @@ static int8_t initAlsa(const char *selemname, const char *s_card, snd_mixer_elem
  */
 dsError_t dsAudioPortInit()
 {
-	hal_dbg("Invoked.\n");
-        dsError_t ret = dsERR_NONE;
-        if (_bIsAudioInitialized)
-        {
-                return dsERR_ALREADY_INITIALIZED;
-        }
+	hal_info("invoked.\n");
+	dsError_t ret = dsERR_NONE;
+	if (_bIsAudioInitialized)
+	{
+			return dsERR_ALREADY_INITIALIZED;
+	}
 
-        _handles[dsAUDIOPORT_TYPE_HDMI][0].m_vType = dsAUDIOPORT_TYPE_HDMI;
-        _handles[dsAUDIOPORT_TYPE_HDMI][0].m_nativeHandle = dsAUDIOPORT_TYPE_HDMI;
-        _handles[dsAUDIOPORT_TYPE_HDMI][0].m_index = 0;
-        _handles[dsAUDIOPORT_TYPE_HDMI][0].m_IsEnabled = true;
+	_handles[dsAUDIOPORT_TYPE_HDMI][0].m_vType = dsAUDIOPORT_TYPE_HDMI;
+	_handles[dsAUDIOPORT_TYPE_HDMI][0].m_nativeHandle = dsAUDIOPORT_TYPE_HDMI;
+	_handles[dsAUDIOPORT_TYPE_HDMI][0].m_index = 0;
+	_handles[dsAUDIOPORT_TYPE_HDMI][0].m_IsEnabled = true;
 
-        _handles[dsAUDIOPORT_TYPE_SPDIF][0].m_vType = dsAUDIOPORT_TYPE_SPDIF;
-        _handles[dsAUDIOPORT_TYPE_SPDIF][0].m_nativeHandle = dsAUDIOPORT_TYPE_SPDIF;
-        _handles[dsAUDIOPORT_TYPE_SPDIF][0].m_index = 0;
-        _handles[dsAUDIOPORT_TYPE_SPDIF][0].m_IsEnabled = true;
+	_handles[dsAUDIOPORT_TYPE_SPDIF][0].m_vType = dsAUDIOPORT_TYPE_SPDIF;
+	_handles[dsAUDIOPORT_TYPE_SPDIF][0].m_nativeHandle = dsAUDIOPORT_TYPE_SPDIF;
+	_handles[dsAUDIOPORT_TYPE_SPDIF][0].m_index = 0;
+	_handles[dsAUDIOPORT_TYPE_SPDIF][0].m_IsEnabled = true;
 
-        dsGetdBRange();
+	dsGetdBRange();
 	_bIsAudioInitialized = true;
-        return ret;
+    return ret;
 }
 
 static void dsGetdBRange()
 {
 #ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
-        long min_dB_value, max_dB_value;
-        const char *s_card = ALSA_CARD_NAME;
-        const char *element_name = ALSA_ELEMENT_NAME;
-        snd_mixer_elem_t *mixer_elem = NULL;
-        initAlsa(element_name,s_card,&mixer_elem);
-        if(mixer_elem == NULL) {
-                printf("failed to initialize alsa!\n");
-                return;
-        }
-        if(!snd_mixer_selem_get_playback_dB_range(mixer_elem, &min_dB_value, &max_dB_value)) {
-                dBmax = (float) max_dB_value/100;
-                dBmin = (float) min_dB_value/100;
-        }
+	long min_dB_value, max_dB_value;
+	const char *s_card = ALSA_CARD_NAME;
+	const char *element_name = ALSA_ELEMENT_NAME;
+	snd_mixer_elem_t *mixer_elem = NULL;
+	initAlsa(element_name,s_card,&mixer_elem);
+	if (mixer_elem == NULL) {
+			hal_err("failed to initialize alsa!\n");
+			return;
+	}
+	if(!snd_mixer_selem_get_playback_dB_range(mixer_elem, &min_dB_value, &max_dB_value)) {
+			dBmax = (float) max_dB_value/100;
+			dBmin = (float) min_dB_value/100;
+	}
 #endif
 }
 
 dsError_t  dsGetAudioPort(dsAudioPortType_t type, int index, intptr_t *handle)
 {
-	if (false == _bIsAudioInitialized)
-        {
-                return dsERR_NOT_INITIALIZED;
-        }
-        if (NULL == handle || 0 != index || !dsAudioType_isValid(type))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        else
-        {
+	if (false == _bIsAudioInitialized) {
+		return dsERR_NOT_INITIALIZED;
+	}
+	if (NULL == handle || 0 != index || !dsAudioType_isValid(type)) {
+		return dsERR_INVALID_PARAM;
+	} else {
 		*handle = (intptr_t)&_handles[type][index];
-        }
-        return dsERR_NONE;
+	}
+    return dsERR_NONE;
 }
 
 dsError_t dsGetAudioEncoding(intptr_t handle, dsAudioEncoding_t *encoding)
 {
-        dsError_t ret = dsERR_NONE;
-	if (false == _bIsAudioInitialized)
-        {
-                return dsERR_NOT_INITIALIZED;
-        }
-        if (NULL == encoding || !dsAudioIsValidHandle(handle))
-        {
+	dsError_t ret = dsERR_NONE;
+	if (false == _bIsAudioInitialized) {
+		return dsERR_NOT_INITIALIZED;
+	}
+	if (NULL == encoding || !dsAudioIsValidHandle(handle)) {
 		return dsERR_INVALID_PARAM;
-        }
-        *encoding = _encoding;
-        return ret;
+	}
+	*encoding = _encoding;
+	return ret;
 }
 
 dsError_t dsGetAudioCompression(intptr_t handle, int *compression)
 {
-        if (false == _bIsAudioInitialized)
-        {
-                return dsERR_NOT_INITIALIZED;
-        }
-        if (NULL == compression || !dsAudioIsValidHandle(handle))
-        {
-                return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
+	if (false == _bIsAudioInitialized)
+	{
+		return dsERR_NOT_INITIALIZED;
+	}
+	if (NULL == compression || !dsAudioIsValidHandle(handle))
+	{
+		return dsERR_INVALID_PARAM;
+	}
+	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 dsError_t dsGetStereoMode(intptr_t handle, dsAudioStereoMode_t *stereoMode)
 {
 	dsError_t ret = dsERR_NONE;
 	if (false == _bIsAudioInitialized)
-        {
+	{
 		return dsERR_NOT_INITIALIZED;
-        }
-        if (NULL == stereoMode || !dsAudioIsValidHandle(handle))
-        {
+	}
+	if (NULL == stereoMode || !dsAudioIsValidHandle(handle))
+	{
 		return dsERR_INVALID_PARAM;
-        }
-        *stereoMode = _stereoModeHDMI;
+	}
+	*stereoMode = _stereoModeHDMI;
 	return ret;
 }
 
 dsError_t dsGetPersistedStereoMode (intptr_t handle, dsAudioStereoMode_t *stereoMode)
 {
-        return dsERR_NONE;
+    return dsERR_NONE;
 }
 
 dsError_t dsGetStereoAuto (intptr_t handle, int *autoMode)
 {
-        if (false == _bIsAudioInitialized)
-        {
+	if (false == _bIsAudioInitialized)
+	{
 		return dsERR_NOT_INITIALIZED;
-        }
-        if (NULL == autoMode || !dsAudioIsValidHandle(handle))
-        {
+	}
+	if (NULL == autoMode || !dsAudioIsValidHandle(handle))
+	{
 		return dsERR_INVALID_PARAM;
-        }
-        return dsERR_OPERATION_NOT_SUPPORTED;
+	}
+	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 dsError_t dsIsAudioMute (intptr_t handle, bool *muted)
 {
 #ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
-        printf("Inside %s :%d\n",__FUNCTION__,__LINE__);
-        dsError_t ret = dsERR_NONE;
-	if (false == _bIsAudioInitialized)
-        {
+	hal_info("invoked.\n");
+	dsError_t ret = dsERR_NONE;
+	if (false == _bIsAudioInitialized) {
 		return dsERR_NOT_INITIALIZED;
-        }
-        if( ! dsAudioIsValidHandle(handle) || NULL == muted ){
-                return dsERR_INVALID_PARAM;
-        }
+    }
+	if (!dsAudioIsValidHandle(handle) || NULL == muted ){
+		return dsERR_INVALID_PARAM;
+	}
 	const char *s_card = ALSA_CARD_NAME;
 	const char *element_name = ALSA_ELEMENT_NAME;
-        snd_mixer_elem_t *mixer_elem = NULL;
+    snd_mixer_elem_t *mixer_elem = NULL;
 	initAlsa(element_name,s_card,&mixer_elem);
-        if(mixer_elem == NULL) {
-                printf("failed to initialize alsa!\n");
-                return dsERR_GENERAL;
-        }
+	if (mixer_elem == NULL) {
+		hal_err("failed to initialize alsa!\n");
+		return dsERR_GENERAL;
+	}
 	int mute_status;
 	if (snd_mixer_selem_has_playback_switch(mixer_elem)) {
 		snd_mixer_selem_get_playback_switch(mixer_elem,  SND_MIXER_SCHN_FRONT_LEFT, &mute_status);
@@ -284,9 +277,42 @@ dsError_t dsIsAudioMute (intptr_t handle, bool *muted)
 		} else {
 			*muted = false;
 		}
+	} else {
+		return dsERR_GENERAL;
 	}
-	else {
-		ret = dsERR_GENERAL;
+	return dsERR_NONE;
+#else
+    return dsERR_NONE;
+#endif
+}
+
+dsError_t dsSetAudioMute(intptr_t handle, bool mute)
+{
+#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
+	hal_info("invoked.\n");
+	if (false == _bIsAudioInitialized)
+    {
+		return dsERR_NOT_INITIALIZED;
+    }
+	dsError_t ret = dsERR_NONE;
+	if (!dsAudioIsValidHandle(handle)) {
+		return dsERR_INVALID_PARAM;
+	}
+	const char *s_card = ALSA_CARD_NAME;
+	const char *element_name = ALSA_ELEMENT_NAME;
+	snd_mixer_elem_t *mixer_elem = NULL;
+	initAlsa(element_name,s_card,&mixer_elem);
+	if (mixer_elem == NULL) {
+		hal_err("failed to initialize alsa!\n");
+		return dsERR_GENERAL;
+	}
+	if (snd_mixer_selem_has_playback_switch(mixer_elem)) {
+		snd_mixer_selem_set_playback_switch_all(mixer_elem, !mute);
+		if (mute) {
+			hal_dbg("Audio Mute success\n");
+		} else {
+			hal_dbg("Audio Unmute success.\n");
+		}
 	}
 	return ret;
 #else
@@ -294,44 +320,10 @@ dsError_t dsIsAudioMute (intptr_t handle, bool *muted)
 #endif
 }
 
-dsError_t dsSetAudioMute(intptr_t handle, bool mute)
+dsError_t dsIsAudioPortEnabled(intptr_t handle, bool *enabled)
 {
-#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
-        printf("Inside %s :%d\n",__FUNCTION__,__LINE__);
-	if (false == _bIsAudioInitialized)
-        {
-		return dsERR_NOT_INITIALIZED;
-        }
-        dsError_t ret = dsERR_NONE;
-        if( ! dsAudioIsValidHandle(handle)){
-                return dsERR_INVALID_PARAM;
-        }
-        const char *s_card = ALSA_CARD_NAME;
-        const char *element_name = ALSA_ELEMENT_NAME;
-        snd_mixer_elem_t *mixer_elem = NULL;
-        initAlsa(element_name,s_card,&mixer_elem);
-        if(mixer_elem == NULL) {
-                printf("failed to initialize alsa!\n");
-                return dsERR_GENERAL;
-        }
-        if (snd_mixer_selem_has_playback_switch(mixer_elem)) {
-                snd_mixer_selem_set_playback_switch_all(mixer_elem, !mute);
-                if (mute) {
-                        printf("Audio Mute success\n");
-                } else {
-                        printf("Audio Unmute success.\n");
-                }
-        }
-        return ret;
-#else
-        return dsERR_NONE;
-#endif
-}
-
-dsError_t  dsIsAudioPortEnabled(intptr_t handle, bool *enabled)
-{
-	printf("Inside %s :%d\n",__FUNCTION__,__LINE__);
-	dsError_t ret = dsERR_NONE;
+	hal_info("invoked.\n");
+	ret = dsERR_NONE;
 	bool audioEnabled = true;
 	if (false == _bIsAudioInitialized)
 	{
@@ -348,18 +340,18 @@ dsError_t  dsIsAudioPortEnabled(intptr_t handle, bool *enabled)
 	return ret;
 }
 
-dsError_t  dsEnableAudioPort(intptr_t handle, bool enabled)
+dsError_t dsEnableAudioPort(intptr_t handle, bool enabled)
 {
-    	printf("Inside %s :%d\n",__FUNCTION__,__LINE__);
+    hal_info("invoked.\n");
 	if (false == _bIsAudioInitialized)
-    	{
-        	return dsERR_NOT_INITIALIZED;
-    	}
-    	if (!dsAudioIsValidHandle(handle))
-    	{
-       		return dsERR_INVALID_PARAM;
-    	} 
-    	return dsSetAudioMute ( handle, !enabled );
+	{
+		return dsERR_NOT_INITIALIZED;
+	}
+	if (!dsAudioIsValidHandle(handle))
+	{
+		return dsERR_INVALID_PARAM;
+	}
+	return dsSetAudioMute(handle, !enabled);
 }
 
 dsError_t dsGetAudioGain(intptr_t handle, float *gain)
@@ -549,7 +541,7 @@ dsError_t dsSetAudioEncoding(intptr_t handle, dsAudioEncoding_t encoding)
 	{
 		return dsERR_NOT_INITIALIZED;
 	}
-	if( !dsAudioIsValidHandle(handle)) 
+	if( !dsAudioIsValidHandle(handle))
 	{
 		return dsERR_INVALID_PARAM;
 	}
@@ -577,7 +569,7 @@ dsError_t dsIsAudioMSDecode(intptr_t handle, bool *ms11Enabled)
 	{
 		return dsERR_NOT_INITIALIZED;
 	}
-	if( !dsAudioIsValidHandle(handle) || NULL == ms11Enabled) 
+	if( !dsAudioIsValidHandle(handle) || NULL == ms11Enabled)
 	{
 		return dsERR_INVALID_PARAM;
 	}
@@ -591,8 +583,8 @@ dsError_t dsSetStereoMode(intptr_t handle, dsAudioStereoMode_t mode)
 	{
 		return dsERR_NOT_INITIALIZED;
 	}
-	
-	if(!dsAudioIsValidHandle(handle) || mode >= dsAUDIO_STEREO_MAX || mode <= dsAUDIO_STEREO_UNKNOWN ) 
+
+	if(!dsAudioIsValidHandle(handle) || mode >= dsAUDIO_STEREO_MAX || mode <= dsAUDIO_STEREO_UNKNOWN )
         {
 		return dsERR_INVALID_PARAM;
         }
@@ -605,7 +597,7 @@ dsError_t dsSetStereoAuto (intptr_t handle, int autoMode)
 	{
 		return dsERR_NOT_INITIALIZED;
 	}
-	if(!dsAudioIsValidHandle(handle) || autoMode < 0) 
+	if(!dsAudioIsValidHandle(handle) || autoMode < 0)
         {
            	return dsERR_INVALID_PARAM;
         }
@@ -873,9 +865,9 @@ dsError_t  dsSetIntelligentEqualizerMode(intptr_t handle, int mode)
         {
 		return dsERR_NOT_INITIALIZED;
         }
-        if (!dsAudioIsValidHandle(handle) || mode < 0 || mode > 6) 
+        if (!dsAudioIsValidHandle(handle) || mode < 0 || mode > 6)
 	{
-        	return dsERR_INVALID_PARAM; 
+        	return dsERR_INVALID_PARAM;
     	}
 	return dsERR_OPERATION_NOT_SUPPORTED;
 }
@@ -923,7 +915,7 @@ dsError_t  dsGetBassEnhancer(intptr_t handle, int *boost)
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
 dsError_t  dsSetBassEnhancer(intptr_t handle, int boost)
-{       
+{
 	if (false == _bIsAudioInitialized)
         {
 		return dsERR_NOT_INITIALIZED;
@@ -1100,9 +1092,9 @@ dsError_t dsAudioSetSAD(intptr_t handle, dsAudioSADList_t sad_list)
         {
 		return dsERR_NOT_INITIALIZED;
         }
-	if (!dsAudioIsValidHandle(handle)) 
+	if (!dsAudioIsValidHandle(handle))
 	{
-        	return dsERR_INVALID_PARAM; 
+        	return dsERR_INVALID_PARAM;
     	}
 	return dsERR_OPERATION_NOT_SUPPORTED;
 }
@@ -1251,7 +1243,7 @@ dsError_t  dsSetAudioDucking(intptr_t handle, dsAudioDuckingAction_t action, dsA
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
 dsError_t  dsIsAudioMS12Decode(intptr_t handle, bool *hasMS12Decode)
-{       
+{
 	if (false == _bIsAudioInitialized)
         {
 		return dsERR_NOT_INITIALIZED;
@@ -1287,7 +1279,7 @@ dsError_t dsAudioOutRegisterConnectCB(dsAudioOutPortConnectCB_t CBFunc)
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
 dsError_t dsAudioFormatUpdateRegisterCB(dsAudioFormatUpdateCB_t cbFun)
-{      
+{
 	if (false == _bIsAudioInitialized)
         {
 		return dsERR_NOT_INITIALIZED;
@@ -1311,7 +1303,7 @@ dsError_t dsAudioAtmosCapsChangeRegisterCB (dsAtmosCapsChangeCB_t cbFun)
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
 dsError_t dsGetAudioCapabilities(intptr_t handle, int *capabilities)
-{       
+{
 	if (false == _bIsAudioInitialized)
         {
 		return dsERR_NOT_INITIALIZED;
@@ -1323,7 +1315,7 @@ dsError_t dsGetAudioCapabilities(intptr_t handle, int *capabilities)
         return dsERR_OPERATION_NOT_SUPPORTED;
 }
 dsError_t dsGetMS12Capabilities(intptr_t handle, int *capabilities)
-{      
+{
 	if (false == _bIsAudioInitialized)
         {
 		return dsERR_NOT_INITIALIZED;

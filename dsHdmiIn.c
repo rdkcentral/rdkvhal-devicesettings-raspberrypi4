@@ -69,7 +69,7 @@
  */
 dsError_t dsHdmiInInit(void)
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     // RPI does not have HDMI-IN support. Nothing to do here. Just return success.
     return dsERR_NONE;
 }
@@ -94,7 +94,7 @@ dsError_t dsHdmiInInit(void)
  */
 dsError_t dsHdmiInTerm(void)
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     // No platform support; nothing to do here.
     return dsERR_NONE;
 }
@@ -121,7 +121,7 @@ dsError_t dsHdmiInTerm(void)
  */
 dsError_t dsHdmiInGetNumberOfInputs(uint8_t *pNumberOfinputs)
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     if (NULL == pNumberOfinputs)
         return dsERR_INVALID_PARAM;
     // No HDMI-IN support.
@@ -150,7 +150,7 @@ dsError_t dsHdmiInGetNumberOfInputs(uint8_t *pNumberOfinputs)
  */
 dsError_t dsHdmiInGetStatus(dsHdmiInStatus_t *pStatus)
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     if (NULL == pStatus)
         return dsERR_INVALID_PARAM;
     // No HDMI-IN support.
@@ -188,7 +188,7 @@ dsError_t dsHdmiInGetStatus(dsHdmiInStatus_t *pStatus)
  */
 dsError_t dsHdmiInSelectPort(dsHdmiInPort_t Port, bool audioMix, dsVideoPlaneType_t evideoPlaneType, bool topMost)
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     // No HDMI-IN support.
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
@@ -220,7 +220,7 @@ dsError_t dsHdmiInSelectPort(dsHdmiInPort_t Port, bool audioMix, dsVideoPlaneTyp
  */
 dsError_t dsHdmiInScaleVideo(int32_t x, int32_t y, int32_t width, int32_t height)
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     // No HDMI-IN support.
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
@@ -247,7 +247,7 @@ dsError_t dsHdmiInScaleVideo(int32_t x, int32_t y, int32_t width, int32_t height
  */
 dsError_t dsHdmiInSelectZoomMode(dsVideoZoom_t requestedZoomMode)
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     // No HDMI-IN support.
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
@@ -275,7 +275,7 @@ dsError_t dsHdmiInSelectZoomMode(dsVideoZoom_t requestedZoomMode)
  */
 dsError_t dsHdmiInGetCurrentVideoMode(dsVideoPortResolution_t *resolution)
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     if (NULL == resolution)
         return dsERR_INVALID_PARAM;
     // No HDMI-IN support.
@@ -303,7 +303,7 @@ dsError_t dsHdmiInGetCurrentVideoMode(dsVideoPortResolution_t *resolution)
  */
 dsError_t dsHdmiInRegisterConnectCB(dsHdmiInConnectCB_t CBFunc)
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     // No HDMI-IN support.
     // Since this is a callback; add a log to see if this is getting invoked.
     perror("No HDMI-IN support; callbacks should not be registered.");
@@ -331,7 +331,7 @@ dsError_t dsHdmiInRegisterConnectCB(dsHdmiInConnectCB_t CBFunc)
  */
 dsError_t dsHdmiInRegisterSignalChangeCB(dsHdmiInSignalChangeCB_t CBFunc)
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     // No HDMI-IN support.
     // Since this is a callback; add a log to see if this is getting invoked.
     perror("No HDMI-IN support; callbacks should not be registered.");
@@ -359,7 +359,7 @@ dsError_t dsHdmiInRegisterSignalChangeCB(dsHdmiInSignalChangeCB_t CBFunc)
  */
 dsError_t dsHdmiInRegisterStatusChangeCB(dsHdmiInStatusChangeCB_t CBFunc)
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     // No HDMI-IN support.
     // Since this is a callback; add a log to see if this is getting invoked.
     perror("No HDMI-IN support; callbacks should not be registered.");
@@ -389,7 +389,7 @@ dsError_t dsHdmiInRegisterStatusChangeCB(dsHdmiInStatusChangeCB_t CBFunc)
  */
 dsError_t dsHdmiInRegisterVideoModeUpdateCB(dsHdmiInVideoModeUpdateCB_t CBFunc)
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     // No HDMI-IN support.
     // Since this is a callback; add a log to see if this is getting invoked.
     perror("No HDMI-IN support; callbacks should not be registered.");
@@ -418,7 +418,7 @@ dsError_t dsHdmiInRegisterVideoModeUpdateCB(dsHdmiInVideoModeUpdateCB_t CBFunc)
  */
 dsError_t dsHdmiInRegisterAllmChangeCB(dsHdmiInAllmChangeCB_t CBFunc)
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     // No HDMI-IN support.
     // Since this is a callback; add a log to see if this is getting invoked.
     perror("No HDMI-IN support; callbacks should not be registered.");
@@ -448,7 +448,7 @@ dsError_t dsHdmiInRegisterAllmChangeCB(dsHdmiInAllmChangeCB_t CBFunc)
  */
 dsError_t dsHdmiInRegisterAVLatencyChangeCB(dsAVLatencyChangeCB_t CBFunc)
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     // No HDMI-IN support.
     // Since this is a callback; add a log to see if this is getting invoked.
     perror("No HDMI-IN support; callbacks should not be registered.");
@@ -478,7 +478,7 @@ dsError_t dsHdmiInRegisterAVLatencyChangeCB(dsAVLatencyChangeCB_t CBFunc)
  */
 dsError_t dsHdmiInRegisterAviContentTypeChangeCB(dsHdmiInAviContentTypeChangeCB_t CBFunc)
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     // No HDMI-IN support.
     // Since this is a callback; add a log to see if this is getting invoked.
     perror("No HDMI-IN support; callbacks should not be registered.");
@@ -508,7 +508,7 @@ dsError_t dsHdmiInRegisterAviContentTypeChangeCB(dsHdmiInAviContentTypeChangeCB_
  */
 dsError_t dsIsHdmiARCPort(dsHdmiInPort_t iPort, bool *isArcPort)
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     if (NULL == isArcPort)
         return dsERR_INVALID_PARAM;
     // No HDMI-IN support.
@@ -538,7 +538,7 @@ dsError_t dsIsHdmiARCPort(dsHdmiInPort_t iPort, bool *isArcPort)
  */
 dsError_t dsGetEDIDBytesInfo(dsHdmiInPort_t iHdmiPort, unsigned char *edid, int *length)
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     if ((NULL == edid) || (NULL == length))
         return dsERR_INVALID_PARAM;
     // No HDMI-IN support.
@@ -568,7 +568,7 @@ dsError_t dsGetEDIDBytesInfo(dsHdmiInPort_t iHdmiPort, unsigned char *edid, int 
  */
 dsError_t dsGetHDMISPDInfo(dsHdmiInPort_t iHdmiPort, unsigned char *data)
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     if (NULL == data)
         return dsERR_INVALID_PARAM;
     // No HDMI-IN support.
@@ -599,7 +599,7 @@ dsError_t dsGetHDMISPDInfo(dsHdmiInPort_t iHdmiPort, unsigned char *data)
  */
 dsError_t dsSetEdidVersion(dsHdmiInPort_t iHdmiPort, tv_hdmi_edid_version_t iEdidVersion)
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     // No HDMI-IN support.
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
@@ -628,7 +628,7 @@ dsError_t dsSetEdidVersion(dsHdmiInPort_t iHdmiPort, tv_hdmi_edid_version_t iEdi
  */
 dsError_t dsGetEdidVersion(dsHdmiInPort_t iHdmiPort, tv_hdmi_edid_version_t *iEdidVersion)
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     if (NULL == iEdidVersion)
         return dsERR_INVALID_PARAM;
     // No HDMI-IN support.
@@ -658,7 +658,7 @@ dsError_t dsGetEdidVersion(dsHdmiInPort_t iHdmiPort, tv_hdmi_edid_version_t *iEd
  */
 dsError_t dsGetAllmStatus(dsHdmiInPort_t iHdmiPort, bool *allmStatus)
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     if (NULL == allmStatus)
         return dsERR_INVALID_PARAM;
     // No HDMI-IN support.
@@ -687,7 +687,7 @@ dsError_t dsGetAllmStatus(dsHdmiInPort_t iHdmiPort, bool *allmStatus)
  */
 dsError_t dsGetSupportedGameFeaturesList(dsSupportedGameFeatureList_t *features)
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     if (NULL == features)
         return dsERR_INVALID_PARAM;
     // No HDMI-IN support.
@@ -716,7 +716,7 @@ dsError_t dsGetSupportedGameFeaturesList(dsSupportedGameFeatureList_t *features)
  */
 dsError_t dsGetAVLatency(int *audio_latency, int *video_latency)
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     if ((NULL == audio_latency) || (NULL == video_latency))
         return dsERR_INVALID_PARAM;
     // No HDMI-IN support.
@@ -745,7 +745,7 @@ dsError_t dsGetAVLatency(int *audio_latency, int *video_latency)
  */
 dsError_t dsSetEdid2AllmSupport(dsHdmiInPort_t iHdmiPort, bool allmSupport)
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     // No HDMI-IN support.
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
@@ -772,7 +772,7 @@ dsError_t dsSetEdid2AllmSupport(dsHdmiInPort_t iHdmiPort, bool allmSupport)
  */
 dsError_t dsGetEdid2AllmSupport(dsHdmiInPort_t iHdmiPort, bool *allmSupport)
 {
-    hal_dbg("invoked.\n");
+    hal_info("invoked.\n");
     if (NULL == allmSupport)
         return dsERR_INVALID_PARAM;
     // No HDMI-IN support.

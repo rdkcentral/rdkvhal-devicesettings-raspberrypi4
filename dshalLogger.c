@@ -105,4 +105,3 @@ static void __attribute__((constructor)) initDSHALLogging(void)
 {
     configDSHALLogging();
 }
-

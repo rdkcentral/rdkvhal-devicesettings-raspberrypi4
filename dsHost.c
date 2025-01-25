@@ -51,7 +51,7 @@ static bool host_initialized = false;
  *
  */
 dsError_t dsHostInit() {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	if (host_initialized) {
 		return dsERR_ALREADY_INITIALIZED;
 	}
@@ -77,7 +77,7 @@ dsError_t dsHostInit() {
  *
  */
 dsError_t dsHostTerm() {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	if (!host_initialized) {
 		return dsERR_NOT_INITIALIZED;
 	}
@@ -106,7 +106,7 @@ dsError_t dsHostTerm() {
  *
  */
 dsError_t dsGetCPUTemperature(float *cpuTemperature) {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	char temp_value[BUFFER_SIZE] = {0};
 	int len = 0;
 	FILE *fp = NULL;
@@ -161,7 +161,7 @@ dsError_t dsGetCPUTemperature(float *cpuTemperature) {
  *
  */
 dsError_t dsGetSocIDFromSDK(char *socID) {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	if (!host_initialized) {
 		return dsERR_NOT_INITIALIZED;
 	}
@@ -225,7 +225,7 @@ dsError_t dsGetSocIDFromSDK(char *socID) {
  *
  */
 dsError_t dsGetHostEDID(unsigned char *edid, int *length) {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	if (!host_initialized) {
 		return dsERR_NOT_INITIALIZED;
 	}
@@ -236,7 +236,7 @@ dsError_t dsGetHostEDID(unsigned char *edid, int *length) {
 }
 
 dsError_t dsSetHostPowerMode(int newPower) {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	dsError_t ret = dsERR_NONE;
 	/* Raspberry pi doesn't have anykind of power management It is either
 	 * plugged in or not.*/
@@ -244,7 +244,7 @@ dsError_t dsSetHostPowerMode(int newPower) {
 }
 
 dsError_t dsGetHostPowerMode(int *currPower) {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	dsError_t ret = dsERR_NONE;
 	/* Raspberry pi doesn't have anykind of power management It is either
 	 * plugged in or not.*/
@@ -252,7 +252,7 @@ dsError_t dsGetHostPowerMode(int *currPower) {
 }
 
 dsError_t dsGetVersion(uint32_t *versionNumber) {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 
 	if (versionNumber != NULL) {
 		hal_dbg("Getting hal version in ds-hal 0x%x\n", version_num);
@@ -263,14 +263,14 @@ dsError_t dsGetVersion(uint32_t *versionNumber) {
 }
 
 dsError_t dsSetVersion(uint32_t versionNumber) {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	version_num = versionNumber;
 	hal_dbg("Setting hal version in ds-hal 0x%x\n", version_num);
 	return dsERR_NONE;
 }
 
 dsError_t dsGetFreeSystemGraphicsMemory(uint64_t *memory) {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	char buffer[BUFFER_SIZE] = {0};
 
 	if (vc_gencmd(buffer, sizeof(buffer), "get_mem reloc") != 0) {
@@ -294,7 +294,7 @@ dsError_t dsGetFreeSystemGraphicsMemory(uint64_t *memory) {
 }
 
 dsError_t dsGetTotalSystemGraphicsMemory(uint64_t *memory) {
-	hal_dbg("invoked.\n");
+	hal_info("invoked.\n");
 	char buffer[BUFFER_SIZE] = {0};
 
 	if (vc_gencmd(buffer, sizeof(buffer), "get_mem reloc_total") != 0) {
@@ -316,4 +316,3 @@ dsError_t dsGetTotalSystemGraphicsMemory(uint64_t *memory) {
 
 	return dsERR_NONE;
 }
-
