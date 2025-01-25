@@ -427,52 +427,43 @@ dsError_t  dsEnableVideoPort(intptr_t handle, bool enabled)
  */
 dsError_t  dsIsDisplayConnected(intptr_t handle, bool *connected)
 {
-	hal_info("invoked.\n");
-	VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
-        TV_DISPLAY_STATE_T tvstate;
-	if(false == _bIsVideoPortInitialized)
-	{
-	    return dsERR_NOT_INITIALIZED;
-	}
-	if (!isValidVopHandle(handle) || NULL == connected)
-	{
-         	return dsERR_INVALID_PARAM;
-    	}
-	/*Default is false*/
-	*connected = false;
+    hal_info("invoked.\n");
+    VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
+    TV_DISPLAY_STATE_T tvstate;
+    if (false == _bIsVideoPortInitialized) {
+        return dsERR_NOT_INITIALIZED;
+    }
+    if (!isValidVopHandle(handle) || NULL == connected) {
+        return dsERR_INVALID_PARAM;
+    }
+    /*Default is false*/
+    *connected = false;
 
-	if(vopHandle->m_vType == dsVIDEOPORT_TYPE_BB)
-	{
-		*connected = true;
-		return dsERR_NONE;
-	}
+    if (vopHandle->m_vType == dsVIDEOPORT_TYPE_BB) {
+        hal_dbg("Port is BB, returning connected as TRUE\n");
+        *connected = true;
+        return dsERR_NONE;
+    }
 
-
-	if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI)
-	{
-                hal_dbg("Isdisplayconnected HDMI port\n");
-                if (vc_tv_get_display_state(&tvstate) == 0) {
-			hal_dbg("vc_tv_get_display_state: 0x%x\n",
-			        tvstate.state);
-                     if (tvstate.state & VC_HDMI_ATTACHED) {
-                         hal_dbg("HDMI is connected\n");
-                         *connected = true;
-                     }
-                     else if (tvstate.state & VC_HDMI_UNPLUGGED) {
-                         hal_dbg("HDMI is not connected\n");
-                         *connected = false;
-                     }
-                     else {
-                         hal_err("Cannot find HDMI state\n");
-				return dsERR_GENERAL;
-			}
-                }
-	}
-	else
-	{
-		return dsERR_OPERATION_NOT_SUPPORTED;
-	}
-	return dsERR_NONE;
+    if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
+        hal_dbg("Isdisplayconnected HDMI port\n");
+        if (vc_tv_get_display_state(&tvstate) == 0) {
+            hal_dbg("vc_tv_get_display_state: 0x%x\n", tvstate.state);
+            if (tvstate.state & VC_HDMI_ATTACHED) {
+                hal_dbg("HDMI is connected\n");
+                *connected = true;
+            } else if (tvstate.state & VC_HDMI_UNPLUGGED) {
+                hal_dbg("HDMI is not connected\n");
+                *connected = false;
+            } else {
+                hal_err("Cannot find HDMI state\n");
+                return dsERR_GENERAL;
+            }
+        }
+    } else {
+        return dsERR_OPERATION_NOT_SUPPORTED;
+    }
+    return dsERR_NONE;
 }
 
 /**

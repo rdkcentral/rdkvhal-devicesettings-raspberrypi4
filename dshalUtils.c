@@ -182,3 +182,25 @@ int fill_edid_struct(unsigned char *edidBytes, dsDisplayEDID_t *displayEdidInfo,
     }
     return 0;
 }
+
+bool westerosRWWrapper(const char *cmd, char *resp, size_t respSize)
+{
+    char buffer[256] = {0};
+    if (NULL == cmd || NULL == resp) {
+        return false;
+    }
+    FILE *fp = popen(cmd, "r");
+    if (NULL != fp) {
+        if (fgets(buffer, sizeof(buffer), fp) != NULL) {
+            printf("Read '%s'\n", buffer);
+            strncpy(resp, buffer, (respSize - 1));
+            resp[respSize - 1] = '\0';
+        } else {
+            resp[0] = '\0';
+        }
+        pclose(fp);
+        return true;
+    }
+    return false;
+}
+

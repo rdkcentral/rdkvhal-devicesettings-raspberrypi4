@@ -78,7 +78,8 @@ dsError_t dsGetVideoDevice(int index, intptr_t *handle)
     {
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    *handle = 0;
+    return dsERR_NONE;
 }
 
 /**
@@ -206,7 +207,8 @@ dsError_t dsGetHDRCapabilities(intptr_t handle, int *capabilities)
     {
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    *capabilities = dsHDRSTANDARD_NONE;
+    return dsERR_NONE;
 }
 
 /**
@@ -403,6 +405,9 @@ dsError_t dsGetFRFMode(intptr_t handle, int *frfmode)
 dsError_t dsGetCurrentDisplayframerate(intptr_t handle, char *framerate)
 {
     hal_info("invoked.\n");
+    char *prt = NULL;
+    char data[256] = {0};
+
     if (false == _bVideoDeviceInited)
     {
         return dsERR_NOT_INITIALIZED;
@@ -411,7 +416,27 @@ dsError_t dsGetCurrentDisplayframerate(intptr_t handle, char *framerate)
     {
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    if (westerosRWWrapper("export XDG_RUNTIME_DIR=/run; westeros-gl-console get mode", data, sizeof(data))) {
+        hal_info("data:'%s'\n", data);
+        // Response: [0: mode 1280x720px60]
+        char *start = strstr(data, "px");
+        if (start) {
+            start += 2;
+            char *end = strchr(start, ']');
+            if (end) {
+                size_t length = end - start;
+                strncpy(framerate, start, length);
+                framerate[length] = '\0';
+                hal_dbg("framerate: '%s'\n", framerate);
+                return dsERR_NONE;
+            } else {
+                return dsERR_GENERAL;
+            }
+        } else {
+            return dsERR_GENERAL;
+        }
+    }
+    return dsERR_GENERAL;
 }
 
 /**
