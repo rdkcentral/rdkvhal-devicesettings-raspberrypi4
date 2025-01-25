@@ -568,11 +568,13 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
 #if 1 // Print EDID bytes for debugging
     FILE *file = fopen("/tmp/.hal-edid-bytes.dat", "wb");
     if (file != NULL) {
-        fwrite(edid, 1, offset, file);
+        for (i = 0; i < *length; i++) {
+            fprintf(file, "%02x", edid[i]);
+        }
         fclose(file);
-        hal_info("EDID bytes written to /tmp/edid-bytes.dat\n");
+        hal_info("EDID bytes written to /tmp/.hal-edid-bytes.dat\n");
     } else {
-        hal_err("Failed to open /tmp/edid-bytes.dat for writing\n");
+        hal_err("Failed to open /tmp/.hal-edid-bytes.dat\n");
     }
 #endif
     return dsERR_NONE;
