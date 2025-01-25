@@ -407,7 +407,7 @@ static dsError_t dsQueryHdmiResolution()
                 if (modeSupported[j].code == resolutionMap[i].mode) {
                     dsVideoPortResolution_t *resolution = dsgetResolutionInfo(resolutionMap[i].rdkRes);
                     memcpy(&HdmiSupportedResolution[numSupportedResn], resolution, sizeof(dsVideoPortResolution_t));
-                    hal_dbg("Supported Resolution '%s'\n.", HdmiSupportedResolution[numSupportedResn].name);
+                    hal_dbg("Supported Resolution '%s'\n", HdmiSupportedResolution[numSupportedResn].name);
                     numSupportedResn++;
                 }
             }

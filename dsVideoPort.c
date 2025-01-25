@@ -132,8 +132,7 @@ dsError_t dsRegisterHdcpStatusCallback(intptr_t handle, dsHDCPStatusCallback_t c
 dsError_t  dsVideoPortInit()
 {
 	hal_info("invoked.\n");
-	if(true == _bIsVideoPortInitialized)
-        {
+	if (true == _bIsVideoPortInitialized) {
 		return dsERR_ALREADY_INITIALIZED;
    	}
 	/*
@@ -277,9 +276,10 @@ dsError_t dsIsVideoPortEnabled(intptr_t handle, bool *enabled)
 	}
 
 	if (!isValidVopHandle(handle) || NULL == enabled)
-	{
-     		return dsERR_INVALID_PARAM;
-    	}
+    {
+        hal_err("handle(%p) is invalid or enabled(%p) is null.\n", handle, enabled);
+        return dsERR_INVALID_PARAM;
+    }
 	if(vopHandle->m_vType == dsVIDEOPORT_TYPE_COMPONENT)
 	{
 		*enabled = vopHandle->m_isEnabled ;
@@ -334,6 +334,7 @@ dsError_t  dsEnableVideoPort(intptr_t handle, bool enabled)
 
     if (!isValidVopHandle(handle))
     {
+        hal_err("handle(%p) is invalid.\n", handle);
         return dsERR_INVALID_PARAM;
     }
 
@@ -444,6 +445,7 @@ dsError_t  dsIsDisplayConnected(intptr_t handle, bool *connected)
         return dsERR_NOT_INITIALIZED;
     }
     if (!isValidVopHandle(handle) || NULL == connected) {
+        hal_err("handle(%p) is invalid or connected(%p) is null.\n", handle, connected);
         return dsERR_INVALID_PARAM;
     }
     /*Default is false*/
@@ -514,6 +516,7 @@ dsError_t  dsEnableDTCP(intptr_t handle, bool contentProtect)
 	}
 	if (!isValidVopHandle(handle))
 	{
+        hal_err("handle(%p) is invalid.\n", handle);
 	    return dsERR_INVALID_PARAM;
 	}
 	return dsERR_OPERATION_NOT_SUPPORTED;
@@ -560,6 +563,7 @@ dsError_t  dsEnableHDCP(intptr_t handle, bool contentProtect, char *hdcpKey, siz
 	}
 	if (!isValidVopHandle(handle) || NULL == hdcpKey || keySize >= HDCP_KEY_MAX_SIZE)
 	{
+        hal_err("handle(%p) is invalid or hdcpkey is NULL.\n", handle);
 	    return dsERR_INVALID_PARAM;
 	}
 	return dsERR_OPERATION_NOT_SUPPORTED;
@@ -602,6 +606,7 @@ dsError_t  dsEnableHDCP(intptr_t handle, bool contentProtect, char *hdcpKey, siz
 	}
 	if (!isValidVopHandle(handle) || NULL == pContentProtected)
 	{
+        hal_err("handle(%p) is invalid or pContentProtected(%p) is NULL.\n", handle, pContentProtected);
 	    return dsERR_INVALID_PARAM;
 	}
 	*pContentProtected = false;
@@ -646,6 +651,7 @@ dsError_t dsIsHDCPEnabled(intptr_t handle, bool *pContentProtected)
 	return dsERR_NOT_INITIALIZED;
     }
     if (!isValidVopHandle(handle) || NULL == pContentProtected){
+        hal_err("handle(%p) is invalid or pContentProtected(%p) is NULL.\n", handle, pContentProtected);
          return dsERR_INVALID_PARAM;
     }
     *pContentProtected = false;
@@ -693,6 +699,7 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 
 	if (!isValidVopHandle(handle) || NULL == resolution)
 	{
+        hal_err("handle(%p) is invalid or resolution(%p) is NULL.\n", handle, resolution);
 		return dsERR_INVALID_PARAM;
 	}
 	if( vc_tv_get_display_state( &tvstate ) == 0) {
@@ -794,6 +801,7 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         return dsERR_NOT_INITIALIZED;
     }
     if (!isValidVopHandle(handle) || NULL == resolution) {
+        hal_err("handle(%p) is invalid or resolution(%p) is null.\n", handle, resolution);
         return dsERR_INVALID_PARAM;
     }
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
@@ -907,6 +915,7 @@ dsError_t dsIsVideoPortActive(intptr_t handle, bool *active)
         return dsERR_NOT_INITIALIZED;
     }
     if (!isValidVopHandle(handle) || NULL == active) {
+        hal_err("handle(%p) is invalid or active(%p) is null.\n", handle, active);
         return dsERR_INVALID_PARAM;
     }
     /* Default to false */
@@ -963,6 +972,7 @@ dsError_t dsGetHDCPProtocol(intptr_t handle, dsHdcpProtocolVersion_t *protocolVe
 	}
 	if (!isValidVopHandle(handle) || NULL == protocolVersion)
 	{
+        hal_err("handle(%p) is invalid or protocolVersion(%p) is NULL.\n", handle, protocolVersion);
 	 	return dsERR_INVALID_PARAM;
 	}
 	return dsERR_OPERATION_NOT_SUPPORTED;
@@ -978,6 +988,7 @@ dsError_t dsGetHDCPReceiverProtocol (intptr_t handle, dsHdcpProtocolVersion_t *p
 	}
 	if (!isValidVopHandle(handle) || NULL == protocolVersion)
 	{
+        hal_err("handle(%p) is invalid or protocolVersion(%p) is null.\n", handle, protocolVersion);
 	 	return dsERR_INVALID_PARAM;
 	}
 	return dsERR_OPERATION_NOT_SUPPORTED;
@@ -993,6 +1004,7 @@ dsError_t dsGetHDCPCurrentProtocol(intptr_t handle, dsHdcpProtocolVersion_t *pro
 	}
 	if (!isValidVopHandle(handle) || NULL == protocolVersion)
 	{
+        hal_err("handle(%p) is invalid or protocolVersion(%p) is null.\n", handle, protocolVersion);
 	 	return dsERR_INVALID_PARAM;
 	}
 	return dsERR_OPERATION_NOT_SUPPORTED;
@@ -1007,6 +1019,7 @@ dsError_t dsGetTVHDRCapabilities(intptr_t handle, int *capabilities)
 	}
 	if (!isValidVopHandle(handle) || NULL == capabilities)
 	{
+        hal_err("handle(%p) is invalid or capabilities(%p) is null.\n", handle, capabilities);
 	 	return dsERR_INVALID_PARAM;
 	}
 	return dsERR_OPERATION_NOT_SUPPORTED;
@@ -1168,6 +1181,7 @@ dsError_t  dsIsDisplaySurround(intptr_t handle, bool *surround)
     }
     if(!dsIsValidHandle(handle) ||surround == NULL)
     {
+        hal_err("handle(%p) is invalid or surround(%p) is null.\n", handle, surround);
         return dsERR_INVALID_PARAM;
     }
     // TODO: RPI4 does support this feature; implement later.
@@ -1214,6 +1228,7 @@ dsError_t  dsGetSurroundMode(intptr_t handle, int *surround)
     }
     if(!dsIsValidHandle(handle)|| surround == NULL)
     {
+        hal_err("handle(%p) is invalid or surround(%p) is null.\n", handle, surround);
         return dsERR_INVALID_PARAM;
     }
     return dsERR_OPERATION_NOT_SUPPORTED;
