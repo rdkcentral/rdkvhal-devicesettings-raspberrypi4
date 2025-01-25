@@ -323,7 +323,7 @@ dsError_t dsSetAudioMute(intptr_t handle, bool mute)
 dsError_t dsIsAudioPortEnabled(intptr_t handle, bool *enabled)
 {
 	hal_info("invoked.\n");
-	ret = dsERR_NONE;
+	dsError_t ret = dsERR_NONE;
 	bool audioEnabled = true;
 	if (false == _bIsAudioInitialized)
 	{
