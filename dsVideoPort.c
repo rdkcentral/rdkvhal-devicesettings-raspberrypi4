@@ -61,26 +61,36 @@ static void tvservice_hdcp_callback( void *callback_data,
 {
     VOPHandle_t *hdmiHandle = (VOPHandle_t *)callback_data;
     hal_dbg("got reason %d\n", reason);
-    switch ( reason )
-    {
-      case VC_HDMI_HDCP_AUTH:
-           _halhdcpcallback((int)(hdmiHandle->m_nativeHandle),dsHDCP_STATUS_AUTHENTICATED);
-           break;
-
-      case VC_HDMI_HDCP_UNAUTH:
-           _halhdcpcallback((int)(hdmiHandle->m_nativeHandle),dsHDCP_STATUS_UNAUTHENTICATED);
-           break;
-
-      default:
-      {
-           if(isBootup == true)
-           {
-               hal_warn("%s: At bootup HDCP status is Authenticated for Rpi\n");
-               _halhdcpcallback((int)(hdmiHandle->m_nativeHandle),dsHDCP_STATUS_AUTHENTICATED);
-               isBootup = false;
-           }
-           break;
-      }
+    switch (reason) {
+        case VC_HDMI_HDCP_AUTH:
+            if (NULL != _halhdcpcallback) {
+                _halhdcpcallback((int)(hdmiHandle->m_nativeHandle),dsHDCP_STATUS_AUTHENTICATED);
+            } else {
+                hal_warn("_halhdcpcallback is Null.\n");
+            }
+            break;
+        case VC_HDMI_HDCP_UNAUTH:
+            if (NULL != _halhdcpcallback) {
+                _halhdcpcallback((int)(hdmiHandle->m_nativeHandle),dsHDCP_STATUS_UNAUTHENTICATED);
+            } else {
+                hal_warn("_halhdcpcallback is Null.\n");
+            }
+            break;
+        case VC_HDMI_HDCP_KEY_DOWNLOAD:
+        case VC_HDMI_HDCP_SRM_DOWNLOAD:
+            hal_warn("Dropping event, VC_HDMI_HDCP_KEY_DOWNLOAD/VC_HDMI_HDCP_SRM_DOWNLOAD\n.");
+            break;
+        default:
+            if (isBootup == true) {
+                hal_warn("%s: At bootup HDCP status is Authenticated for Rpi\n");
+                if (NULL != _halhdcpcallback) {
+                    _halhdcpcallback((int)(hdmiHandle->m_nativeHandle),dsHDCP_STATUS_AUTHENTICATED);
+                } else {
+                    hal_warn("_halhdcpcallback is Null.\n");
+                }
+                isBootup = false;
+            }
+            break;
     }
 }
 

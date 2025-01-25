@@ -69,22 +69,36 @@ static void tvservice_callback( void *callback_data,
     switch (reason) {
         case VC_HDMI_UNPLUGGED:
             hal_dbg("HDMI cable is unplugged\n");
-            _halcallback((int)(hdmiHandle->m_nativeHandle), dsDISPLAY_EVENT_DISCONNECTED, &eventData);
+            if (NULL != _halcallback) {
+                _halcallback((int)(hdmiHandle->m_nativeHandle), dsDISPLAY_EVENT_DISCONNECTED, &eventData);
+            } else {
+                hal_warn("_halcallback is NULL\n");
+            }
             break;
         case VC_HDMI_ATTACHED:
         case VC_HDMI_DVI:
         case VC_HDMI_HDMI:
+            hal_dbg("HDMI is attached\n");
+            if (NULL != _halcallback) {
+                _halcallback((int)(hdmiHandle->m_nativeHandle), dsDISPLAY_EVENT_CONNECTED, &eventData);
+            } else {
+                hal_warn("_halcallback is NULL\n");
+            }
+            break;
         case VC_HDMI_HDCP_UNAUTH:
         case VC_HDMI_HDCP_AUTH:
         case VC_HDMI_HDCP_KEY_DOWNLOAD:
         case VC_HDMI_HDCP_SRM_DOWNLOAD:
-            hal_dbg("HDMI is attached\n");
-            _halcallback((int)(hdmiHandle->m_nativeHandle), dsDISPLAY_EVENT_CONNECTED, &eventData);
+            hal_warn("HDCP related events; dropping\n");
             break;
         default:
             if (isBootup == true) {
                 hal_dbg("For Rpi - HDMI is attached by default\n");
-                _halcallback((int)(hdmiHandle->m_nativeHandle), dsDISPLAY_EVENT_CONNECTED, &eventData);
+                if (NULL != _halcallback) {
+                    _halcallback((int)(hdmiHandle->m_nativeHandle), dsDISPLAY_EVENT_CONNECTED, &eventData);
+                } else {
+                    hal_warn("_halcallback is NULL\n");
+                }
                 isBootup = false;
             }
             break;

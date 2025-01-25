@@ -97,7 +97,6 @@ void configDSHALLogging(void)
     }
     fclose(file);
     printf("DSHAL configDSHALLogging logflag: 0x%x\n", logflag);
-    fprintf(stderr, "DSHAL configDSHALLogging logflag: 0x%x\n", logflag);
 }
 
 // Make constructor run the logging config when module loaded into memory.
