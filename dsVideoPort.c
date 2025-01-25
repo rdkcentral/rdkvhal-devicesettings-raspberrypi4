@@ -871,7 +871,7 @@ dsError_t  dsVideoPortTerm()
  */
 static bool isValidVopHandle(intptr_t m_handle) {
     for (int i = 0; i < dsVIDEOPORT_TYPE_MAX; i++) {
-        hal_info("Checking if m_handle(%p) is a match &_handles[i][0](%p).\n", m_handle, &_handles[i][0]);
+        hal_info("Checking if m_handle(%p) is a match &_handles[%d][0](%p).\n", m_handle, i, &_handles[i][0]);
         if ((intptr_t)&_handles[i][0] == m_handle) {
             return true;
         }
