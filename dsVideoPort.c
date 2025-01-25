@@ -870,12 +870,13 @@ dsError_t  dsVideoPortTerm()
  * @return bool  true for valid handle
  */
 static bool isValidVopHandle(intptr_t m_handle) {
-	for (int i = 0; i < dsVIDEOPORT_TYPE_MAX; i++) {
-		if ((intptr_t)&_handles[i][0] == m_handle) {
-			return true;
-		}
-	}
-	return false;
+    for (int i = 0; i < dsVIDEOPORT_TYPE_MAX; i++) {
+        hal_info("Checking if m_handle(%p) is a match &_handles[i][0](%p).\n", m_handle, &_handles[i][0]);
+        if ((intptr_t)&_handles[i][0] == m_handle) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /**
@@ -1057,7 +1058,7 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
         return dsERR_NOT_INITIALIZED;
     }
     if (!isValidVopHandle(handle) || (NULL == resolutions)) {
-        hal_err("resolutions or handle(%p [*handle %p]) is invalid.\n", handle, *vopHandle);
+        hal_err("resolutions(%p) or handle(%p [*handle %p]) is invalid.\n", resolutions, handle, *vopHandle);
         return dsERR_INVALID_PARAM;
     }
 
