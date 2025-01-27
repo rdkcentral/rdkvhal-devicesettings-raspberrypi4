@@ -50,7 +50,7 @@ typedef struct _VOPHandle_t {
 	bool m_isEnabled;
 } VOPHandle_t;
 
-static VOPHandle_t _handles[dsVIDEOPORT_TYPE_MAX][2] = {};
+static VOPHandle_t _vopHandles[dsVIDEOPORT_TYPE_MAX][2] = {};
 
 static dsVideoPortResolution_t _resolution;
 
@@ -131,47 +131,47 @@ dsError_t dsRegisterHdcpStatusCallback(intptr_t handle, dsHDCPStatusCallback_t c
  */
 dsError_t  dsVideoPortInit()
 {
-	hal_info("invoked.\n");
-	if (true == _bIsVideoPortInitialized) {
-		return dsERR_ALREADY_INITIALIZED;
-   	}
-	/*
-	 * Video Port configuration for HDMI and Analog ports.
-	 */
+    hal_info("invoked.\n");
+    if (true == _bIsVideoPortInitialized) {
+        return dsERR_ALREADY_INITIALIZED;
+    }
+    /*
+     * Video Port configuration for HDMI and Analog ports.
+     */
 
-	_handles[dsVIDEOPORT_TYPE_HDMI][0].m_vType = dsVIDEOPORT_TYPE_HDMI;
-	_handles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle = dsVIDEOPORT_TYPE_HDMI;
-	_handles[dsVIDEOPORT_TYPE_HDMI][0].m_index = 0;
-	_handles[dsVIDEOPORT_TYPE_HDMI][0].m_isEnabled = true;
+    _vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_vType = dsVIDEOPORT_TYPE_HDMI;
+    _vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle = dsVIDEOPORT_TYPE_HDMI;
+    _vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index = 0;
+    _vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_isEnabled = true;
 
-	_handles[dsVIDEOPORT_TYPE_BB][0].m_vType  = dsVIDEOPORT_TYPE_BB;
-	_handles[dsVIDEOPORT_TYPE_BB][0].m_nativeHandle = dsVIDEOPORT_TYPE_BB;
-	_handles[dsVIDEOPORT_TYPE_BB][0].m_index = 0;
-	_handles[dsVIDEOPORT_TYPE_BB][0].m_isEnabled = false;
+    _vopHandles[dsVIDEOPORT_TYPE_BB][0].m_vType  = dsVIDEOPORT_TYPE_BB;
+    _vopHandles[dsVIDEOPORT_TYPE_BB][0].m_nativeHandle = dsVIDEOPORT_TYPE_BB;
+    _vopHandles[dsVIDEOPORT_TYPE_BB][0].m_index = 0;
+    _vopHandles[dsVIDEOPORT_TYPE_BB][0].m_isEnabled = false;
 
-    hal_info("&_handles = %p\n", &_handles);
-    hal_info("&_handles[dsVIDEOPORT_TYPE_HDMI][0].m_vType = %p\n", &_handles[dsVIDEOPORT_TYPE_HDMI][0].m_vType);
-    hal_info("&_handles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle = %p\n", &_handles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle);
-    hal_info("&_handles[dsVIDEOPORT_TYPE_HDMI][0].m_index = %p\n", &_handles[dsVIDEOPORT_TYPE_HDMI][0].m_index);
-    hal_info("&_handles[dsVIDEOPORT_TYPE_HDMI][0].m_isEnabled = %p\n", &_handles[dsVIDEOPORT_TYPE_HDMI][0].m_isEnabled);
-    hal_info("&_handles[dsVIDEOPORT_TYPE_BB][0].m_vType = %p\n", &_handles[dsVIDEOPORT_TYPE_BB][0].m_vType);
-    hal_info("&_handles[dsVIDEOPORT_TYPE_BB][0].m_nativeHandle = %p\n", &_handles[dsVIDEOPORT_TYPE_BB][0].m_nativeHandle);
-    hal_info("&_handles[dsVIDEOPORT_TYPE_BB][0].m_index = %p\n", &_handles[dsVIDEOPORT_TYPE_BB][0].m_index);
-    hal_info("&_handles[dsVIDEOPORT_TYPE_BB][0].m_isEnabled = %p\n", &_handles[dsVIDEOPORT_TYPE_BB][0].m_isEnabled);
-	_resolution = kResolutions[kDefaultResIndex];
-	int rc = vchi_tv_init();
-	if (rc != 0) {
-		hal_err("Failed to initialise tv service\n");
-		return dsERR_GENERAL;
-	}
-	/*
-	 *  Register callback for HDCP Auth
-	 */
-	vc_tv_register_callback( &tvservice_hdcp_callback, &_handles[dsVIDEOPORT_TYPE_HDMI][0]);
+    hal_info("&_vopHandles = %p\n", &_vopHandles);
+    hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_vType = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_vType);
+    hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle);
+    hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index);
+    hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_isEnabled = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_isEnabled);
+    hal_info("&_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_vType = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_vType);
+    hal_info("&_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_nativeHandle = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_nativeHandle);
+    hal_info("&_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_index = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_index);
+    hal_info("&_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_isEnabled = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_isEnabled);
+    _resolution = kResolutions[kDefaultResIndex];
+    int rc = vchi_tv_init();
+    if (rc != 0) {
+        hal_err("Failed to initialise tv service\n");
+        return dsERR_GENERAL;
+    }
+    /*
+     *  Register callback for HDCP Auth
+     */
+    vc_tv_register_callback(&tvservice_hdcp_callback, &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0]);
 
-	_bIsVideoPortInitialized = true;
+    _bIsVideoPortInitialized = true;
 
-	return dsERR_NONE;
+    return dsERR_NONE;
 }
 
 /**
@@ -215,7 +215,7 @@ dsError_t dsGetVideoPort(dsVideoPortType_t type, int index, intptr_t *handle)
         hal_err("index = %d, type = %d, handle = %p\n", index, type, handle);
         return dsERR_INVALID_PARAM;
     }
-    *handle = (intptr_t)&_handles[type][index];
+    *handle = (intptr_t)&_vopHandles[type][index];
     hal_dbg("*handle = %p\n", *handle);
     return dsERR_NONE;
 }
@@ -871,8 +871,9 @@ dsError_t  dsVideoPortTerm()
  */
 static bool isValidVopHandle(intptr_t m_handle) {
     for (int i = 0; i < dsVIDEOPORT_TYPE_MAX; i++) {
-        hal_info("Checking if m_handle(%p) is a match &_handles[%d][0](%p).\n", m_handle, i, &_handles[i][0]);
-        if ((intptr_t)&_handles[i][0] == m_handle) {
+        hal_info("Checking if m_handle(%p) is a match with &_vopHandles[%d][0](%p).\n", m_handle, i, &_vopHandles[i][0]);
+        if ((intptr_t)&_vopHandles[i][0] == m_handle) {
+            hal_info("m_handle(%p) is a match.\n", m_handle);
             return true;
         }
     }
