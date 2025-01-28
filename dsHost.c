@@ -15,7 +15,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
-*/
+ */
 
 #include <stdio.h>
 #include <fcntl.h>
@@ -50,14 +50,15 @@ static bool host_initialized = false;
  * @see dsHostTerm()
  *
  */
-dsError_t dsHostInit() {
-	hal_info("invoked.\n");
-	if (host_initialized) {
-		return dsERR_ALREADY_INITIALIZED;
-	}
-	// Initialization code here
-	host_initialized = true;
-	return dsERR_NONE;
+dsError_t dsHostInit()
+{
+    hal_info("invoked.\n");
+    if (host_initialized) {
+        return dsERR_ALREADY_INITIALIZED;
+    }
+    // Initialization code here
+    host_initialized = true;
+    return dsERR_NONE;
 }
 
 /**
@@ -76,13 +77,14 @@ dsError_t dsHostInit() {
  * @see dsHostInit()
  *
  */
-dsError_t dsHostTerm() {
-	hal_info("invoked.\n");
-	if (!host_initialized) {
-		return dsERR_NOT_INITIALIZED;
-	}
-	host_initialized = false;
-	return dsERR_NONE;
+dsError_t dsHostTerm()
+{
+    hal_info("invoked.\n");
+    if (!host_initialized) {
+        return dsERR_NOT_INITIALIZED;
+    }
+    host_initialized = false;
+    return dsERR_NONE;
 }
 
 /**
@@ -105,38 +107,43 @@ dsError_t dsHostTerm() {
  * @warning  This API is Not thread safe.
  *
  */
-dsError_t dsGetCPUTemperature(float *cpuTemperature) {
-	hal_info("invoked.\n");
-	char temp_value[BUFFER_SIZE] = {0};
-	int len = 0;
-	FILE *fp = NULL;
+dsError_t dsGetCPUTemperature(float *cpuTemperature)
+{
+    hal_info("invoked.\n");
 
-	if (!host_initialized) {
-		return dsERR_NOT_INITIALIZED;
-	}
-	if (cpuTemperature == NULL) {
-		return dsERR_INVALID_PARAM;
-	}
-	fp = fopen(SYS_CPU_TEMP, "r");
-	if (fp == NULL) {
-		hal_err("Error opening cpu temp file '%s'\n", SYS_CPU_TEMP);
-		return dsERR_GENERAL;
-	}
-	if ((len = fread(temp_value, 1, BUFFER_SIZE - 1, fp)) == 0) {
-		hal_err("Error reading cpu temp value from '%s'\n",
-		        SYS_CPU_TEMP);
-		fclose(fp);
-		return dsERR_GENERAL;
-	}
-	fclose(fp);
-	temp_value[len] = '\0';
-	*cpuTemperature = atof(temp_value) / 1000;
-	if (*cpuTemperature == 0 && temp_value[0] != '0') {
-		hal_err("Error converting cpu temp value '%s'\n", temp_value);
-		return dsERR_GENERAL;
-	}
-	hal_dbg("CPU temperature is %f\n", *cpuTemperature);
-	return dsERR_NONE;
+    if (!host_initialized) {
+        return dsERR_NOT_INITIALIZED;
+    }
+    if (cpuTemperature == NULL) {
+        hal_err("Invalid parameter, cpuTemperature(%p)\n", cpuTemperature);
+        return dsERR_INVALID_PARAM;
+    }
+
+    FILE *fp = fopen(SYS_CPU_TEMP, "r");
+    if (fp == NULL) {
+        hal_err("Error opening cpu temp file '%s'\n", SYS_CPU_TEMP);
+        return dsERR_GENERAL;
+    }
+
+    char temp_value[BUFFER_SIZE] = {0};
+    int len = fread(temp_value, 1, BUFFER_SIZE - 1, fp);
+    fclose(fp);
+
+    if (len == 0) {
+        hal_err("Error reading cpu temp value from '%s'\n", SYS_CPU_TEMP);
+        return dsERR_GENERAL;
+    }
+
+    temp_value[len] = '\0';
+    *cpuTemperature = atof(temp_value) / 1000;
+
+    if (*cpuTemperature == 0 && temp_value[0] != '0') {
+        hal_err("Error converting cpu temp value '%s'\n", temp_value);
+        return dsERR_GENERAL;
+    }
+
+    hal_dbg("CPU temperature is %f\n", *cpuTemperature);
+    return dsERR_NONE;
 }
 
 /**
@@ -160,44 +167,48 @@ dsError_t dsGetCPUTemperature(float *cpuTemperature) {
  * @warning  This API is Not thread safe.
  *
  */
-dsError_t dsGetSocIDFromSDK(char *socID) {
-	hal_info("invoked.\n");
-	if (!host_initialized) {
-		return dsERR_NOT_INITIALIZED;
-	}
-	if (socID == NULL) {
-		return dsERR_INVALID_PARAM;
-	}
-	// Read the CHIP ID from procfs
-	FILE *fp = fopen(PROC_CPUINFO, "r");
-	if (fp == NULL) {
-		hal_err("Error opening cpuinfo file '%s'\n", PROC_CPUINFO);
-		return dsERR_GENERAL;
-	}
-	char line[BUFFER_SIZE] = {0};
-	// <Sample> Hardware    : BCM2711
-	while (fgets(line, sizeof(line), fp) != NULL) {
-		if (strstr(line, "Hardware") != NULL) {
-			char *value = strchr(line, ':');
-			if (value != NULL) {
-				value++;
-				while (*value == ' ') {
-					value++;
-				}
-				strncpy(socID, value, 7);
-				socID[7] = '\0';
-				break;
-			}
-		}
-	}
-	fclose(fp);
-	if (strlen(socID) == 0) {
-		hal_err("Error reading socID from '%s'\n", PROC_CPUINFO);
-		return dsERR_GENERAL;
-	}
-	hal_dbg("SOC ID is %s\n", socID);
+dsError_t dsGetSocIDFromSDK(char *socID)
+{
+    hal_info("invoked.\n");
 
-	return dsERR_NONE;
+    if (!host_initialized) {
+        return dsERR_NOT_INITIALIZED;
+    }
+    if (socID == NULL) {
+        hal_err("Invalid parameter, socID(%p)\n", socID);
+        return dsERR_INVALID_PARAM;
+    }
+
+    FILE *fp = fopen(PROC_CPUINFO, "r");
+    if (fp == NULL) {
+        hal_err("Error opening cpuinfo file '%s'\n", PROC_CPUINFO);
+        return dsERR_GENERAL;
+    }
+
+    char line[BUFFER_SIZE] = {0};
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        if (strstr(line, "Hardware") != NULL) {
+            char *value = strchr(line, ':');
+            if (value != NULL) {
+                value++;
+                while (*value == ' ') {
+                    value++;
+                }
+                strncpy(socID, value, 7);
+                socID[7] = '\0';
+                break;
+            }
+        }
+    }
+    fclose(fp);
+
+    if (strlen(socID) == 0) {
+        hal_err("Error reading socID from '%s'\n", PROC_CPUINFO);
+        return dsERR_GENERAL;
+    }
+
+    hal_dbg("SOC ID is %s\n", socID);
+    return dsERR_NONE;
 }
 
 /**
@@ -224,95 +235,118 @@ dsError_t dsGetSocIDFromSDK(char *socID) {
  * @warning  This API is Not thread safe.
  *
  */
-dsError_t dsGetHostEDID(unsigned char *edid, int *length) {
-	hal_info("invoked.\n");
-	if (!host_initialized) {
-		return dsERR_NOT_INITIALIZED;
-	}
-	if (edid == NULL || length == NULL) {
+dsError_t dsGetHostEDID(unsigned char *edid, int *length)
+{
+    hal_info("invoked.\n");
+    if (!host_initialized) {
+        return dsERR_NOT_INITIALIZED;
+    }
+    if (edid == NULL || length == NULL) {
+		hal_err("Invalid parameter, edid(%p), length(%p)\n", edid, length);
+        return dsERR_INVALID_PARAM;
+    }
+	// RPi does not have HDMI-In feature
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+dsError_t dsSetHostPowerMode(int newPower)
+{
+    hal_warn("invoked; deprecated ?.\n");
+    if (newPower < dsPOWER_ON || newPower >= dsPOWER_MAX) {
+		hal_err("Invalid power mode %d\n", newPower);
 		return dsERR_INVALID_PARAM;
 	}
-	return dsERR_OPERATION_NOT_SUPPORTED;
+    /* Raspberry pi doesn't have anykind of power management It is either
+     * plugged in or not.*/
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
-dsError_t dsSetHostPowerMode(int newPower) {
-	hal_info("invoked.\n");
-	dsError_t ret = dsERR_NONE;
-	/* Raspberry pi doesn't have anykind of power management It is either
-	 * plugged in or not.*/
-	return ret;
-}
-
-dsError_t dsGetHostPowerMode(int *currPower) {
-	hal_info("invoked.\n");
-	dsError_t ret = dsERR_NONE;
-	/* Raspberry pi doesn't have anykind of power management It is either
-	 * plugged in or not.*/
-	return ret;
-}
-
-dsError_t dsGetVersion(uint32_t *versionNumber) {
-	hal_info("invoked.\n");
-
-	if (versionNumber != NULL) {
-		hal_dbg("Getting hal version in ds-hal 0x%x\n", version_num);
-		*versionNumber = version_num;
-		return dsERR_NONE;
+dsError_t dsGetHostPowerMode(int *currPower)
+{
+    hal_warn("invoked; deprecated ?.\n");
+    if (currPower == NULL) {
+		hal_err("Invalid parameter, currPower(%p)\n", currPower);
+		return dsERR_INVALID_PARAM;
 	}
-	return dsERR_INVALID_PARAM;
+    /* Raspberry pi doesn't have anykind of power management It is either
+     * plugged in or not.*/
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
-dsError_t dsSetVersion(uint32_t versionNumber) {
-	hal_info("invoked.\n");
-	version_num = versionNumber;
-	hal_dbg("Setting hal version in ds-hal 0x%x\n", version_num);
-	return dsERR_NONE;
+dsError_t dsGetVersion(uint32_t *versionNumber)
+{
+    hal_warn("invoked; deprecated ?.\n");
+
+    if (versionNumber != NULL) {
+        hal_dbg("Getting hal version in ds-hal 0x%x\n", version_num);
+        *versionNumber = version_num;
+        return dsERR_NONE;
+    }
+    return dsERR_INVALID_PARAM;
 }
 
-dsError_t dsGetFreeSystemGraphicsMemory(uint64_t *memory) {
-	hal_info("invoked.\n");
-	char buffer[BUFFER_SIZE] = {0};
-
-	if (vc_gencmd(buffer, sizeof(buffer), "get_mem reloc") != 0) {
-		hal_err("Failed to get free GPU memory\n");
-		return dsERR_GENERAL;
-	}
-
-	buffer[sizeof(buffer) - 1] = '\0';
-	/* Extract response after = */
-	char *equal = strchr(buffer, '=');
-	if (equal != NULL) {
-		equal++;
-	} else {
-		equal = buffer;
-	}
-
-	*memory = strtol(equal, (char **)NULL, 10);
-	hal_dbg("Free GPU memory is %lld\n", *memory);
-
-	return dsERR_NONE;
+dsError_t dsSetVersion(uint32_t versionNumber)
+{
+    hal_warn("invoked; deprecated ?.\n");
+    version_num = versionNumber;
+    hal_dbg("Setting hal version in ds-hal 0x%x\n", version_num);
+    return dsERR_NONE;
 }
 
-dsError_t dsGetTotalSystemGraphicsMemory(uint64_t *memory) {
-	hal_info("invoked.\n");
-	char buffer[BUFFER_SIZE] = {0};
-
-	if (vc_gencmd(buffer, sizeof(buffer), "get_mem reloc_total") != 0) {
-		hal_err("Failed to get total GPU memory\n");
-		return dsERR_GENERAL;
+dsError_t dsGetFreeSystemGraphicsMemory(uint64_t *memory)
+{
+    hal_warn("invoked; deprecated ?.\n");
+	if (memory == NULL) {
+		hal_err("Invalid parameter, memory(%p)\n", memory);
+		return dsERR_INVALID_PARAM;
 	}
+    char buffer[BUFFER_SIZE] = {0};
 
-	buffer[sizeof(buffer) - 1] = '\0';
-	/* Extract response after = */
-	char *equal = strchr(buffer, '=');
-	if (equal != NULL) {
-		equal++;
-	} else {
-		equal = buffer;
+    if (vc_gencmd(buffer, sizeof(buffer), "get_mem reloc") != 0) {
+        hal_err("Failed to get free GPU memory\n");
+        return dsERR_GENERAL;
+    }
+
+    buffer[sizeof(buffer) - 1] = '\0';
+    /* Extract response after = */
+    char *equal = strchr(buffer, '=');
+    if (equal != NULL) {
+        equal++;
+    } else {
+        equal = buffer;
+    }
+
+    *memory = strtol(equal, (char **)NULL, 10);
+    hal_dbg("Free GPU memory is %lld\n", *memory);
+
+    return dsERR_NONE;
+}
+
+dsError_t dsGetTotalSystemGraphicsMemory(uint64_t *memory)
+{
+    hal_warn("invoked; deprecated ?.\n");
+	if (memory == NULL) {
+		hal_err("Invalid parameter, memory(%p)\n", memory);
+		return dsERR_INVALID_PARAM;
 	}
+    char buffer[BUFFER_SIZE] = {0};
 
-	*memory = strtol(equal, (char **)NULL, 10);
-	hal_dbg("Total GPU memory is %lld\n", *memory);
+    if (vc_gencmd(buffer, sizeof(buffer), "get_mem reloc_total") != 0) {
+        hal_err("Failed to get total GPU memory\n");
+        return dsERR_GENERAL;
+    }
 
-	return dsERR_NONE;
+    buffer[sizeof(buffer) - 1] = '\0';
+    /* Extract response after = */
+    char *equal = strchr(buffer, '=');
+    if (equal != NULL) {
+        equal++;
+    } else {
+        equal = buffer;
+    }
+
+    *memory = strtol(equal, (char **)NULL, 10);
+    hal_dbg("Total GPU memory is %lld\n", *memory);
+
+    return dsERR_NONE;
 }
