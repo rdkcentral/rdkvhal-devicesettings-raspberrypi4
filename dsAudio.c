@@ -1418,7 +1418,7 @@ dsError_t dsSetAudioDucking(intptr_t handle, dsAudioDuckingAction_t action, dsAu
         return dsERR_NOT_INITIALIZED;
     }
     if (!dsAudioIsValidHandle(handle) || level > 100 || (action < dsAUDIO_DUCKINGACTION_START)
-		|| (action => dsAudio_DUCKINGACTION_MAX) || (type < dsAUDIO_DUCKINGTYPE_ABSOLUTE) || (type => dsAudio_DUCKINGTYPE_MAX))
+		|| (action >= dsAudio_DUCKINGACTION_MAX) || (type < dsAUDIO_DUCKINGTYPE_ABSOLUTE) || (type >= dsAudio_DUCKINGTYPE_MAX))
     {
 		hal_err("Invalid parameters; handle(%p) or level(%d) or action(%d) or type(%d).\n", handle, level, action, type);
         return dsERR_INVALID_PARAM;
@@ -1478,7 +1478,7 @@ dsError_t dsAudioOutRegisterConnectCB(dsAudioOutPortConnectCB_t CBFunc)
 		hal_err("Invalid parameters; CBFunc(%p).\n", CBFunc);
         return dsERR_INVALID_PARAM;
     }
-	if (NULL != _halhdmiaudiocb) {
+	if (NULL != _halhdmiaudioCB) {
 		hal_warn("CBFunc already registered; overriding with new callback handle.\n");
 	}
 	_halhdmiaudioCB = CBFunc;
@@ -1747,7 +1747,7 @@ dsError_t dsSetAudioMixerLevels(intptr_t handle, dsAudioInput_t aInput, int volu
         return dsERR_NOT_INITIALIZED;
     }
     if (!dsAudioIsValidHandle(handle) || volume < 0 || volume > 100
-		|| aInput < dsAUDIO_INPUT_PRIMARY  || aInput => dsAUDIO_INPUT_MAX)
+		|| aInput < dsAUDIO_INPUT_PRIMARY  || aInput >= dsAUDIO_INPUT_MAX)
     {
 		hal_err("Invalid parameters; handle(%p) or volume(%d) or aInput(%d).\n", handle, volume, aInput);
         return dsERR_INVALID_PARAM;
