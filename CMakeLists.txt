@@ -33,7 +33,7 @@ endif()
 # Compiler flags , add security flags as well
 set(SECURITY_CFLAGS "-fstack-protector-strong -D_FORTIFY_SOURCE=2 -Wformat -Wformat-security -fPIE -pie -Wl,-z,relro -Wl,-z,now")
 # Set C++ compiler flags, including the security flags
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1y -g -fPIC -D_REENTRANT -Werror -Wall -DALSA_AUDIO_MASTER_CONTROL_ENABLE ${SECURITY_CFLAGS}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1y -g -fPIC -D_REENTRANT -Werror -Wall -Wextra -DALSA_AUDIO_MASTER_CONTROL_ENABLE ${SECURITY_CFLAGS}")
 
 # Create the shared library
 add_library(${LIBNAME} SHARED ${SOURCES})
