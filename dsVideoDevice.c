@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include "dsTypes.h"
 #include "dsVideoDevice.h"
+#include "dsVideoDeviceTypes.h"
 #include "dshalUtils.h"
 #include "dshalLogger.h"
 
@@ -104,12 +105,11 @@ dsError_t dsGetVideoDevice(int index, intptr_t *handle)
 dsError_t dsSetDFC(intptr_t handle, dsVideoZoom_t dfc)
 {
     hal_info("invoked.\n");
-    if (false == _bVideoDeviceInited)
-    {
+    if (false == _bVideoDeviceInited) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (!dsIsValidHandle(handle))
-    {
+    if (!dsIsValidHandle(handle) || !dsVideoPortDFC_isValid(dfc)) {
+		hal_error("Invalid parameter, handle: %p or dfc: %d\n", handle, dfc);
         return dsERR_INVALID_PARAM;
     }
     return dsERR_OPERATION_NOT_SUPPORTED;
@@ -266,12 +266,11 @@ dsError_t dsGetSupportedVideoCodingFormats(intptr_t handle, unsigned int *suppor
 dsError_t dsGetVideoCodecInfo(intptr_t handle, dsVideoCodingFormat_t codec, dsVideoCodecInfo_t *info)
 {
     hal_info("invoked.\n");
-    if (false == _bVideoDeviceInited)
-    {
+    if (false == _bVideoDeviceInited) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (info == NULL || !dsIsValidHandle(handle))
-    {
+    if (info == NULL || !dsIsValidHandle(handle) || codec <= dsVIDEO_CODEC_MPEGHPART2 || codec >= dsVIDEO_CODEC_MAX) {
+		hal_err("Invalid parameter, handle: %p or info: %p or codec: %d\n", handle, info, codec);
         return dsERR_INVALID_PARAM;
     }
     return dsERR_OPERATION_NOT_SUPPORTED;
@@ -299,14 +298,14 @@ dsError_t dsGetVideoCodecInfo(intptr_t handle, dsVideoCodingFormat_t codec, dsVi
 dsError_t dsForceDisableHDRSupport(intptr_t handle, bool disable)
 {
     hal_info("invoked.\n");
-    if (false == _bVideoDeviceInited)
-    {
+    if (false == _bVideoDeviceInited) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (!dsIsValidHandle(handle))
-    {
+    if (!dsIsValidHandle(handle)) {
+		hal_err("Invalid parameter, handle: %p\n", handle);
         return dsERR_INVALID_PARAM;
     }
+	hal_dbg("Force disable HDR support is not supported, can't set to %d\n", disable);
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -405,15 +404,13 @@ dsError_t dsGetFRFMode(intptr_t handle, int *frfmode)
 dsError_t dsGetCurrentDisplayframerate(intptr_t handle, char *framerate)
 {
     hal_info("invoked.\n");
-    char *prt = NULL;
     char data[256] = {0};
 
-    if (false == _bVideoDeviceInited)
-    {
+    if (false == _bVideoDeviceInited) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (!dsIsValidHandle(handle) || framerate == NULL)
-    {
+    if (!dsIsValidHandle(handle) || framerate == NULL) {
+		hal_err("Invalid parameter, handle: %p or framerate: %p\n", handle, framerate);
         return dsERR_INVALID_PARAM;
     }
     if (westerosRWWrapper("export XDG_RUNTIME_DIR=/run; westeros-gl-console get mode", data, sizeof(data))) {
@@ -496,10 +493,13 @@ dsError_t dsSetDisplayframerate(intptr_t handle, char *framerate)
 dsError_t dsRegisterFrameratePreChangeCB(dsRegisterFrameratePreChangeCB_t CBFunc)
 {
     hal_info("invoked.\n");
-    if (false == _bVideoDeviceInited)
-    {
+    if (false == _bVideoDeviceInited) {
         return dsERR_NOT_INITIALIZED;
     }
+	if (CBFunc == NULL) {
+		hal_err("Invalid parameter, CBFunc: %p\n", CBFunc);
+		return dsERR_INVALID_PARAM;
+	}
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -526,9 +526,12 @@ dsError_t dsRegisterFrameratePreChangeCB(dsRegisterFrameratePreChangeCB_t CBFunc
 dsError_t dsRegisterFrameratePostChangeCB(dsRegisterFrameratePostChangeCB_t CBFunc)
 {
     hal_info("invoked.\n");
-    if (false == _bVideoDeviceInited)
-    {
+    if (false == _bVideoDeviceInited) {
         return dsERR_NOT_INITIALIZED;
     }
+	if (CBFunc == NULL) {
+		hal_err("Invalid parameter, CBFunc: %p\n", CBFunc);
+		return dsERR_INVALID_PARAM;
+	}
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
