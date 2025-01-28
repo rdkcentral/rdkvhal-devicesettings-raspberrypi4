@@ -16,6 +16,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
+
+#define _GNU_SOURCE // For getline()
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -70,9 +72,9 @@ dsError_t dsReadCfgFile(size_t index,char* portString,port_initialization_fp ini
 	sprintf(platformFile, "%s%c%s", STRINGIFY(HAL_CONFIG_FILE), 47, PLATFORM_FILE);
 
 	fptr = fopen(platformFile, "r");
-	if (fptr != NULL && index >= 0 && init != NULL) {
+	if (fptr != NULL && index > 0 && init != NULL) {
 		while (1) {
-			bzero(propbuff_p, sizeof(propbuff_p));
+            memset(propbuff_p, 0, sizeof(propbuff_p));
 			buff_p = dsGetValidStringFrmCfg(fptr);
 			if (buff_p != NULL) {
 				valbuff_p = strchr(buff_p, '=');

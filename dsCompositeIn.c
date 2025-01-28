@@ -138,8 +138,8 @@ dsError_t dsCompositeInGetStatus(dsCompositeInStatus_t *pStatus)
  */
 dsError_t dsCompositeInSelectPort(dsCompositeInPort_t Port)
 {
-        hal_info("invoked.\n");
-        return dsERR_OPERATION_NOT_SUPPORTED;
+    hal_info("invoked for Port(%d).\n", Port);
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
@@ -202,8 +202,12 @@ dsError_t dsCompositeInScaleVideo(int32_t x, int32_t y, int32_t width, int32_t h
  */
 dsError_t dsCompositeInRegisterConnectCB(dsCompositeInConnectCB_t CBFunc)
 {
-        hal_info("invoked.\n");
-        return dsERR_OPERATION_NOT_SUPPORTED;
+    hal_info("invoked.\n");
+    if (NULL == CBFunc) {
+        hal_err("Invalid parameter; CBFunc(%p)\n", CBFunc);
+        return dsERR_INVALID_PARAM;
+    }
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
@@ -228,8 +232,12 @@ dsError_t dsCompositeInRegisterConnectCB(dsCompositeInConnectCB_t CBFunc)
  */
 dsError_t dsCompositeInRegisterSignalChangeCB(dsCompositeInSignalChangeCB_t CBFunc)
 {
-        hal_info("invoked.\n");
-        return dsERR_OPERATION_NOT_SUPPORTED;
+    hal_info("invoked.\n");
+    if (NULL == CBFunc) {
+        hal_err("Invalid parameter, CBFunc(%p).\n", CBFunc);
+        return dsERR_INVALID_PARAM;
+    }
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
@@ -256,6 +264,10 @@ dsError_t dsCompositeInRegisterSignalChangeCB(dsCompositeInSignalChangeCB_t CBFu
 
 dsError_t dsCompositeInRegisterStatusChangeCB(dsCompositeInStatusChangeCB_t CBFunc)
 {
-        hal_info("invoked.\n");
-        return dsERR_OPERATION_NOT_SUPPORTED;
+    hal_info("invoked.\n");
+    if (NULL == CBFunc) {
+        hal_err("Invalid parameter, CBFunc(%p).\n", CBFunc);
+        return dsERR_INVALID_PARAM;
+    }
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }
