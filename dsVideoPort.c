@@ -107,10 +107,17 @@ static void tvservice_hdcp_callback( void *callback_data,
 
 dsError_t dsRegisterHdcpStatusCallback(intptr_t handle, dsHDCPStatusCallback_t cb)
 {
-        dsError_t ret = dsERR_NONE;
-        /* Register The call Back */
-        _halhdcpcallback = cb;
-        return ret;
+    hal_info("invoked.\n");
+    if (!isValidVopHandle(handle) || NULL == cb) {
+        hal_err("handle(%p) is invalid or cb(%p) is null.\n", handle, cb);
+        return dsERR_INVALID_PARAM;
+    }
+    /* Register The call Back */
+    if (NULL != _halhdcpcallback) {
+        hal_warn("HDCP callback is already registered; overriding with new one.\n");
+    }
+    _halhdcpcallback = cb;
+    return dsERR_NONE;
 }
 
 /**
@@ -282,7 +289,7 @@ dsError_t dsIsVideoPortEnabled(intptr_t handle, bool *enabled)
     }
 	if(vopHandle->m_vType == dsVIDEOPORT_TYPE_COMPONENT)
 	{
-		*enabled = vopHandle->m_isEnabled ;
+		*enabled = vopHandle->m_isEnabled;
 	}
 	else if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI)
 	{
@@ -321,92 +328,68 @@ dsError_t dsIsVideoPortEnabled(intptr_t handle, bool *enabled)
  *
  * @see dsIsVideoPortEnabled()
  */
-dsError_t  dsEnableVideoPort(intptr_t handle, bool enabled)
+dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
 {
     hal_info("invoked.\n");
-    VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
-    SDTV_OPTIONS_T options;
-    int res = 0, rc = 0;
-    if(false == _bIsVideoPortInitialized)
-    {
+
+    if (!_bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
 
-    if (!isValidVopHandle(handle))
-    {
+    if (!isValidVopHandle(handle)) {
         hal_err("handle(%p) is invalid.\n", handle);
         return dsERR_INVALID_PARAM;
     }
 
-    if(vopHandle->m_vType == dsVIDEOPORT_TYPE_BB)
-    {
-        if(enabled != vopHandle->m_isEnabled)
-        {
-            if (enabled)
-            {
-                options.aspect = SDTV_ASPECT_16_9;
-                res = vc_tv_sdtv_power_on(SDTV_MODE_NTSC, &options);
-                if (res != 0) {
-                    hal_err("Failed to enable composite video port\n");
-                    return dsERR_GENERAL;
-                }
+    VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
+    int res = 0;
+
+    if (vopHandle->m_vType == dsVIDEOPORT_TYPE_BB) {
+        SDTV_OPTIONS_T options = { .aspect = SDTV_ASPECT_16_9 };
+        if (enabled) {
+            res = vc_tv_sdtv_power_on(SDTV_MODE_NTSC, &options);
+            if (res != 0) {
+                hal_err("Failed to enable composite video port\n");
+                return dsERR_GENERAL;
             }
-            else
-            {
-                res = vc_tv_power_off();
-                if (res != 0)
-                {
-                    hal_err("Failed to disbale composite video port\n");
-                    return dsERR_GENERAL;
-                }
+        } else {
+            res = vc_tv_power_off();
+            if (res != 0) {
+                hal_err("Failed to disable composite video port\n");
+                return dsERR_GENERAL;
             }
         }
-        vopHandle->m_isEnabled = enabled;
-    }
-    else if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI)
-    {
-        if(enabled != vopHandle->m_isEnabled)
-        {
-            if (enabled)
-            {
-                res = vc_tv_hdmi_power_on_preferred();
-                if (res != 0)
-                {
-                    hal_err("Failed to power on HDMI with preferred settings\n");
-                    return dsERR_GENERAL;
-                }
+    } else if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
+        char cmd[128] = {0};
+        char resp[128] = {0};
+        snprintf(cmd, sizeof(cmd), "export XDG_RUNTIME_DIR=/run; westeros-gl-console set display enable %d", enabled);
 
-                rc = system("/lib/rdk/rpiDisplayEnable.sh 1");
-                if (rc == -1)
-                {
-                    hal_err("Failed to run script rpiDisplayEnable.sh with enable=1 rc=%d\n", rc);
-                    return dsERR_GENERAL;
-                }
-            }
-            else
-            {
-                rc = system("/lib/rdk/rpiDisplayEnable.sh 0");
-                if(rc == -1)
-                {
-                    hal_err("Failed to run script rpiDisplayEnable.sh with enable=0 rc=%d\n", rc);
-                    return dsERR_GENERAL;
-                }
-                sleep(1);
-
-                res = vc_tv_power_off();
-                if (res != 0)
-                {
-                    hal_err("Failed to disbale HDMI video port\n");
-                    return dsERR_GENERAL;
-                }
+        if (enabled) {
+            res = vc_tv_hdmi_power_on_preferred();
+            if (res != 0) {
+                hal_err("Failed to power on HDMI with preferred settings\n");
+                return dsERR_GENERAL;
             }
         }
-        vopHandle->m_isEnabled = enabled;
-    }
-    else
-    {
+
+        if (!westerosRWWrapper(cmd, resp, sizeof(resp))) {
+            hal_err("Failed to run '%s', got response '%s'\n", cmd, resp);
+            return dsERR_GENERAL;
+        }
+
+        if (!enabled) {
+            sleep(1);
+            res = vc_tv_power_off();
+            if (res != 0) {
+                hal_err("Failed to disable HDMI video port\n");
+                return dsERR_GENERAL;
+            }
+        }
+    } else {
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
+
+    vopHandle->m_isEnabled = enabled;
     return dsERR_NONE;
 }
 
@@ -436,7 +419,7 @@ dsError_t  dsEnableVideoPort(intptr_t handle, bool enabled)
  *
  * @warning  This API is Not thread safe.
  */
-dsError_t  dsIsDisplayConnected(intptr_t handle, bool *connected)
+dsError_t dsIsDisplayConnected(intptr_t handle, bool *connected)
 {
     hal_info("invoked.\n");
     VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
@@ -507,7 +490,7 @@ dsError_t  dsIsDisplayConnected(intptr_t handle, bool *connected)
  *
  * @see dsIsDTCPEnabled()
  */
-dsError_t  dsEnableDTCP(intptr_t handle, bool contentProtect)
+dsError_t dsEnableDTCP(intptr_t handle, bool contentProtect)
 {
 	hal_info("invoked.\n");
 	if(false == _bIsVideoPortInitialized)
@@ -553,7 +536,7 @@ dsError_t  dsEnableDTCP(intptr_t handle, bool contentProtect)
  *
  * @see dsGetHDCPStatus(), dsIsHDCPEnabled()
  */
-dsError_t  dsEnableHDCP(intptr_t handle, bool contentProtect, char *hdcpKey, size_t keySize)
+dsError_t dsEnableHDCP(intptr_t handle, bool contentProtect, char *hdcpKey, size_t keySize)
 {
 	// Ref: https://forums.raspberrypi.com/viewtopic.php?t=278193
 	hal_info("invoked.\n");
@@ -702,7 +685,7 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         hal_err("handle(%p) is invalid or resolution(%p) is NULL.\n", handle, resolution);
 		return dsERR_INVALID_PARAM;
 	}
-	if( vc_tv_get_display_state( &tvstate ) == 0) {
+	if (vc_tv_get_display_state(&tvstate) == 0) {
 		hal_dbg("vc_tv_get_display_state: 0x%X\n", tvstate.state);
 		if (tvstate.state & VC_HDMI_ATTACHED) {
 			hal_dbg("  Width: %d\n", tvstate.display.hdmi.width);
@@ -857,6 +840,7 @@ dsError_t  dsVideoPortTerm()
         return dsERR_NOT_INITIALIZED;
     }
     vchi_tv_uninit();
+    _halhdcpcallback = NULL;
     _bIsVideoPortInitialized = false;
     return dsERR_NONE;
 }
