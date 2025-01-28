@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 
-project(ds-hal VERSION 0.0 LANGUAGES C CXX)
+project(ds-hal VERSION 0.0 LANGUAGES C)
 
 # Set the library name
 set(LIBNAME ds-hal)
@@ -32,8 +32,8 @@ endif()
 
 # Compiler flags , add security flags as well
 set(SECURITY_CFLAGS "-fstack-protector-strong -D_FORTIFY_SOURCE=2 -Wformat -Wformat-security -fPIE -pie -Wl,-z,relro -Wl,-z,now")
-# Set C++ compiler flags, including the security flags
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1y -g -fPIC -D_REENTRANT -Werror -Wall -Wextra -DALSA_AUDIO_MASTER_CONTROL_ENABLE ${SECURITY_CFLAGS}")
+# Set compiler flags, including the security flags
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11 -g -fPIC -D_REENTRANT -Werror -Wall -Wextra -DALSA_AUDIO_MASTER_CONTROL_ENABLE ${SECURITY_CFLAGS}")
 
 # Create the shared library
 add_library(${LIBNAME} SHARED ${SOURCES})
