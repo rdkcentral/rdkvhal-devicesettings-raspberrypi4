@@ -191,13 +191,21 @@ bool westerosRWWrapper(const char *cmd, char *resp, size_t respSize)
     }
     FILE *fp = popen(cmd, "r");
     if (NULL != fp) {
-        if (fgets(buffer, sizeof(buffer), fp) != NULL) {
+        size_t totalLen = 0;
+        while (fgets(buffer, sizeof(buffer), fp) != NULL) {
             printf("Read '%s'\n", buffer);
-            strncpy(resp, buffer, (respSize - 1));
-            resp[respSize - 1] = '\0';
-        } else {
-            resp[0] = '\0';
+            size_t len = strlen(buffer);
+            if (totalLen + len < respSize - 1) {
+                strncpy(resp + totalLen, buffer, len);
+                totalLen += len;
+            } else {
+                hal_warn("Response buffer is overflowing.\n");
+                strncpy(resp + totalLen, buffer, respSize - totalLen - 1);
+                totalLen = respSize - 1;
+                break;
+            }
         }
+        resp[totalLen] = '\0';
         pclose(fp);
         return true;
     }
