@@ -316,7 +316,7 @@ const dsTVResolution_t *getResolutionFromVic(int vic)
 {
     for (size_t i = 0; i < VIC_MAP_TABLE_SIZE; ++i) {
         if (vicMapTable[i].vic == vic) {
-            return &vicMapTable[i].resolution;
+            return &vicMapTable[i].tvresolution;
         }
     }
     return NULL; // VIC not found
@@ -325,7 +325,7 @@ const dsTVResolution_t *getResolutionFromVic(int vic)
 const int *getVicFromResolution(dsTVResolution_t resolution)
 {
     for (size_t i = 0; i < VIC_MAP_TABLE_SIZE; ++i) {
-        if (vicMapTable[i].resolution == resolution) {
+        if (vicMapTable[i].tvresolution == resolution) {
             return &vicMapTable[i].vic;
         }
     }
