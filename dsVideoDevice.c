@@ -88,7 +88,7 @@ dsError_t dsGetVideoDevice(int index, intptr_t *handle)
     if (index != 0 || NULL == handle) {
         return dsERR_INVALID_PARAM;
     }
-    handle = (intptr_t)&VDHandle;
+    *handle = (intptr_t)&VDHandle;
     return dsERR_NONE;
 }
 
