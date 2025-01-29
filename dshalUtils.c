@@ -212,3 +212,22 @@ bool westerosRWWrapper(const char *cmd, char *resp, size_t respSize)
     return false;
 }
 
+const dsVideoResolution_t* getResolutionFromVic(int vic)
+{
+    for (size_t i = 0; i < VIC_MAP_TABLE_SIZE; ++i) {
+        if (vicMapTable[i].vic == vic) {
+            return &vicMapTable[i].resolution;
+        }
+    }
+    return NULL; // VIC not found
+}
+
+const int* getVicFromResolution(dsVideoResolution_t resolution)
+{
+    for (size_t i = 0; i < VIC_MAP_TABLE_SIZE; ++i) {
+        if (vicMapTable[i].resolution == resolution) {
+            return &vicMapTable[i].vic;
+        }
+    }
+    return NULL; // VIC not found
+}

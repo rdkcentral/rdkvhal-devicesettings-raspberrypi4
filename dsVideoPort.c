@@ -1054,6 +1054,7 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
         uint32_t mode;
         int num_of_modes;
         int i;
+		dsVideoResolution_t *dsVideoResolution = NULL;
         num_of_modes = vc_tv_hdmi_get_supported_modes_new(HDMI_RES_GROUP_CEA, modeSupported,
                 vcos_countof(modeSupported),
                 &group,
@@ -1066,6 +1067,7 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
         for (i = 0; i < num_of_modes; i++) {
             hal_info("[%d] mode %u: %ux%u%s%uHz\n", i, modeSupported[i].code, modeSupported[i].width,
                     modeSupported[i].height, (modeSupported[i].scan_mode?"i":"p"), modeSupported[i].frame_rate);
+#if 0
             switch (modeSupported[i].code) {
                 case HDMI_CEA_480p60:
                 case HDMI_CEA_480p60H:
@@ -1122,10 +1124,17 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
                 case HDMI_CEA_1080i60:
                     *resolutions |= dsTV_RESOLUTION_1080i;
                     break;
-                default:
-                    *resolutions |= dsTV_RESOLUTION_480p;
-                    break;
+		    default:
+			    *resolutions |= dsTV_RESOLUTION_480p;
+			    break;
             }
+#else
+			dsVideoResolution = dsGetVideoResolutionFromMode(modeSupported[i].code);
+			if (dsVideoResolution != NULL) {
+				hal_info("VIC %u dsVideoResolution = %d\n", *dsVideoResolution);
+				*resolutions |= *dsVideoResolution;
+			}
+#endif  // Use Mode/VIC Map
         }
     } else {
         hal_err("Get supported resolution for TV on Non HDMI Port\n");
