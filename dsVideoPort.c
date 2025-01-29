@@ -1164,7 +1164,7 @@ dsError_t  dsIsDisplaySurround(intptr_t handle, bool *surround)
     {
         return dsERR_NOT_INITIALIZED;
     }
-    if(!dsIsValidHandle(handle) ||surround == NULL)
+    if(!isValidVopHandle(handle) ||surround == NULL)
     {
         hal_err("handle(%p) is invalid or surround(%p) is null.\n", handle, surround);
         return dsERR_INVALID_PARAM;
@@ -1211,7 +1211,7 @@ dsError_t  dsGetSurroundMode(intptr_t handle, int *surround)
     {
         return dsERR_NOT_INITIALIZED;
     }
-    if(!dsIsValidHandle(handle)|| surround == NULL)
+    if(!isValidVopHandle(handle)|| surround == NULL)
     {
         hal_err("handle(%p) is invalid or surround(%p) is null.\n", handle, surround);
         return dsERR_INVALID_PARAM;
@@ -1257,7 +1257,7 @@ dsError_t dsSetActiveSource(intptr_t handle)
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (!dsIsValidHandle(handle)) {
+    if (!isValidVopHandle(handle)) {
         return dsERR_INVALID_PARAM;
     }
     return dsERR_OPERATION_NOT_SUPPORTED;
@@ -1293,7 +1293,7 @@ dsError_t dsGetHDCPStatus(intptr_t handle, dsHdcpStatus_t *status)
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (status == NULL || !dsIsValidHandle(handle)) {
+    if (status == NULL || !isValidVopHandle(handle)) {
         return dsERR_INVALID_PARAM;
     }
     return dsERR_OPERATION_NOT_SUPPORTED;
@@ -1305,7 +1305,7 @@ dsError_t dsSetForceDisable4KSupport(intptr_t handle, bool disable)
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (!dsIsValidHandle(handle)) {
+    if (!isValidVopHandle(handle)) {
         hal_err("handle(%p) is invalid.\n", handle);
         return dsERR_INVALID_PARAM;
     }
@@ -1318,7 +1318,7 @@ dsError_t dsGetForceDisable4KSupport(intptr_t handle, bool *disable)
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (!dsIsValidHandle(handle) || disable == NULL) {
+    if (!isValidVopHandle(handle) || disable == NULL) {
         hal_err("handle(%p) is invalid or disable(%p) is null.\n", handle, disable);
         return dsERR_INVALID_PARAM;
     }
@@ -1331,7 +1331,7 @@ dsError_t dsGetVideoEOTF(intptr_t handle, dsHDRStandard_t *video_eotf)
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (video_eotf == NULL || !dsIsValidHandle(handle)) {
+    if (video_eotf == NULL || !isValidVopHandle(handle)) {
         hal_err("handle(%p) is invalid or video_eotf(%p) is null.\n", handle, video_eotf);
         return dsERR_INVALID_PARAM;
     }
@@ -1343,7 +1343,7 @@ dsError_t dsGetMatrixCoefficients(intptr_t handle, dsDisplayMatrixCoefficients_t
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (matrix_coefficients == NULL || !dsIsValidHandle(handle)) {
+    if (matrix_coefficients == NULL || !isValidVopHandle(handle)) {
         hal_err("handle(%p) is invalid or matrix_coefficients(%p) is null.\n", handle, matrix_coefficients);
         return dsERR_INVALID_PARAM;
     }
@@ -1356,7 +1356,7 @@ dsError_t dsGetColorDepth(intptr_t handle, unsigned int *color_depth)
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (color_depth == NULL || !dsIsValidHandle(handle)) {
+    if (color_depth == NULL || !isValidVopHandle(handle)) {
         hal_err("handle(%p) is invalid or color_depth(%p) is null.\n", handle, color_depth);
         return dsERR_INVALID_PARAM;
     }
@@ -1369,7 +1369,7 @@ dsError_t dsGetColorSpace(intptr_t handle, dsDisplayColorSpace_t *color_space)
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (color_space == NULL || !dsIsValidHandle(handle)) {
+    if (color_space == NULL || !isValidVopHandle(handle)) {
         hal_err("handle(%p) is invalid or color_space(%p) is null.\n", handle, color_space);
         return dsERR_INVALID_PARAM;
     }
@@ -1381,7 +1381,7 @@ dsError_t dsGetQuantizationRange(intptr_t handle, dsDisplayQuantizationRange_t *
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (quantization_range == NULL || !dsIsValidHandle(handle)) {
+    if (quantization_range == NULL || !isValidVopHandle(handle)) {
         hal_err("handle(%p) is invalid or quantization_range(%p) is null.\n", handle, quantization_range);
         return dsERR_INVALID_PARAM;
     }
@@ -1395,7 +1395,7 @@ dsError_t dsGetCurrentOutputSettings(intptr_t handle, dsHDRStandard_t *video_eot
     }
     if (video_eotf == NULL || matrix_coefficients == NULL ||
             color_space == NULL || color_depth == NULL ||
-            quantization_range == NULL || !dsIsValidHandle(handle)) {
+            quantization_range == NULL || !isValidVopHandle(handle)) {
         hal_err("handle(%p) is invalid or one of the params is NULL.\n", handle);
         return dsERR_INVALID_PARAM;
     }
@@ -1408,7 +1408,7 @@ dsError_t dsIsOutputHDR(intptr_t handle, bool *hdr)
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (hdr == NULL || !dsIsValidHandle(handle)) {
+    if (hdr == NULL || !isValidVopHandle(handle)) {
         hal_err("handle(%p) is invalid or hdr(%p) is null.\n", handle, hdr);
         return dsERR_INVALID_PARAM;
     }
@@ -1430,7 +1430,7 @@ dsError_t dsSetHdmiPreference(intptr_t handle, dsHdcpProtocolVersion_t *hdcpCurr
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (hdcpCurrentProtocol == NULL ||!dsIsValidHandle(handle)) {
+    if (hdcpCurrentProtocol == NULL ||!isValidVopHandle(handle)) {
         hal_err("handle(%p) is invalid or hdcpCurrentProtocol(%p) is null.\n", handle, hdcpCurrentProtocol);
         return dsERR_INVALID_PARAM;
     }
@@ -1443,7 +1443,7 @@ dsError_t dsGetHdmiPreference(intptr_t handle, dsHdcpProtocolVersion_t *hdcpCurr
     if	(false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (hdcpCurrentProtocol == NULL || !dsIsValidHandle(handle)) {
+    if (hdcpCurrentProtocol == NULL || !isValidVopHandle(handle)) {
         hal_err("handle(%p) is invalid or hdcpCurrentProtocol(%p) is null.\n", handle, hdcpCurrentProtocol);
         return dsERR_INVALID_PARAM;
     }
@@ -1456,7 +1456,7 @@ dsError_t dsGetIgnoreEDIDStatus(intptr_t handle, bool *status)
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (!dsIsValidHandle(handle) || status == NULL) {
+    if (!isValidVopHandle(handle) || status == NULL) {
         hal_err("handle(%p) is invalid or status(%p) is null.\n", handle, status);
         return dsERR_INVALID_PARAM;
     }
@@ -1469,7 +1469,7 @@ dsError_t dsSetBackgroundColor(intptr_t handle, dsVideoBackgroundColor_t color)
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (!dsIsValidHandle(handle) || color != dsVIDEO_BGCOLOR_BLUE
+    if (!isValidVopHandle(handle) || color != dsVIDEO_BGCOLOR_BLUE
             || color != dsVIDEO_BGCOLOR_BLACK || color != dsVIDEO_BGCOLOR_NONE) {
         hal_err("handle(%p) is invalid or color(%d) is invalid.\n", handle, color);
         return dsERR_INVALID_PARAM;
@@ -1483,7 +1483,7 @@ dsError_t dsSetForceHDRMode(intptr_t handle, dsHDRStandard_t mode)
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (!dsIsValidHandle(handle)) {
+    if (!isValidVopHandle(handle)) {
         hal_err("handle(%p) is invalid.\n", handle);
         return dsERR_INVALID_PARAM;
     }
@@ -1502,7 +1502,7 @@ dsError_t dsColorDepthCapabilities(intptr_t handle, unsigned int *colorDepthCapa
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (colorDepthCapability == NULL ||!dsIsValidHandle(handle)) {
+    if (colorDepthCapability == NULL ||!isValidVopHandle(handle)) {
         hal_err("handle(%p) is invalid or colorDepthCapability(%p) is null.\n", handle, colorDepthCapability);
         return dsERR_INVALID_PARAM;
     }
@@ -1515,7 +1515,7 @@ dsError_t dsGetPreferredColorDepth(intptr_t handle, dsDisplayColorDepth_t *color
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (colorDepth == NULL ||!dsIsValidHandle(handle)) {
+    if (colorDepth == NULL ||!isValidVopHandle(handle)) {
         hal_err("handle(%p) is invalid or colorDepth(%p) is null.\n", handle, colorDepth);
         return dsERR_INVALID_PARAM;
     }
@@ -1528,7 +1528,7 @@ dsError_t dsSetPreferredColorDepth(intptr_t handle, dsDisplayColorDepth_t colorD
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (!dsIsValidHandle(handle)) {
+    if (!isValidVopHandle(handle)) {
         return dsERR_INVALID_PARAM;
     }
     if (colorDepth != dsDISPLAY_COLORDEPTH_UNKNOWN && colorDepth != dsDISPLAY_COLORDEPTH_8BIT &&
