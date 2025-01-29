@@ -793,8 +793,11 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
             return dsERR_GENERAL;
         }
         sleep(1);
-        system("fbset -depth 16");
-        system("fbset -depth 32");
+		// TODO: use westeros-gl-console to set this property as DRM/KMS won't be using FB.
+        if (system("fbset -depth 16") == -1)
+			hal_err("Failed to set fbset depth to 16\n");
+        if (system("fbset -depth 32") == -1)
+			hal_err("Failed to set fbset depth to 32\n");
     } else if (vopHandle->m_vType == dsVIDEOPORT_TYPE_BB) {
         SDTV_OPTIONS_T options;
         options.aspect = SDTV_ASPECT_16_9;
