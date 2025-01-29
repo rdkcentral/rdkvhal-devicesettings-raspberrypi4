@@ -184,7 +184,7 @@ dsError_t dsGetDisplayAspectRatio(intptr_t handle, dsVideoAspectRatio_t *aspect)
     if (false == _bDisplayInited) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (!dsIsValidVDispHandle(vDispHandle) || NULL == aspect) {
+    if (!dsIsValidVDispHandle((intptr_t)vDispHandle) || NULL == aspect) {
         hal_err("Invalid params, handle %p, aspect %p\n", vDispHandle, aspect);
         return dsERR_INVALID_PARAM;
     }
@@ -259,7 +259,7 @@ dsError_t dsRegisterDisplayEventCallback(intptr_t handle, dsDisplayEventCallback
     if (false == _bDisplayInited) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (NULL == cb || !dsIsValidVDispHandle(vDispHandle)) {
+    if (NULL == cb || !dsIsValidVDispHandle((intptr_t)vDispHandle)) {
         hal_err("Invalid params, cb %p, handle %p\n", cb, vDispHandle);
         return dsERR_INVALID_PARAM;
     }
@@ -288,7 +288,7 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
         return dsERR_NOT_INITIALIZED;
     }
 
-    if (!dsIsValidVDispHandle(vDispHandle) || NULL == edid) {
+    if (!dsIsValidVDispHandle((intptr_t)vDispHandle) || NULL == edid) {
         hal_err("Invalid params, handle %p, edid %p\n", vDispHandle, edid);
         return dsERR_INVALID_PARAM;
     }
@@ -362,7 +362,7 @@ dsError_t dsDisplaygetNativeHandle(intptr_t handle, int *native)
     hal_info("Invoked\n");
     VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
 
-    if (!dsIsValidVDispHandle(vDispHandle) || NULL == native) {
+    if (!dsIsValidVDispHandle((intptr_t)vDispHandle) || NULL == native) {
         hal_err("Invalid params, handle %p, native %p\n", vDispHandle, native);
         return dsERR_INVALID_PARAM;
     }
@@ -543,7 +543,7 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
     if (edid == NULL || length == NULL) {
         hal_err("invalid params\n");
         return dsERR_INVALID_PARAM;
-    } else if (!dsIsValidVDispHandle(vDispHandle) || vDispHandle != &_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0]) {
+    } else if (!dsIsValidVDispHandle((intptr_t)vDispHandle) || vDispHandle != &_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0]) {
         hal_err("invalid handle\n");
         return dsERR_INVALID_PARAM;
     }
