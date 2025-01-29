@@ -212,7 +212,7 @@ bool westerosRWWrapper(const char *cmd, char *resp, size_t respSize)
     return false;
 }
 
-dsVideoResolution_t* getResolutionFromVic(int vic)
+const dsVideoResolution_t* getResolutionFromVic(int vic)
 {
     for (size_t i = 0; i < VIC_MAP_TABLE_SIZE; ++i) {
         if (vicMapTable[i].vic == vic) {
@@ -222,7 +222,7 @@ dsVideoResolution_t* getResolutionFromVic(int vic)
     return NULL; // VIC not found
 }
 
-int* getVicFromResolution(dsVideoResolution_t resolution)
+const int* getVicFromResolution(dsVideoResolution_t resolution)
 {
     for (size_t i = 0; i < VIC_MAP_TABLE_SIZE; ++i) {
         if (vicMapTable[i].resolution == resolution) {

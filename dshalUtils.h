@@ -30,7 +30,7 @@ typedef struct {
     dsVideoResolution_t resolution;
 } VicMapEntry;
 
-static const VicMapEntry vicMapTable[] = {
+const VicMapEntry vicMapTable[] = {
     // 480p resolutions
     {2, dsVIDEO_PIXELRES_720x480},    // 720x480p @ 59.94/60Hz
     {3, dsVIDEO_PIXELRES_720x480},    // 720x480p @ 59.94/60Hz

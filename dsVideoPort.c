@@ -793,11 +793,11 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
             return dsERR_GENERAL;
         }
         sleep(1);
-		// TODO: use westeros-gl-console to set this property as DRM/KMS won't be using FB.
+        // TODO: use westeros-gl-console to set this property as DRM/KMS won't be using FB.
         if (system("fbset -depth 16") == -1)
-			hal_err("Failed to set fbset depth to 16\n");
+            hal_err("Failed to set fbset depth to 16\n");
         if (system("fbset -depth 32") == -1)
-			hal_err("Failed to set fbset depth to 32\n");
+            hal_err("Failed to set fbset depth to 32\n");
     } else if (vopHandle->m_vType == dsVIDEOPORT_TYPE_BB) {
         SDTV_OPTIONS_T options;
         options.aspect = SDTV_ASPECT_16_9;
@@ -1054,7 +1054,7 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
         uint32_t mode;
         int num_of_modes;
         int i;
-		dsVideoResolution_t *dsVideoResolution = NULL;
+        const dsVideoResolution_t *dsVideoResolution = NULL;
         num_of_modes = vc_tv_hdmi_get_supported_modes_new(HDMI_RES_GROUP_CEA, modeSupported,
                 vcos_countof(modeSupported),
                 &group,
@@ -1071,7 +1071,7 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
             switch (modeSupported[i].code) {
                 case HDMI_CEA_480p60:
                 case HDMI_CEA_480p60H:
-               case HDMI_CEA_480p60_2x:
+                case HDMI_CEA_480p60_2x:
                 case HDMI_CEA_480p60_2xH:
                 case HDMI_CEA_480p60_4x:
                 case HDMI_CEA_480p60_4xH:
@@ -1124,17 +1124,17 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
                 case HDMI_CEA_1080i60:
                     *resolutions |= dsTV_RESOLUTION_1080i;
                     break;
-		    default:
-			    *resolutions |= dsTV_RESOLUTION_480p;
-			    break;
+                default:
+                    *resolutions |= dsTV_RESOLUTION_480p;
+                    break;
             }
 #else
-			// modeSupported[i].code is VIC
-			dsVideoResolution = getResolutionFromVic(modeSupported[i].code);
-			if (dsVideoResolution != NULL) {
-				hal_info("VIC %u dsVideoResolution = %d\n", *dsVideoResolution);
-				*resolutions |= *dsVideoResolution;
-			}
+            // modeSupported[i].code is VIC
+            dsVideoResolution = getResolutionFromVic(modeSupported[i].code);
+            if (dsVideoResolution != NULL) {
+                hal_info("VIC %u dsVideoResolution = %d\n", *dsVideoResolution);
+                *resolutions |= *dsVideoResolution;
+            }
 #endif  // Use Mode/VIC Map
         }
     } else {
