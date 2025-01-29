@@ -1129,7 +1129,8 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
 			    break;
             }
 #else
-			dsVideoResolution = dsGetVideoResolutionFromMode(modeSupported[i].code);
+			// modeSupported[i].code is VIC
+			dsVideoResolution = getResolutionFromVic(modeSupported[i].code);
 			if (dsVideoResolution != NULL) {
 				hal_info("VIC %u dsVideoResolution = %d\n", *dsVideoResolution);
 				*resolutions |= *dsVideoResolution;
