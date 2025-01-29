@@ -148,7 +148,7 @@ int vchi_tv_init();
 int vchi_tv_uninit();
 int fill_edid_struct(unsigned char *edid, dsDisplayEDID_t *display, int size);
 bool westerosRWWrapper(const char *cmd, char *resp, size_t respSize);
-const dsVideoResolution_t *getResolutionFromVic(int vic);
-const int *getVicFromResolution(dsVideoResolution_t resolution);
+dsVideoResolution_t *getResolutionFromVic(int vic);
+int *getVicFromResolution(dsVideoResolution_t resolution);
 
 #endif
