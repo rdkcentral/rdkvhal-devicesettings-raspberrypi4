@@ -30,12 +30,26 @@
 #include "dsVideoResolutionSettings.h"
 #include "dshalUtils.h"
 
+
 #define MAX_HDMI_CODE_ID (127)
 dsDisplayEventCallback_t _halcallback = NULL;
 dsVideoPortResolution_t *HdmiSupportedResolution=NULL;
 static unsigned int numSupportedResn = 0;
 static bool _bDisplayInited = false;
 static bool isBootup = true;
+static hdmiSupportedRes_t resolutionMap[] = {
+                {"480p", 3},
+                {"576p50", 18},
+                {"720p", 4},
+                {"720p50", 19},
+                {"1080i", 5},
+                {"1080p", 33},
+                {"1080i50", 20},
+                {"1080p50", 31},
+                {"1080p24", 32},
+                {"1080p30", 34},
+                {"1080p60", 16}
+};
 static dsError_t dsQueryHdmiResolution();
 TV_SUPPORTED_MODE_T dsVideoPortgetVideoFormatFromInfo(dsVideoResolution_t res,
                                                        unsigned frameRate, bool interlaced);
