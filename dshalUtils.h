@@ -15,7 +15,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
-*/
+ */
 
 #ifndef __DSHALUTILS_H
 #define __DSHALUTILS_H
@@ -27,14 +27,14 @@
 
 typedef struct {
     int vic;
-    dsVideoResolution_t resolution;
+    dsTVResolution_t tvresolution;
 } VicMapEntry;
 
 int vchi_tv_init();
 int vchi_tv_uninit();
 int fill_edid_struct(unsigned char *edid, dsDisplayEDID_t *display, int size);
 bool westerosRWWrapper(const char *cmd, char *resp, size_t respSize);
-const dsVideoResolution_t *getResolutionFromVic(int vic);
-const int *getVicFromResolution(dsVideoResolution_t resolution);
+const dsTVResolution_t *getResolutionFromVic(int vic);
+const int *getVicFromResolution(dsTVResolution_t resolution);
 
 #endif

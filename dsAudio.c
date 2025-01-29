@@ -80,8 +80,8 @@ static void dsGetdBRange();
 bool dsAudioIsValidHandle(intptr_t uHandle)
 {
     for (size_t index = 0; index < dsAUDIOPORT_TYPE_MAX; index++) {
-        hal_info("Checking for a match uHandle: %p and _AOPHandles[index][0].m_nativeHandle: %p\n",
-                uHandle, _AOPHandles[index][0].m_nativeHandle);
+        //hal_info("Checking for a match uHandle: %p and _AOPHandles[index][0].m_nativeHandle: %p\n",
+        //        uHandle, _AOPHandles[index][0].m_nativeHandle);
         if ((intptr_t)&_AOPHandles[index][0] == uHandle) {
             hal_info("uHandle: %p is a match\n", uHandle);
             return true;

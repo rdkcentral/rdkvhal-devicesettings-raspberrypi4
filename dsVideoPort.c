@@ -854,7 +854,7 @@ dsError_t  dsVideoPortTerm()
  */
 static bool isValidVopHandle(intptr_t m_handle) {
     for (int i = 0; i < dsVIDEOPORT_TYPE_MAX; i++) {
-        hal_info("Checking if m_handle(%p) is a match with &_vopHandles[%d][0](%p).\n", m_handle, i, &_vopHandles[i][0]);
+        //hal_info("Checking if m_handle(%p) is a match with &_vopHandles[%d][0](%p).\n", m_handle, i, &_vopHandles[i][0]);
         if ((intptr_t)&_vopHandles[i][0] == m_handle) {
             hal_info("m_handle(%p) is a match.\n", m_handle);
             return true;
@@ -1054,7 +1054,7 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
         uint32_t mode;
         int num_of_modes;
         int i;
-        const dsVideoResolution_t *dsVideoResolution = NULL;
+        const dsTVResolution_t *TVVideoResolution = NULL;
         num_of_modes = vc_tv_hdmi_get_supported_modes_new(HDMI_RES_GROUP_CEA, modeSupported,
                 vcos_countof(modeSupported),
                 &group,
@@ -1130,10 +1130,10 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
             }
 #else
             // modeSupported[i].code is VIC
-            dsVideoResolution = getResolutionFromVic(modeSupported[i].code);
-            if (dsVideoResolution != NULL) {
-                hal_info("VIC %u dsVideoResolution = %d\n", *dsVideoResolution);
-                *resolutions |= *dsVideoResolution;
+            TVVideoResolution = getResolutionFromVic(modeSupported[i].code);
+            if (TVVideoResolution != NULL) {
+                hal_info("VIC %u TVVideoResolution = 0x%x\n", getVicFromResolution(*TVVideoResolution), *TVVideoResolution);
+                *resolutions |= *TVVideoResolution;
             }
 #endif  // Use Mode/VIC Map
         }

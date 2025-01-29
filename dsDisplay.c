@@ -52,7 +52,7 @@ static VDISPHandle_t _VDispHandles[dsVIDEOPORT_TYPE_MAX][2] = {};
 
 bool dsIsValidVDispHandle(intptr_t m_handle) {
     for (int i = 0; i < dsVIDEOPORT_TYPE_MAX; i++) {
-        hal_info("Checking if m_handle(%p) is a match - &_VDispHandles[%d][0](%p).\n", m_handle, i, &_VDispHandles[i][0]);
+        //hal_info("Checking if m_handle(%p) is a match - &_VDispHandles[%d][0](%p).\n", m_handle, i, &_VDispHandles[i][0]);
         if ((intptr_t)&_VDispHandles[i][0] == m_handle) {
             hal_info("m_handle(%p) is a match.\n", m_handle);
             return true;
