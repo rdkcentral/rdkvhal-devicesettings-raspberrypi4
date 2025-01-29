@@ -36,7 +36,7 @@ bool dsIsValidVDHandle(intptr_t uHandle)
         hal_info("uHandle(%p) is matching with VDHandle(%p)\n", uHandle, (intptr_t)&VDHandle);
         return true;
     }
-    return false
+    return false;
 }
 
 /**
@@ -88,7 +88,7 @@ dsError_t dsGetVideoDevice(int index, intptr_t *handle)
     if (index != 0 || NULL == handle) {
         return dsERR_INVALID_PARAM;
     }
-    handle = VDHandle;
+    handle = (intptr_t)&VDHandle;
     return dsERR_NONE;
 }
 
