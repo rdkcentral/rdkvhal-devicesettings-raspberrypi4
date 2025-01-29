@@ -38,6 +38,19 @@ static bool isValidVopHandle(intptr_t handle);
 static const char* dsVideoGetResolution(uint32_t mode);
 static uint32_t dsGetHdmiMode(dsVideoPortResolution_t *resolution);
 #define MAX_HDMI_MODE_ID (127)
+static hdmiSupportedRes_t resolutionMap[] = {
+                {"480p", 3},
+                {"576p50", 18},
+                {"720p", 4},
+                {"720p50", 19},
+                {"1080i", 5},
+                {"1080p", 33},
+                {"1080i50", 20},
+                {"1080p50", 31},
+                {"1080p24", 32},
+                {"1080p30", 34},
+                {"1080p60", 16}
+};
 
 dsHDCPStatusCallback_t _halhdcpcallback = NULL;
 
