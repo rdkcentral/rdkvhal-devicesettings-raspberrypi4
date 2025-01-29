@@ -79,17 +79,17 @@ int vchi_tv_uninit()
 
 static int detailedBlock(unsigned char *x, int extension, dsDisplayEDID_t *displayEdidInfo)
 {
+    hal_info("extension %d\n", extension);
     static unsigned char name[53];
-    switch (x[3])
-    {
-    case 0xFC:
-        if (strchr((char *)name, '\n'))
+    switch (x[3]) {
+        case 0xFC:
+            if (strchr((char *)name, '\n'))
+                return 1;
+            strncat((char *)name, (char *)x + 5, 13);
+            strncpy(displayEdidInfo->monitorName, (const char *)name, dsEEDID_MAX_MON_NAME_LENGTH);
             return 1;
-        strncat((char *)name, (char *)x + 5, 13);
-        strncpy(displayEdidInfo->monitorName, (const char *)name, dsEEDID_MAX_MON_NAME_LENGTH);
-        return 1;
-    default:
-        return 1;
+        default:
+            return 1;
     }
 }
 

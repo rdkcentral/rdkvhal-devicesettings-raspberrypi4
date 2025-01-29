@@ -22,8 +22,9 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <errno.h>
-#include "dsFPD.h"
 
+#include "dsFPD.h"
+#include "dsFPDTypes.h"
 #include "dshalLogger.h"
 
 void setValue (int pin, int value);
@@ -47,7 +48,7 @@ void exportPins(int pin)
 
 void setDirection(int pin)
 {
-	snprintf(fName, sizeof(fName), "/sys/class/gpio/gpio%d/direction", pin);
+    snprintf(fName, sizeof(fName), "/sys/class/gpio/gpio%d/direction", pin);
     if ((fd = fopen (fName, "w")) == NULL) {
         hal_err("fopen error for setting direction - pin(%d): %s\n", pin, strerror(errno));
         exit(1);
@@ -86,7 +87,7 @@ void setValue(int pin, int value)
  */
 dsError_t dsFPInit(void)
 {
-	hal_info("invoked.\n");
+    hal_info("invoked.\n");
     // These changes were added for Traffic light LED support in RPI3. Not relevant otherwise.
 #if 0
     exportPins (LED_RED);
@@ -97,7 +98,7 @@ dsError_t dsFPInit(void)
     setDirection (LED_YELLOW);
     setDirection (LED_GREEN);
 #endif
-	// Should not return error, as this is not a critical operation.
+    // Should not return error, as this is not a critical operation.
     return dsERR_NONE;
 }
 
@@ -122,7 +123,7 @@ dsError_t dsFPInit(void)
  */
 dsError_t dsFPTerm(void)
 {
-	hal_info("invoked.\n");
+    hal_info("invoked.\n");
     return dsERR_NONE;
 }
 
@@ -152,13 +153,13 @@ dsError_t dsFPTerm(void)
  */
 dsError_t dsSetFPBlink(dsFPDIndicator_t eIndicator, unsigned int uBlinkDuration, unsigned int uBlinkIterations)
 {
-	hal_info("invoked.\n");
-	if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX
-		|| uBlinkDuration == 0 || uBlinkIterations == 0) {
-		hal_err("Invalid parameter, eIndicator: %d, uBlinkDuration: %d, uBlinkIterations: %d\n",
-				eIndicator, uBlinkDuration, uBlinkIterations);
-		return dsERR_INVALID_PARAM;
-	}
+    hal_info("invoked.\n");
+    if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX
+            || uBlinkDuration == 0 || uBlinkIterations == 0) {
+        hal_err("Invalid parameter, eIndicator: %d, uBlinkDuration: %d, uBlinkIterations: %d\n",
+                eIndicator, uBlinkDuration, uBlinkIterations);
+        return dsERR_INVALID_PARAM;
+    }
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -202,12 +203,11 @@ dsError_t dsSetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t eBrig
 
     setValue (gpio_pin, eBrightness);
 #endif
-	hal_info("invoked.\n");
-	if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX
-		|| eBrightness < 0 || eBrightness > 100) {
-		hal_err("Invalid parameter, eIndicator: %d, eBrightness: %d.\n", eIndicator, eBrightness);
-		return dsERR_INVALID_PARAM;
-	}
+    hal_info("invoked.\n");
+    if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX || eBrightness > 100) {
+        hal_err("Invalid parameter, eIndicator: %d, eBrightness: %d.\n", eIndicator, eBrightness);
+        return dsERR_INVALID_PARAM;
+    }
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -237,14 +237,14 @@ dsError_t dsSetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t eBrig
  */
 dsError_t dsGetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t *pBrightness)
 {
-	hal_info("invoked.\n");
-	if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX
-		|| pBrightness == NULL) {
-		hal_err("Invalid parameter, eIndicator: %d, pBrightness: %p.\n", eIndicator, pBrightness);
-		return dsERR_INVALID_PARAM;
-	}
-	return dsERR_OPERATION_NOT_SUPPORTED;
-	return dsERR_OPERATION_NOT_SUPPORTED;
+    hal_info("invoked.\n");
+    if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX
+            || pBrightness == NULL) {
+        hal_err("Invalid parameter, eIndicator: %d, pBrightness: %p.\n", eIndicator, pBrightness);
+        return dsERR_INVALID_PARAM;
+    }
+    return dsERR_OPERATION_NOT_SUPPORTED;
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
@@ -274,12 +274,12 @@ dsError_t dsGetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t *pBri
 dsError_t dsSetFPColor(dsFPDIndicator_t eIndicator, dsFPDColor_t eColor)
 {
     hal_info("invoked.\n");
-	if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX
-		|| eColor >= dsFPD_COLOR_MAX) {
-		hal_err("Invalid parameter, eIndicator: %d, eColor: %d.\n", eIndicator, eColor);
-		return dsERR_INVALID_PARAM;
-	}
-	return dsERR_OPERATION_NOT_SUPPORTED;
+    if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX
+            || eColor >= dsFPD_COLOR_MAX) {
+        hal_err("Invalid parameter, eIndicator: %d, eColor: %d.\n", eIndicator, eColor);
+        return dsERR_INVALID_PARAM;
+    }
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
@@ -314,11 +314,11 @@ dsError_t dsSetFPColor(dsFPDIndicator_t eIndicator, dsFPDColor_t eColor)
 dsError_t dsSetFPTime(dsFPDTimeFormat_t eTimeFormat, const unsigned int uHour, const unsigned int uMinutes)
 {
     hal_info("invoked.\n");
-	if (eTimeFormat != dsFPD_TIME_12_HOUR && eTimeFormat != dsFPD_TIME_24_HOUR) {
-		hal_err("Invalid parameter, eTimeFormat: %d (HH:MM %d:%d).\n", eTimeFormat, uHour, uMinutes);
-		return dsERR_INVALID_PARAM;
-	}
-	return dsERR_OPERATION_NOT_SUPPORTED;
+    if (eTimeFormat != dsFPD_TIME_12_HOUR && eTimeFormat != dsFPD_TIME_24_HOUR) {
+        hal_err("Invalid parameter, eTimeFormat: %d (HH:MM %d:%d).\n", eTimeFormat, uHour, uMinutes);
+        return dsERR_INVALID_PARAM;
+    }
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
@@ -350,11 +350,11 @@ dsError_t dsSetFPTime(dsFPDTimeFormat_t eTimeFormat, const unsigned int uHour, c
 dsError_t dsSetFPText(const char* pText)
 {
     hal_info("invoked.\n");
-	if (pText == NULL || strlen(pText) > 10) {
-		hal_err("Invalid parameter, pText: %p or length %d.\n", pText, (pText == NULL) ? 0 : strlen(pText));
-		return dsERR_INVALID_PARAM;
-	}
-	return dsERR_OPERATION_NOT_SUPPORTED;
+    if (pText == NULL || strlen(pText) > 10) {
+        hal_err("Invalid parameter, pText: %p or length %d.\n", pText, (pText == NULL) ? 0 : strlen(pText));
+        return dsERR_INVALID_PARAM;
+    }
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
@@ -388,12 +388,12 @@ dsError_t dsSetFPText(const char* pText)
 dsError_t dsSetFPScroll(unsigned int uScrollHoldOnDur, unsigned int uHorzScrollIterations, unsigned int uVertScrollIterations)
 {
     hal_info("invoked.\n");
-	if (uScrollHoldOnDur == 0 || (uHorzScrollIterations == 0 && uVertScrollIterations == 0)) {
-		hal_err("Invalid parameter, uScrollHoldOnDur: %d, uHorzScrollIterations: %d, uVertScrollIterations: %d.\n",
-				uScrollHoldOnDur, uHorzScrollIterations, uVertScrollIterations);
-		return dsERR_INVALID_PARAM;
-	}
-	return dsERR_OPERATION_NOT_SUPPORTED;
+    if (uScrollHoldOnDur == 0 || (uHorzScrollIterations == 0 && uVertScrollIterations == 0)) {
+        hal_err("Invalid parameter, uScrollHoldOnDur: %d, uHorzScrollIterations: %d, uVertScrollIterations: %d.\n",
+                uScrollHoldOnDur, uHorzScrollIterations, uVertScrollIterations);
+        return dsERR_INVALID_PARAM;
+    }
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
@@ -427,12 +427,11 @@ dsError_t dsSetFPScroll(unsigned int uScrollHoldOnDur, unsigned int uHorzScrollI
 dsError_t dsSetFPTextBrightness(dsFPDTextDisplay_t eIndicator, dsFPDBrightness_t eBrightness)
 {
     hal_info("invoked.\n");
-	if (eIndicator < dsFPD_TEXT_DISPLAY_CLOCK || eIndicator >= dsFPD_TEXT_DISPLAY_MAX
-		|| eBrightness < 0 || eBrightness > 100) {
-		hal_err("Invalid parameter, eIndicator: %d, eBrightness: %d.\n", eIndicator, eBrightness);
-		return dsERR_INVALID_PARAM;
-	}
-	return dsERR_OPERATION_NOT_SUPPORTED;
+    if (!dsFPDTextDisplay_isValid(eIndicator) || eBrightness > 100) {
+        hal_err("Invalid parameter, eIndicator: %d, eBrightness: %d.\n", eIndicator, eBrightness);
+        return dsERR_INVALID_PARAM;
+    }
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
@@ -465,12 +464,11 @@ dsError_t dsSetFPTextBrightness(dsFPDTextDisplay_t eIndicator, dsFPDBrightness_t
 dsError_t dsGetFPTextBrightnes(dsFPDTextDisplay_t eIndicator, dsFPDBrightness_t *pBrightness)
 {
     hal_info("invoked.\n");
-	if (eIndicator < dsFPD_TEXT_DISPLAY_CLOCK || eIndicator >= dsFPD_TEXT_DISPLAY_MAX
-		|| pBrightness == NULL) {
-		hal_err("Invalid parameter, eIndicator: %d, pBrightness: %p.\n", eIndicator, pBrightness);
-		return dsERR_INVALID_PARAM;
-	}
-	return dsERR_OPERATION_NOT_SUPPORTED;
+    if (!dsFPDTextDisplay_isValid(eIndicator) || pBrightness == NULL) {
+        hal_err("Invalid parameter, eIndicator: %d, pBrightness: %p.\n", eIndicator, pBrightness);
+        return dsERR_INVALID_PARAM;
+    }
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
@@ -499,11 +497,11 @@ dsError_t dsGetFPTextBrightnes(dsFPDTextDisplay_t eIndicator, dsFPDBrightness_t 
 dsError_t dsFPEnableCLockDisplay(int enable)
 {
     hal_info("invoked.\n");
-	if (enable != 0 && enable != 1) {
-		hal_err("Invalid parameter, enable: %d.\n", enable);
-		return dsERR_INVALID_PARAM;
-	}
-	return dsERR_OPERATION_NOT_SUPPORTED;
+    if (enable != 0 && enable != 1) {
+        hal_err("Invalid parameter, enable: %d.\n", enable);
+        return dsERR_INVALID_PARAM;
+    }
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
@@ -532,12 +530,12 @@ dsError_t dsFPEnableCLockDisplay(int enable)
 dsError_t dsSetFPState(dsFPDIndicator_t eIndicator, dsFPDState_t state)
 {
     hal_info("invoked.\n");
-	if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX
-		|| state < dsFPD_STATE_OFF || state >= dsFPD_STATE_MAX) {
-		hal_err("Invalid parameter, eIndicator: %d, state: %d.\n", eIndicator, state);
-		return dsERR_INVALID_PARAM;
-	}
-	return dsERR_OPERATION_NOT_SUPPORTED;
+    if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX
+            || state < dsFPD_STATE_OFF || state >= dsFPD_STATE_MAX) {
+        hal_err("Invalid parameter, eIndicator: %d, state: %d.\n", eIndicator, state);
+        return dsERR_INVALID_PARAM;
+    }
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
@@ -570,23 +568,35 @@ dsError_t dsSetFPState(dsFPDIndicator_t eIndicator, dsFPDState_t state)
 dsError_t dsGetFPTextBrightness(dsFPDTextDisplay_t eIndicator, dsFPDBrightness_t *pBrightness)
 {
     hal_info("invoked.\n");
-	if (eIndicator < dsFPD_TEXT_DISPLAY_CLOCK || eIndicator >= dsFPD_TEXT_DISPLAY_MAX
-		|| pBrightness == NULL) {
-		hal_err("Invalid parameter, eIndicator: %d, pBrightness: %p.\n", eIndicator, pBrightness);
-		return dsERR_INVALID_PARAM;
-	}
-	return dsERR_OPERATION_NOT_SUPPORTED;
+    if (!dsFPDTextDisplay_isValid(eIndicator) || pBrightness == NULL) {
+        hal_err("Invalid parameter, eIndicator: %d, pBrightness: %p.\n", eIndicator, pBrightness);
+        return dsERR_INVALID_PARAM;
+    }
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
-dsError_t dsSetFPDBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t eBrightness,bool toPersist)
+dsError_t dsSetFPDBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t eBrightness, bool toPersist)
 {
-    hal_info("invoked.\n");
-	return dsERR_OPERATION_NOT_SUPPORTED;
+    hal_info("invoked with toPersist %d.\n", toPersist);
+    if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX
+            || eBrightness > dsFPD_BRIGHTNESS_MAX)
+    {
+        hal_err("Invalid parameter, eIndicator: %d, eBrightness: %d.\n", eIndicator, eBrightness);
+        return dsERR_INVALID_PARAM;
+    }
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }
-dsError_t dsSetFPDColor(dsFPDIndicator_t eIndicator, dsFPDColor_t eColor,bool toPersist)
+dsError_t dsSetFPDColor(dsFPDIndicator_t eIndicator, dsFPDColor_t eColor, bool toPersist)
 {
-    hal_info("invoked.\n");
-	return dsERR_OPERATION_NOT_SUPPORTED;
+    hal_info("invoked with toPersist %d.\n", toPersist);
+    if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX
+            || (eColor != dsFPD_COLOR_BLUE && eColor != dsFPD_COLOR_GREEN && eColor != dsFPD_COLOR_RED
+                && eColor != dsFPD_COLOR_YELLOW && eColor != dsFPD_COLOR_ORANGE && eColor != dsFPD_COLOR_WHITE))
+    {
+        hal_err("Invalid parameter, eIndicator: %d, eColor: %d.\n", eIndicator, eColor);
+        return dsERR_INVALID_PARAM;
+    }
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
@@ -616,12 +626,12 @@ dsError_t dsSetFPDColor(dsFPDIndicator_t eIndicator, dsFPDColor_t eColor,bool to
 dsError_t dsGetFPColor(dsFPDIndicator_t eIndicator, dsFPDColor_t *pColor)
 {
     hal_info("invoked.\n");
-	if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX
-		|| pColor == NULL) {
-		hal_err("Invalid parameter, eIndicator: %d, pColor: %p.\n", eIndicator, pColor);
-		return dsERR_INVALID_PARAM;
-	}
-	return dsERR_OPERATION_NOT_SUPPORTED;
+    if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX
+            || pColor == NULL) {
+        hal_err("Invalid parameter, eIndicator: %d, pColor: %p.\n", eIndicator, pColor);
+        return dsERR_INVALID_PARAM;
+    }
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
@@ -649,12 +659,12 @@ dsError_t dsGetFPColor(dsFPDIndicator_t eIndicator, dsFPDColor_t *pColor)
  */
 dsError_t dsGetFPState(dsFPDIndicator_t eIndicator, dsFPDState_t* state)
 {
-	hal_info("invoked.\n");
+    hal_info("invoked.\n");
     if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX
-		|| state == NULL) {
-		hal_err("Invalid parameter, eIndicator: %d, state: %p.\n", eIndicator, state);
-		return dsERR_INVALID_PARAM;
-	}
+            || state == NULL) {
+        hal_err("Invalid parameter, eIndicator: %d, state: %p.\n", eIndicator, state);
+        return dsERR_INVALID_PARAM;
+    }
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -688,15 +698,15 @@ dsError_t dsGetFPState(dsFPDIndicator_t eIndicator, dsFPDState_t* state)
  */
 dsError_t dsSetFPTimeFormat(dsFPDTimeFormat_t eTimeFormat)
 {
-	hal_info("invoked.\n");
-	if (eTimeFormat != dsFPD_TIME_12_HOUR && eTimeFormat != dsFPD_TIME_24_HOUR) {
-		hal_err("Invalid parameter, eTimeFormat: %d.\n", eTimeFormat);
-		return dsERR_INVALID_PARAM;
-	}
-	return dsERR_OPERATION_NOT_SUPPORTED;
+    hal_info("invoked.\n");
+    if (eTimeFormat != dsFPD_TIME_12_HOUR && eTimeFormat != dsFPD_TIME_24_HOUR) {
+        hal_err("Invalid parameter, eTimeFormat: %d.\n", eTimeFormat);
+        return dsERR_INVALID_PARAM;
+    }
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
- /**
+/**
  * @brief Gets the current time format on the 7-segment Front Panel Display LEDs
  *
  * This function gets the current time format set on 7-segment display LEDs panel.
@@ -724,9 +734,9 @@ dsError_t dsSetFPTimeFormat(dsFPDTimeFormat_t eTimeFormat)
  */
 dsError_t dsGetFPTimeFormat(dsFPDTimeFormat_t *pTimeFormat)
 {
-	hal_info("invoked.\n");
+    hal_info("invoked.\n");
     if (pTimeFormat == NULL) {
-		hal_err("Invalid parameter, pTimeFormat: %p.\n", pTimeFormat);
+        hal_err("Invalid parameter, pTimeFormat: %p.\n", pTimeFormat);
         return dsERR_INVALID_PARAM;
     }
     return dsERR_OPERATION_NOT_SUPPORTED;
@@ -757,11 +767,11 @@ dsError_t dsGetFPTimeFormat(dsFPDTimeFormat_t *pTimeFormat)
  */
 dsError_t dsSetFPDMode(dsFPDMode_t eMode)
 {
-	hal_info("invoked.\n");
-	if (eMode != dsFPD_MODE_CLOCK && eMode != dsFPD_MODE_TEXT && eMode != dsFPD_MODE_ANY) {
-		hal_err("Invalid parameter, eMode: %d.\n", eMode);
-		return dsERR_INVALID_PARAM;
-	}
+    hal_info("invoked.\n");
+    if (eMode != dsFPD_MODE_CLOCK && eMode != dsFPD_MODE_TEXT && eMode != dsFPD_MODE_ANY) {
+        hal_err("Invalid parameter, eMode: %d.\n", eMode);
+        return dsERR_INVALID_PARAM;
+    }
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -787,9 +797,9 @@ dsError_t dsSetFPDMode(dsFPDMode_t eMode)
  */
 dsError_t dsFPGetLEDState(dsFPDLedState_t* state)
 {
-	hal_info("invoked.\n");
+    hal_info("invoked.\n");
     if (state == NULL) {
-		hal_err("Invalid parameter, state: %p.\n", state);
+        hal_err("Invalid parameter, state: %p.\n", state);
         return dsERR_INVALID_PARAM;
     }
     return dsERR_OPERATION_NOT_SUPPORTED;
@@ -817,11 +827,11 @@ dsError_t dsFPGetLEDState(dsFPDLedState_t* state)
  */
 dsError_t dsFPSetLEDState(dsFPDLedState_t state)
 {
-	hal_info("invoked.\n");
-	if (state < dsFPD_LED_DEVICE_NONE || state >= dsFPD_LED_DEVICE_MAX) {
-		hal_err("Invalid parameter, state: %d.\n", state);
-		return dsERR_INVALID_PARAM;
-	}
+    hal_info("invoked.\n");
+    if (state < dsFPD_LED_DEVICE_NONE || state >= dsFPD_LED_DEVICE_MAX) {
+        hal_err("Invalid parameter, state: %d.\n", state);
+        return dsERR_INVALID_PARAM;
+    }
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -846,9 +856,9 @@ dsError_t dsFPSetLEDState(dsFPDLedState_t state)
  */
 dsError_t dsFPGetSupportedLEDStates(unsigned int* states)
 {
-	hal_info("invoked.\n");
+    hal_info("invoked.\n");
     if (states == NULL) {
-		hal_err("Invalid parameter, states: %p.\n", states);
+        hal_err("Invalid parameter, states: %p.\n", states);
         return dsERR_INVALID_PARAM;
     }
     return dsERR_OPERATION_NOT_SUPPORTED;

@@ -65,8 +65,7 @@ static void tvservice_callback(void *callback_data, uint32_t reason, uint32_t pa
 {
     VDISPHandle_t *hdmiHandle = (VDISPHandle_t*)callback_data;
     unsigned char eventData = 0;
-    hal_info("Got handle status %d and reason %d, param1 %d, param2 %d\n",
-            dsIsValidVDispHandle(hdmiHandle), reason, param1, param2);
+    hal_info("Got handle %p and reason %d, param1 %d, param2 %d\n", hdmiHandle, reason, param1, param2);
     switch (reason) {
         case VC_HDMI_UNPLUGGED:
             hal_dbg("HDMI cable is unplugged\n");

@@ -1345,7 +1345,7 @@ dsError_t dsSetAudioDelay(intptr_t handle, const uint32_t audioDelayMs)
     if (false == _bIsAudioInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (!dsAudioIsValidHandle(handle) || audioDelayMs < 0 || audioDelayMs > 200) {
+    if (!dsAudioIsValidHandle(handle) || audioDelayMs > 200) {
         hal_err("Invalid parameters; handle(%p) or audioDelayMs(%d).\n", handle, audioDelayMs);
         return dsERR_INVALID_PARAM;
     }
