@@ -32,8 +32,8 @@ static int VDHandle = 0;
 bool dsIsValidVDHandle(intptr_t uHandle)
 {
     hal_info("uHandle is %p\n", uHandle);
-    if (uHandle == VDHandle) {
-        hal_info("uHandle(%p) is matching with VDHandle(%p)\n", uHandle, &VDHandle);
+    if (uHandle == (intptr_t)&VDHandle) {
+        hal_info("uHandle(%p) is matching with VDHandle(%p)\n", uHandle, (intptr_t)&VDHandle);
         return true;
     }
     return false
