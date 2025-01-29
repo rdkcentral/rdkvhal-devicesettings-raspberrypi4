@@ -37,6 +37,7 @@ dsVideoPortResolution_t *HdmiSupportedResolution=NULL;
 static unsigned int numSupportedResn = 0;
 static bool _bDisplayInited = false;
 static bool isBootup = true;
+
 static hdmiSupportedRes_t resolutionMap[] = {
                 {"480p", 3},
                 {"576p50", 18},
