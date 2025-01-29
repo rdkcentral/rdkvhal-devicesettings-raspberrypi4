@@ -1065,11 +1065,11 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
         hal_info("num_of_modes = %d\n", num_of_modes);
         for (i = 0; i < num_of_modes; i++) {
             hal_info("[%d] mode %u: %ux%u%s%uHz\n", i, modeSupported[i].code, modeSupported[i].width,
-                    modeSupported[i].height, (supported_modes[i].scan_mode?"i":"p"), modeSupported[i].frame_rate);
+                    modeSupported[i].height, (modeSupported[i].scan_mode?"i":"p"), modeSupported[i].frame_rate);
             switch (modeSupported[i].code) {
                 case HDMI_CEA_480p60:
                 case HDMI_CEA_480p60H:
-                case HDMI_CEA_480p60_2x:
+               case HDMI_CEA_480p60_2x:
                 case HDMI_CEA_480p60_2xH:
                 case HDMI_CEA_480p60_4x:
                 case HDMI_CEA_480p60_4xH:
