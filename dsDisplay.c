@@ -322,7 +322,7 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
         }
 		hal_dbg("Modified EDID debug\n");
 		EDID_t parsed_edid1;
-		parse_edid(edid, &parsed_edid1);
+		parse_edid((const uint8_t *)edid, &parsed_edid1);
 		print_edid(&parsed_edid1);
     } else {
         hal_err("Handle type %d is not supported(not dsVIDEOPORT_TYPE_HDMI)\n", vDispHandle->m_vType);
