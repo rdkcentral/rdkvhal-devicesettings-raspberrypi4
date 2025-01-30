@@ -338,8 +338,8 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
             return dsERR_GENERAL;
         }
         for (unsigned int i = 0; i < numSupportedResn; i++) {
-            memcpy(&edid->supportedResolution[i], &HdmiSupportedResolution[i], sizeof(dsVideoPortResolution_t));
-            hal_dbg("Copied resolution %s\n", edid->supportedResolution[i].name);
+            memcpy(&edid->suppResolutionList[i], &HdmiSupportedResolution[i], sizeof(dsVideoPortResolution_t));
+            hal_dbg("Copied resolution %s\n", edid->suppResolutionList[i].name);
         }
         edid->numOfSupportedResolution = numSupportedResn;
         if (NULL != raw) {
