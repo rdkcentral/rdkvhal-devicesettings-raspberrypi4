@@ -300,6 +300,10 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
             hal_err("Failed to get EDID bytes\n");
             return dsERR_GENERAL;
         }
+		hal_dbg("Raw EDID debug\n");
+		EDID_t parsed_edid;
+		parse_edid(raw, &parsed_edid);
+		print_edid(&parsed_edid);
         if (fill_edid_struct(raw, edid, length) != 0) {
             hal_err("Failed to fill EDID struct\n");
             return dsERR_GENERAL;
@@ -308,7 +312,6 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
             hal_err("Failed to query HDMI resolution\n");
             return dsERR_GENERAL;
         }
-
         hal_dbg("numSupportedResn - %d\n", numSupportedResn);
         for (size_t i = 0; i < numSupportedResn; i++) {
             edid->suppResolutionList[edid->numOfSupportedResolution] = HdmiSupportedResolution[i];
@@ -317,6 +320,10 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
         if (NULL != raw) {
             free(raw);
         }
+		hal_dbg("Modified EDID debug\n");
+		EDID_t parsed_edid1;
+		parse_edid(edid, &parsed_edid1);
+		print_edid(&parsed_edid1);
     } else {
         hal_err("Handle type %d is not supported(not dsVIDEOPORT_TYPE_HDMI)\n", vDispHandle->m_vType);
         return dsERR_OPERATION_NOT_SUPPORTED;

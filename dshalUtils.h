@@ -30,9 +30,29 @@ typedef struct {
     dsTVResolution_t tvresolution;
 } VicMapEntry;
 
+typedef struct {
+    uint8_t header[8];
+    uint16_t manufacturer_id;
+    uint16_t product_code;
+    uint32_t serial_number;
+    uint8_t week_of_manufacture;
+    uint16_t year_of_manufacture;
+    uint8_t edid_version;
+    uint8_t edid_revision;
+    uint8_t basic_display_params[5];
+    uint8_t chromaticity_coords[10];
+    uint8_t established_timings[3];
+    uint8_t standard_timings[16];
+    uint8_t detailed_timing_descriptors[72];
+    uint8_t extension_flag;
+    uint8_t checksum;
+} EDID_t;
+
 int vchi_tv_init();
 int vchi_tv_uninit();
 int fill_edid_struct(unsigned char *edid, dsDisplayEDID_t *display, int size);
+void parse_edid(const uint8_t *edid, EDID_t *parsed_edid);
+void print_edid(const EDID_t *parsed_edid);
 bool westerosRWWrapper(const char *cmd, char *resp, size_t respSize);
 const dsTVResolution_t *getResolutionFromVic(int vic);
 const int *getVicFromResolution(dsTVResolution_t resolution);

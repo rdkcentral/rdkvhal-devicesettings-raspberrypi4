@@ -23,6 +23,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 #include "dshalUtils.h"
 #include "dshalLogger.h"
@@ -245,8 +246,7 @@ int fill_edid_struct(unsigned char *edidBytes, dsDisplayEDID_t *displayEdidInfo,
     time_t t;
     struct tm *localtm;
     int i;
-    if (!edidBytes || memcmp(edidBytes, "\x00\xFF\xFF\xFF\xFF\xFF\xFF\x00", 8))
-    {
+    if (!edidBytes || memcmp(edidBytes, "\x00\xFF\xFF\xFF\xFF\xFF\xFF\x00", 8)) {
         hal_dbg("Header not found\n");
         return -1;
     }
@@ -281,6 +281,75 @@ int fill_edid_struct(unsigned char *edidBytes, dsDisplayEDID_t *displayEdidInfo,
             parse_cea_block(x, displayEdidInfo);
     }
     return 0;
+}
+
+void parse_edid(const uint8_t *edid, EDID_t *parsed_edid)
+{
+    memcpy(parsed_edid->header, edid, 8);
+    parsed_edid->manufacturer_id = (edid[8] << 8) | edid[9];
+    parsed_edid->product_code = (edid[10] << 8) | edid[11];
+    parsed_edid->serial_number = (edid[12] << 24) | (edid[13] << 16) | (edid[14] << 8) | edid[15];
+    parsed_edid->week_of_manufacture = edid[16];
+    parsed_edid->year_of_manufacture = edid[17] + 1990;
+    parsed_edid->edid_version = edid[18];
+    parsed_edid->edid_revision = edid[19];
+    memcpy(parsed_edid->basic_display_params, &edid[20], 5);
+    memcpy(parsed_edid->chromaticity_coords, &edid[25], 10);
+    memcpy(parsed_edid->established_timings, &edid[35], 3);
+    memcpy(parsed_edid->standard_timings, &edid[38], 16);
+    memcpy(parsed_edid->detailed_timing_descriptors, &edid[54], 72);
+    parsed_edid->extension_flag = edid[126];
+    parsed_edid->checksum = edid[127];
+}
+
+void print_edid(const EDID_t *parsed_edid)
+{
+    printf("Header: ");
+    for (int i = 0; i < 8; i++) {
+        printf("%02x ", parsed_edid->header[i]);
+    }
+    printf("\n");
+
+    printf("Manufacturer ID: %04x\n", parsed_edid->manufacturer_id);
+    printf("Product Code: %04x\n", parsed_edid->product_code);
+    printf("Serial Number: %08x\n", parsed_edid->serial_number);
+    printf("Week of Manufacture: %d\n", parsed_edid->week_of_manufacture);
+    printf("Year of Manufacture: %d\n", parsed_edid->year_of_manufacture);
+    printf("EDID Version: %d\n", parsed_edid->edid_version);
+    printf("EDID Revision: %d\n", parsed_edid->edid_revision);
+
+    printf("Basic Display Parameters: ");
+    for (int i = 0; i < 5; i++) {
+        printf("%02x ", parsed_edid->basic_display_params[i]);
+    }
+    printf("\n");
+
+    printf("Chromaticity Coordinates: ");
+    for (int i = 0; i < 10; i++) {
+        printf("%02x ", parsed_edid->chromaticity_coords[i]);
+    }
+    printf("\n");
+
+    printf("Established Timings: ");
+    for (int i = 0; i < 3; i++) {
+        printf("%02x ", parsed_edid->established_timings[i]);
+    }
+    printf("\n");
+
+    printf("Standard Timings: ");
+    for (int i = 0; i < 16; i++) {
+        printf("%02x ", parsed_edid->standard_timings[i]);
+    }
+    printf("\n");
+
+    printf("Detailed Timing Descriptors: ");
+    for (int i = 0; i < 72; i++) {
+        printf("%02x ", parsed_edid->detailed_timing_descriptors[i]);
+    }
+    printf("\n");
+
+    printf("Extension Flag: %02x\n", parsed_edid->extension_flag);
+    printf("Checksum: %02x\n", parsed_edid->checksum);
 }
 
 bool westerosRWWrapper(const char *cmd, char *resp, size_t respSize)
