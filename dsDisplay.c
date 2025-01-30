@@ -326,11 +326,6 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
         edid->physicalAddressB = 0;
         edid->physicalAddressC = 0;
         edid->physicalAddressD = 0;
-        for (int i = 0, edid->numOfSupportedResolution = 0; i < 72; i += 18) {
-            if (raw[54 + i] != 0 || raw[55 + i] != 0) {
-                edid->numOfSupportedResolution++;
-            }
-        }
         strncpy(edid->monitorName, "Unknown", sizeof(edid->monitorName));
         edid->monitorName[dsEEDID_MAX_MON_NAME_LENGTH - 1] = '\0';
         if (dsQueryHdmiResolution() != dsERR_NONE) {
@@ -342,9 +337,9 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
             hal_err("No supported resolutions found\n");
             return dsERR_GENERAL;
         }
-		hal_dbg("Size should match -> sizeof %d and calc %d, total available %d\n",
-				sizeof(HdmiSupportedResolution), (sizeof(dsVideoPortResolution_t) * numSupportedResn),
-				sizeof(edid->suppResolutionList));
+        hal_dbg("Size should match -> sizeof %d and calc %d, total available %d\n",
+                sizeof(HdmiSupportedResolution), (sizeof(dsVideoPortResolution_t) * numSupportedResn),
+                sizeof(edid->suppResolutionList));
         memcpy(edid->suppResolutionList, HdmiSupportedResolution, sizeof(dsVideoPortResolution_t) * numSupportedResn);
         edid->numOfSupportedResolution = numSupportedResn;
         if (NULL != raw) {
