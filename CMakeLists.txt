@@ -45,6 +45,9 @@ target_link_libraries(${LIBNAME} vchostif vchiq_arm vcos asound)
 
 # Installation
 install(TARGETS ${LIBNAME} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+# Install headers ending with *Settings.h
+file(GLOB SETTINGS_HEADERS "${CMAKE_SOURCE_DIR}/*Settings.h")
+install(FILES ${SETTINGS_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/rdk/halif/ds-hal)
 
 # Clean target
 add_custom_target(clean-all
