@@ -337,18 +337,14 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
             hal_err("No supported resolutions found\n");
             return dsERR_GENERAL;
         }
-        hal_dbg("Size should match -> sizeof %d and calc %d, total available %d\n",
-                sizeof(HdmiSupportedResolution), (sizeof(dsVideoPortResolution_t) * numSupportedResn),
-                sizeof(edid->suppResolutionList));
-        memcpy(edid->suppResolutionList, HdmiSupportedResolution, sizeof(dsVideoPortResolution_t) * numSupportedResn);
+        for (unsigned int i = 0; i < numSupportedResn; i++) {
+            memcpy(&edid->supportedResolution[i], &HdmiSupportedResolution[i], sizeof(dsVideoPortResolution_t));
+            hal_dbg("Copied resolution %s\n", edid->supportedResolution[i].name);
+        }
         edid->numOfSupportedResolution = numSupportedResn;
         if (NULL != raw) {
             free(raw);
         }
-        hal_dbg("Modified EDID debug\n");
-        EDID_t parsed_edid1;
-        parse_edid((const uint8_t *)edid, &parsed_edid1);
-        print_edid(&parsed_edid1);
     } else {
         hal_err("Handle type %d is not supported(not dsVIDEOPORT_TYPE_HDMI)\n", vDispHandle->m_vType);
         return dsERR_OPERATION_NOT_SUPPORTED;
@@ -435,7 +431,7 @@ static dsError_t dsQueryHdmiResolution()
     }
     numSupportedResn = 0;
     size_t iCount = (sizeof(resolutionMap) / sizeof(resolutionMap[0]));
-    HdmiSupportedResolution = (dsVideoPortResolution_t*)malloc(sizeof(dsVideoPortResolution_t)*iCount);
+    HdmiSupportedResolution = (dsVideoPortResolution_t *)malloc(sizeof(dsVideoPortResolution_t)*iCount);
     if (HdmiSupportedResolution) {
         for (size_t i = 0; i < iCount; i++) {
             for (int j = 0; j < num_of_modes; j++) {
