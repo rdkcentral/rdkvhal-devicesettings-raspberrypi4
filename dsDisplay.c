@@ -272,13 +272,25 @@ dsError_t dsRegisterDisplayEventCallback(intptr_t handle, dsDisplayEventCallback
 }
 
 /**
- * @brief To get the EDID information of the connected display
+ * @brief Gets the EDID information from the specified display device.
  *
- * This function is used to get the EDID information of the connected display
+ * This function gets the EDID information from the HDMI/DVI display corresponding to
+ * the specified display device handle.
  *
- * @param [in] handle   Handle for the video display
- * @param [out] *edid   The EDID info of the display
- * @return dsError_t Error code.
+ * @param[in]  handle   - Handle of the display device
+ * @param[out] edid     - EDID info of the specified display device. Please refer ::dsDisplayEDID_t
+ *
+ * @return dsError_t                        - Status
+ * @retval dsERR_NONE                       - Success
+ * @retval dsERR_NOT_INITIALIZED            - Module is not initialised
+ * @retval dsERR_INVALID_PARAM              - Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED    - The attempted operation is not supported
+ * @retval dsERR_GENERAL                    - Underlying undefined platform error
+ *
+ * @pre  dsDisplayInit() and dsGetDisplay() must be called before calling this API
+ *
+ * @warning  This API is Not thread safe
+ *
  */
 dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
 {
@@ -300,30 +312,48 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
             hal_err("Failed to get EDID bytes\n");
             return dsERR_GENERAL;
         }
-		hal_dbg("Raw EDID debug\n");
-		EDID_t parsed_edid;
-		parse_edid(raw, &parsed_edid);
-		print_edid(&parsed_edid);
-        if (fill_edid_struct(raw, edid, length) != 0) {
-            hal_err("Failed to fill EDID struct\n");
-            return dsERR_GENERAL;
+        hal_dbg("Raw EDID debug\n");
+        EDID_t parsed_edid;
+        parse_edid(raw, &parsed_edid);
+        print_edid(&parsed_edid);
+        edid->productCode = parsed_edid.product_code;
+        edid->serialNumber = parsed_edid.serial_number;
+        edid->manufactureWeek = parsed_edid.week_of_manufacture;
+        edid->manufactureYear = parsed_edid.year_of_manufacture;
+        edid->hdmiDeviceType = true;
+        edid->isRepeater = false;
+        edid->physicalAddressA = 0;
+        edid->physicalAddressB = 0;
+        edid->physicalAddressC = 0;
+        edid->physicalAddressD = 0;
+        for (int i = 0, edid->numOfSupportedResolution = 0; i < 72; i += 18) {
+            if (raw[54 + i] != 0 || raw[55 + i] != 0) {
+                edid->numOfSupportedResolution++;
+            }
         }
+        strncpy(edid->monitorName, "Unknown", sizeof(edid->monitorName));
+        edid->monitorName[dsEEDID_MAX_MON_NAME_LENGTH - 1] = '\0';
         if (dsQueryHdmiResolution() != dsERR_NONE) {
             hal_err("Failed to query HDMI resolution\n");
             return dsERR_GENERAL;
         }
-        hal_dbg("numSupportedResn - %d\n", numSupportedResn);
-        for (size_t i = 0; i < numSupportedResn; i++) {
-            edid->suppResolutionList[edid->numOfSupportedResolution] = HdmiSupportedResolution[i];
-            edid->numOfSupportedResolution++;
+        hal_dbg("numSupportedResn from Table - %d\n", numSupportedResn);
+        if (numSupportedResn == 0) {
+            hal_err("No supported resolutions found\n");
+            return dsERR_GENERAL;
         }
+		hal_dbg("Size should match -> sizeof %d and calc %d, total available %d\n",
+				sizeof(HdmiSupportedResolution), (sizeof(dsVideoPortResolution_t) * numSupportedResn),
+				sizeof(edid->suppResolutionList));
+        memcpy(edid->suppResolutionList, HdmiSupportedResolution, sizeof(dsVideoPortResolution_t) * numSupportedResn);
+        edid->numOfSupportedResolution = numSupportedResn;
         if (NULL != raw) {
             free(raw);
         }
-		hal_dbg("Modified EDID debug\n");
-		EDID_t parsed_edid1;
-		parse_edid((const uint8_t *)edid, &parsed_edid1);
-		print_edid(&parsed_edid1);
+        hal_dbg("Modified EDID debug\n");
+        EDID_t parsed_edid1;
+        parse_edid((const uint8_t *)edid, &parsed_edid1);
+        print_edid(&parsed_edid1);
     } else {
         hal_err("Handle type %d is not supported(not dsVIDEOPORT_TYPE_HDMI)\n", vDispHandle->m_vType);
         return dsERR_OPERATION_NOT_SUPPORTED;
