@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 
-project(ds-hal VERSION 0.0 LANGUAGES C)
+# Middleware tries to load libds-hal.so.0 (RDK_DSHAL_NAME [libds-hal.so.0])
+project(ds-hal VERSION 0.0.0 LANGUAGES C)
 
 # Set the library name
 set(LIBNAME ds-hal)
@@ -39,7 +40,7 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11 -g -fPIC -D_REENTRANT -Werror -Wall
 add_library(${LIBNAME} SHARED ${SOURCES})
 set_target_properties(${LIBNAME} PROPERTIES
 	VERSION ${PROJECT_VERSION}
-	SOVERSION ${PROJECT_VERSION}
+	SOVERSION ${PROJECT_VERSION_MAJOR}
 )
 target_link_libraries(${LIBNAME} vchostif vchiq_arm vcos asound)
 
