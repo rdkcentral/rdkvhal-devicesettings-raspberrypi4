@@ -26,6 +26,12 @@ extern "C" {
 }
 #include "dsTypes.h"
 
+/* List all supported resolutions here */
+typedef struct __hdmiSupportedRes_t {
+    const char *rdkRes;
+    int mode;
+}hdmiSupportedRes_t;
+
 static hdmiSupportedRes_t resolutionMap[] = {
                 {"480p", 3},
                 {"576p50", 18},
