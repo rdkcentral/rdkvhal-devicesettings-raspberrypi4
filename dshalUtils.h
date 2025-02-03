@@ -26,6 +26,26 @@ extern "C" {
 }
 #include "dsTypes.h"
 
+/* List all supported resolutions here */
+typedef struct __hdmiSupportedRes_t {
+    const char *rdkRes;
+    int mode;
+}hdmiSupportedRes_t;
+
+static hdmiSupportedRes_t resolutionMap[] = {
+                {"480p", 3},
+                {"576p50", 18},
+                {"720p", 4},
+                {"720p50", 19},
+                {"1080i", 5},
+                {"1080p", 33},
+                {"1080i50", 20},
+                {"1080p50", 31},
+                {"1080p24", 32},
+                {"1080p30", 34},
+                {"1080p60", 16}
+};
+
 int vchi_tv_init();
 
 int vchi_tv_uninit();
