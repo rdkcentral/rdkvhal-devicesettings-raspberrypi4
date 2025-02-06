@@ -430,10 +430,9 @@ static dsError_t dsQueryHdmiResolution()
         HdmiSupportedResolution = NULL;
     }
     numSupportedResn = 0;
-    size_t iCount = RESOLUTION_MAP_SIZE;
-    HdmiSupportedResolution = (dsVideoPortResolution_t *)malloc(sizeof(dsVideoPortResolution_t)*iCount);
+    HdmiSupportedResolution = (dsVideoPortResolution_t *)malloc(sizeof(dsVideoPortResolution_t)*noOfItemsInResolutionMap);
     if (HdmiSupportedResolution) {
-        for (size_t i = 0; i < iCount; i++) {
+        for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
             for (int j = 0; j < num_of_modes; j++) {
                 if (modeSupported[j].code == resolutionMap[i].mode) {
                     dsVideoPortResolution_t *resolution = dsgetResolutionInfo(resolutionMap[i].rdkRes);

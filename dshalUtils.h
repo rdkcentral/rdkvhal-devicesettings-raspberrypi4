@@ -55,6 +55,7 @@ typedef struct __hdmiSupportedRes_t {
 } hdmiSupportedRes_t;
 
 extern const hdmiSupportedRes_t resolutionMap[];
+extern const size_t noOfItemsInResolutionMap;
 
 int vchi_tv_init();
 int vchi_tv_uninit();

@@ -58,7 +58,7 @@ const hdmiSupportedRes_t resolutionMap[] = {
     {"2160p60", 102}   // 4096x2160p @ 60Hz
 };
 
-#define RESOLUTION_MAP_SIZE	(sizeof(resolutionMap) / sizeof(resolutionMap[0]))
+const size_t noOfItemsInResolutionMap = sizeof(resolutionMap) / sizeof(hdmiSupportedRes_t);
 
 const VicMapEntry vicMapTable[] = {
     // 480i resolutions
