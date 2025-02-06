@@ -58,6 +58,8 @@ const hdmiSupportedRes_t resolutionMap[] = {
     {"2160p60", 102}   // 4096x2160p @ 60Hz
 };
 
+#define RESOLUTION_MAP_SIZE	(sizeof(resolutionMap) / sizeof(resolutionMap[0]))
+
 const VicMapEntry vicMapTable[] = {
     // 480i resolutions
     {6, dsTV_RESOLUTION_480i},    // 720x480i @ 59.94/60Hz

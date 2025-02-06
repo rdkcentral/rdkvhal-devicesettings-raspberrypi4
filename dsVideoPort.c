@@ -711,12 +711,11 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
     return dsERR_NONE;
 }
 
-// TODO: refactor with  proper error return.
 static const char* dsVideoGetResolution(uint32_t hdmiMode)
 {
     hal_info("invoked.\n");
     const char *res_name = NULL;
-    size_t iCount = ARRAY_SIZE(resolutionMap);
+    size_t iCount = RESOLUTION_MAP_SIZE;
     for (size_t i = 0; i < iCount; i++) {
         if (resolutionMap[i].mode == (int)hdmiMode)
             res_name = resolutionMap[i].rdkRes;
@@ -728,7 +727,7 @@ static uint32_t dsGetHdmiMode(dsVideoPortResolution_t *resolution)
 {
     hal_info("invoked.\n");
     uint32_t hdmi_mode = 0;
-    size_t iCount = ARRAY_SIZE(resolutionMap);
+    size_t iCount = RESOLUTION_MAP_SIZE;
     for (size_t i = 0; i < iCount; i++) {
         size_t length = strlen(resolution->name) > strlen(resolutionMap[i].rdkRes) ? strlen(resolution->name) : strlen(resolutionMap[i].rdkRes);
         if (!strncmp(resolution->name, resolutionMap[i].rdkRes, length))
