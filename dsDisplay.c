@@ -430,7 +430,7 @@ static dsError_t dsQueryHdmiResolution()
         HdmiSupportedResolution = NULL;
     }
     numSupportedResn = 0;
-    size_t iCount = (sizeof(resolutionMap) / sizeof(resolutionMap[0]));
+    size_t iCount = ARRAY_SIZE(resolutionMap);
     HdmiSupportedResolution = (dsVideoPortResolution_t *)malloc(sizeof(dsVideoPortResolution_t)*iCount);
     if (HdmiSupportedResolution) {
         for (size_t i = 0; i < iCount; i++) {

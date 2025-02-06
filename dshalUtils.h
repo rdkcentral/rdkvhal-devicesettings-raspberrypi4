@@ -25,6 +25,8 @@
 #include "dsTypes.h"
 #include "dsAVDTypes.h"
 
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
+
 typedef struct {
     int vic;
     dsTVResolution_t tvresolution;
