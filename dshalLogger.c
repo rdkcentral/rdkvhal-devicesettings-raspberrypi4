@@ -102,5 +102,8 @@ void configDSHALLogging(void)
 // Make constructor run the logging config when module loaded into memory.
 static void __attribute__((constructor)) initDSHALLogging(void)
 {
+#if defined(GIT_SHA)
+    printf("%s:%d: DSHAL SHA:'%s'\n", __FUNCTION__, __LINE__, GIT_SHA);
+#endif
     configDSHALLogging();
 }
