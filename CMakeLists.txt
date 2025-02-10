@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.10)
 project(ds-hal VERSION 0.0.0 LANGUAGES C)
 
 # Set the library name
-set(LIBNAME ds-hal)
+set(LIBNAME "dshal" CACHE STRING "Name of the HAL library")
 
 set(DEFAULT_BUILD_TYPE "Release")
 
