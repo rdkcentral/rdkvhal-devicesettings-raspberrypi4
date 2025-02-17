@@ -109,7 +109,7 @@ static void tvservice_hdcp_callback(void *callback_data,
 dsError_t dsRegisterHdcpStatusCallback(intptr_t handle, dsHDCPStatusCallback_t cb)
 {
     hal_info("invoked.\n");
-    if(false == _bIsVideoPortInitialized) {
+    if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }    
     if (!isValidVopHandle(handle) || NULL == cb) {
