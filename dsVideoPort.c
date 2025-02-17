@@ -110,7 +110,7 @@ dsError_t dsRegisterHdcpStatusCallback(intptr_t handle, dsHDCPStatusCallback_t c
 {
     hal_info("invoked.\n");
     if(false == _bIsVideoPortInitialized) {
-       return dsERR_NOT_INITIALIZED;
+        return dsERR_NOT_INITIALIZED;
     }    
     if (!isValidVopHandle(handle) || NULL == cb) {
         hal_err("handle(%p) is invalid or cb(%p) is null.\n", handle, cb);
