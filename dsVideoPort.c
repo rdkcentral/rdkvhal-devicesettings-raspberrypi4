@@ -1042,7 +1042,7 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
         return dsERR_NOT_INITIALIZED;
     }
     if (!isValidVopHandle(handle) || (NULL == resolutions)) {
-        hal_err("resolutions(%p) or handle(%p [*handle %p]) is invalid.\n", resolutions, handle, *vopHandle);
+        hal_err("resolutions(%p) or handle(%p) is invalid.\n", resolutions, handle);
         return dsERR_INVALID_PARAM;
     }
 
