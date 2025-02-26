@@ -143,20 +143,20 @@ static dsVideoPortResolution_t kResolutions[] = {
         /*.interlaced = */				_PROGRESSIVE,
     },
     {   /*1080i*/
-        /*.name = */					"1080i50",
-        /*.pixelResolution = */			dsVIDEO_PIXELRES_1920x1080,
-        /*.aspectRatio = */				dsVIDEO_ASPECT_RATIO_16x9,
-        /*.stereoscopicMode = */		dsVIDEO_SSMODE_2D,
-        /*.frameRate = */				dsVIDEO_FRAMERATE_50,
-        /*.interlaced = */				_INTERLACED,
-    },
-    {   /*1080i60*/
         /*.name = */					"1080i",
         /*.pixelResolution = */			dsVIDEO_PIXELRES_1920x1080,
         /*.aspectRatio = */				dsVIDEO_ASPECT_RATIO_16x9,
         /*.stereoscopicMode = */		dsVIDEO_SSMODE_2D,
         /*.frameRate = */				dsVIDEO_FRAMERATE_60,
         /*.interlaced = */				_INTERLACED,
+    },
+    {   /*1080i50*/
+        /*.name = */                    "1080i50",
+        /*.pixelResolution = */         dsVIDEO_PIXELRES_1920x1080,
+        /*.aspectRatio = */             dsVIDEO_ASPECT_RATIO_16x9,
+        /*.stereoscopicMode = */        dsVIDEO_SSMODE_2D,
+        /*.frameRate = */               dsVIDEO_FRAMERATE_50,
+        /*.interlaced = */              _INTERLACED,
     },
     {   /*2160p24*/
         /*.name = */                    "2160p24",
