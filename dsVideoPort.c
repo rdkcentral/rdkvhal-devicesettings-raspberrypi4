@@ -109,6 +109,9 @@ static void tvservice_hdcp_callback(void *callback_data,
 dsError_t dsRegisterHdcpStatusCallback(intptr_t handle, dsHDCPStatusCallback_t cb)
 {
     hal_info("invoked.\n");
+    if (false == _bIsVideoPortInitialized) {
+        return dsERR_NOT_INITIALIZED;
+    }    
     if (!isValidVopHandle(handle) || NULL == cb) {
         hal_err("handle(%p) is invalid or cb(%p) is null.\n", handle, cb);
         return dsERR_INVALID_PARAM;
@@ -1039,7 +1042,7 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
         return dsERR_NOT_INITIALIZED;
     }
     if (!isValidVopHandle(handle) || (NULL == resolutions)) {
-        hal_err("resolutions(%p) or handle(%p [*handle %p]) is invalid.\n", resolutions, handle, *vopHandle);
+        hal_err("resolutions(%p) or handle(%p) is invalid.\n", resolutions, handle);
         return dsERR_INVALID_PARAM;
     }
 

@@ -49,8 +49,6 @@ const hdmiSupportedRes_t resolutionMap[] = {
     {"2160p24", 93},   // 3840x2160p @ 24Hz
     {"2160p25", 94},   // 3840x2160p @ 25Hz
     {"2160p30", 95},   // 3840x2160p @ 30Hz
-    {"2160p50", 99},   // 4096x2160p @ 50Hz
-    {"2160p60", 100},  // 4096x2160p @ 60Hz
     {"2160p24", 98},   // 4096x2160p @ 24Hz
     {"2160p25", 99},   // 4096x2160p @ 25Hz
     {"2160p30", 100},  // 4096x2160p @ 30Hz
@@ -151,11 +149,14 @@ const VicMapEntry vicMapTable[] = {
     {84, dsTV_RESOLUTION_2160p30},// 4096x2160p @ 30Hz
     {85, dsTV_RESOLUTION_2160p50},// 4096x2160p @ 50Hz
     {86, dsTV_RESOLUTION_2160p60},// 4096x2160p @ 60Hz
-    {92, dsTV_RESOLUTION_2160p24},// 4096x2160p @ 24Hz
-    {93, dsTV_RESOLUTION_2160p25},// 4096x2160p @ 25Hz
-    {94, dsTV_RESOLUTION_2160p30},// 4096x2160p @ 30Hz
-    {95, dsTV_RESOLUTION_2160p50},// 4096x2160p @ 50Hz
-    {96, dsTV_RESOLUTION_2160p60},// 4096x2160p @ 60Hz
+    {93, dsTV_RESOLUTION_2160p24},// 4096x2160p @ 24Hz
+    {94, dsTV_RESOLUTION_2160p25},// 4096x2160p @ 25Hz
+    {95, dsTV_RESOLUTION_2160p30},// 4096x2160p @ 30Hz
+    {98, dsTV_RESOLUTION_2160p24},// 4096x2160p @ 24Hz
+    {99, dsTV_RESOLUTION_2160p25},// 4096x2160p @ 25Hz
+    {100, dsTV_RESOLUTION_2160p30},// 4096x2160p @ 30Hz
+    {101, dsTV_RESOLUTION_2160p50},// 4096x2160p @ 50Hz
+    {102, dsTV_RESOLUTION_2160p60},// 4096x2160p @ 60Hz
 };
 
 #define VIC_MAP_TABLE_SIZE (sizeof(vicMapTable) / sizeof(VicMapEntry))
