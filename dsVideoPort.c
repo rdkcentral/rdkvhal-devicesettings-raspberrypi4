@@ -113,7 +113,7 @@ dsError_t dsRegisterHdcpStatusCallback(intptr_t handle, dsHDCPStatusCallback_t c
         return dsERR_NOT_INITIALIZED;
     }
     /* FIXME: RDKVREFPLT-4942 DSMgr passes handle as NULL */
-    if ((handle != NULL && !isValidVopHandle(handle)) || cb == NULL) {
+    if ((handle != (intptr_t)NULL && !isValidVopHandle(handle)) || cb == NULL) {
         hal_err("handle(%p) is invalid or cb(%p) is null.\n", handle, cb);
         return dsERR_INVALID_PARAM;
     }
