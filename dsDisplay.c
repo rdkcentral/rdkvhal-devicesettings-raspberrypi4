@@ -127,6 +127,15 @@ dsError_t dsDisplayInit()
     _VDispHandles[dsVIDEOPORT_TYPE_COMPONENT][0].m_vType  = dsVIDEOPORT_TYPE_BB;
     _VDispHandles[dsVIDEOPORT_TYPE_COMPONENT][0].m_nativeHandle = dsVIDEOPORT_TYPE_BB;
     _VDispHandles[dsVIDEOPORT_TYPE_COMPONENT][0].m_index = 0;
+
+    hal_info("&_VDispHandles = %p\n", &_VDispHandles);
+    hal_info("&_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_vType = %p\n", &_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_vType);
+    hal_info("&_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle = %p\n", &_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle);
+    hal_info("&_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index = %p\n", &_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index);
+    hal_info("&_VDispHandles[dsVIDEOPORT_TYPE_COMPONENT][0].m_vType = %p\n", &_VDispHandles[dsVIDEOPORT_TYPE_COMPONENT][0].m_vType);
+    hal_info("&_VDispHandles[dsVIDEOPORT_TYPE_COMPONENT][0].m_nativeHandle = %p\n", &_VDispHandles[dsVIDEOPORT_TYPE_COMPONENT][0].m_nativeHandle);
+    hal_info("&_VDispHandles[dsVIDEOPORT_TYPE_COMPONENT][0].m_index = %p\n", &_VDispHandles[dsVIDEOPORT_TYPE_COMPONENT][0].m_index);
+
     int32_t res = vchi_tv_init();
     if (res != 0) {
         hal_err("vchi_tv_init failed.\n");
@@ -162,6 +171,7 @@ dsError_t dsGetDisplay(dsVideoPortType_t m_vType, int index, intptr_t *handle)
     }
 
     *handle = (intptr_t)&_VDispHandles[m_vType][index];
+    hal_dbg("handle = %p\n", *handle);
 
     return dsERR_NONE;
 }
