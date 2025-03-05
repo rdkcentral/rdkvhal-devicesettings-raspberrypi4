@@ -111,8 +111,9 @@ dsError_t dsRegisterHdcpStatusCallback(intptr_t handle, dsHDCPStatusCallback_t c
     hal_info("invoked.\n");
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
-    }    
-    if (!isValidVopHandle(handle) || NULL == cb) {
+    }
+    /* FIXME: RDKVREFPLT-4942 DSMgr passes handle as NULL */
+    if ((handle != NULL && !isValidVopHandle(handle)) || cb == NULL) {
         hal_err("handle(%p) is invalid or cb(%p) is null.\n", handle, cb);
         return dsERR_INVALID_PARAM;
     }
