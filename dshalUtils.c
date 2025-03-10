@@ -418,7 +418,7 @@ const char *getWesterosResolutionFromVic(int vic)
 {
     for (size_t i = 0; i < VIC_MAP_TABLE_SIZE; ++i) {
         if (vicMapTable[i].vic == vic) {
-            return &vicMapTable[i].westerosResolution;
+            return vicMapTable[i].westerosResolution;
         }
     }
     return NULL; // VIC not found
