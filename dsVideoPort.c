@@ -112,8 +112,7 @@ dsError_t dsRegisterHdcpStatusCallback(intptr_t handle, dsHDCPStatusCallback_t c
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    /* FIXME: RDKVREFPLT-4942 DSMgr passes handle as NULL */
-    if ((handle != (intptr_t)NULL && !isValidVopHandle(handle)) || cb == NULL) {
+    if (!isValidVopHandle(handle) || NULL == cb) {
         hal_err("handle(%p) is invalid or cb(%p) is null.\n", handle, cb);
         return dsERR_INVALID_PARAM;
     }
@@ -787,18 +786,41 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
         hal_dbg("Setting HDMI resolution '%s'\n", resolution->name);
         uint32_t hdmi_mode;
+		char westerosRes[64] = {0};
+		char cmd[256] = {0};
+		char data[128] = {0};
         hdmi_mode = dsGetHdmiMode(resolution);
-        res = vc_tv_hdmi_power_on_explicit_new(HDMI_MODE_HDMI, HDMI_RES_GROUP_CEA, hdmi_mode);
-        if (res != 0) {
-            hal_err("Failed to set resolution\n");
-            return dsERR_GENERAL;
-        }
-        sleep(1);
-        // TODO: use westeros-gl-console to set this property as DRM/KMS won't be using FB.
-        if (system("fbset -depth 16") == -1)
-            hal_err("Failed to set fbset depth to 16\n");
-        if (system("fbset -depth 32") == -1)
-            hal_err("Failed to set fbset depth to 32\n");
+		if (!getWesterosResolutionFromVic(hdmi_mode, westerosRes, sizeof(westerosRes))) {
+			hal_err("Failed to convert resolution '%s' to westeros format\n", resolution->name);
+			return dsERR_GENERAL;
+		}
+		snprintf(cmd, sizeof(cmd), "export XDG_RUNTIME_DIR=/run; westeros-gl-console set mode %s", westerosRes);
+		hal_info("Westeros Resolution string for VIC '%d': '%s'\n", hdmi_mode, cmd);
+		if (westerosRWWrapper(cmd, data, sizeof(data))) {
+			hal_info("westerosRWWrapper response:'%s'\n", data);
+			// Response: [0: mode 1280x720px60]
+			// extract string between 'mode ' and ']' and compare against westerosRes
+			char *start = strstr(data, "mode ");
+			if (start) {
+				start += strlen("mode ");
+				char *end = strstr(start, "]");
+				if (end) {
+					*end = '\0';
+					if (strcmp(start, westerosRes) == 0) {
+						hal_info("Resolution set successfully\n");
+					} else {
+						hal_err("Failed to set resolution\n");
+						return dsERR_GENERAL;
+					}
+				} else {
+					hal_err("Failed to parse response\n");
+					return dsERR_GENERAL;
+				}
+			} else {
+				hal_err("Failed to parse response\n");
+				return dsERR_GENERAL;
+			}
+		}
     } else if (vopHandle->m_vType == dsVIDEOPORT_TYPE_BB) {
         SDTV_OPTIONS_T options;
         options.aspect = SDTV_ASPECT_16_9;

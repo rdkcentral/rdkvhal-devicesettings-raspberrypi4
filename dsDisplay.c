@@ -269,8 +269,7 @@ dsError_t dsRegisterDisplayEventCallback(intptr_t handle, dsDisplayEventCallback
     if (false == _bDisplayInited) {
         return dsERR_NOT_INITIALIZED;
     }
-    /* FIXME: RDKVREFPLT-4942 DSMgr passes handle as NULL */
-    if ((handle != (intptr_t)NULL && !dsIsValidVDispHandle((intptr_t)vDispHandle)) || cb == NULL) {
+    if (NULL == cb || !dsIsValidVDispHandle((intptr_t)vDispHandle)) {
         hal_err("Invalid params, cb %p, handle %p\n", cb, vDispHandle);
         return dsERR_INVALID_PARAM;
     }

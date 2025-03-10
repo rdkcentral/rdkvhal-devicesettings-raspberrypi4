@@ -56,107 +56,107 @@ const hdmiSupportedRes_t resolutionMap[] = {
     {"2160p60", 102}   // 4096x2160p @ 60Hz
 };
 
-const size_t noOfItemsInResolutionMap = sizeof(resolutionMap) / sizeof(hdmiSupportedRes_t);
+const size_t  noOfItemsInResolutionMap = sizeof(resolutionMap) / sizeof(hdmiSupportedRes_t);
 
 const VicMapEntry vicMapTable[] = {
     // 480i resolutions
-    {6, dsTV_RESOLUTION_480i},    // 720x480i @ 59.94/60Hz
-    {7, dsTV_RESOLUTION_480i},    // 720x480i @ 59.94/60Hz
-    {48, dsTV_RESOLUTION_480i},   // 720x480i @ 120Hz
-    {49, dsTV_RESOLUTION_480i},   // 720x480i @ 120Hz
-    {56, dsTV_RESOLUTION_480i},   // 720x480i @ 240Hz
-    {57, dsTV_RESOLUTION_480i},   // 720x480i @ 240Hz
+    {6, dsTV_RESOLUTION_480i, "720x480ix60" },    // 720x480i @ 59.94/60Hz
+    {7, dsTV_RESOLUTION_480i, "720x480ix60" },    // 720x480i @ 59.94/60Hz
+    {48, dsTV_RESOLUTION_480i, "720x480ix120" },   // 720x480i @ 120Hz
+    {49, dsTV_RESOLUTION_480i, "720x480ix120" },   // 720x480i @ 120Hz
+    {56, dsTV_RESOLUTION_480i, "720x480ix240" },   // 720x480i @ 240Hz
+    {57, dsTV_RESOLUTION_480i, "720x480ix240" },   // 720x480i @ 240Hz
 
     // 480p resolutions
-    {2, dsTV_RESOLUTION_480p},    // 720x480p @ 59.94/60Hz
-    {3, dsTV_RESOLUTION_480p},    // 720x480p @ 59.94/60Hz
-    {46, dsTV_RESOLUTION_480p},   // 720x480p @ 120Hz
-    {47, dsTV_RESOLUTION_480p},   // 720x480p @ 120Hz
-    {54, dsTV_RESOLUTION_480p},   // 720x480p @ 240Hz
-    {55, dsTV_RESOLUTION_480p},   // 720x480p @ 240Hz
+    {2, dsTV_RESOLUTION_480p, "720x480px60" },    // 720x480p @ 59.94/60Hz
+    {3, dsTV_RESOLUTION_480p, "720x480px60" },    // 720x480p @ 59.94/60Hz
+    {46, dsTV_RESOLUTION_480p, "720x480px120" },   // 720x480p @ 120Hz
+    {47, dsTV_RESOLUTION_480p, "720x480px120" },   // 720x480p @ 120Hz
+    {54, dsTV_RESOLUTION_480p, "720x480px240" },   // 720x480p @ 240Hz
+    {55, dsTV_RESOLUTION_480p, "720x480px240" },   // 720x480p @ 240Hz
 
     // 576i resolutions
-    {21, dsTV_RESOLUTION_576i},   // 720x576i @ 50Hz
-    {22, dsTV_RESOLUTION_576i},   // 720x576i @ 50Hz
-    {42, dsTV_RESOLUTION_576i},   // 720x576i @ 100Hz
-    {43, dsTV_RESOLUTION_576i},   // 720x576i @ 100Hz
-    {52, dsTV_RESOLUTION_576i},   // 720x576i @ 200Hz
-    {53, dsTV_RESOLUTION_576i},   // 720x576i @ 200Hz
+    {21, dsTV_RESOLUTION_576i, "720x576ix50" },   // 720x576i @ 50Hz
+    {22, dsTV_RESOLUTION_576i, "720x576ix50" },   // 720x576i @ 50Hz
+    {42, dsTV_RESOLUTION_576i, "720x576ix100" },   // 720x576i @ 100Hz
+    {43, dsTV_RESOLUTION_576i, "720x576ix100" },   // 720x576i @ 100Hz
+    {52, dsTV_RESOLUTION_576i, "720x576ix200" },   // 720x576i @ 200Hz
+    {53, dsTV_RESOLUTION_576i, "720x576ix200" },   // 720x576i @ 200Hz
 
     // 576p resolutions
-    {17, dsTV_RESOLUTION_576p},   // 720x576p @ 50Hz
-    {18, dsTV_RESOLUTION_576p},   // 720x576p @ 50Hz
-    {40, dsTV_RESOLUTION_576p},   // 720x576p @ 100Hz
-    {41, dsTV_RESOLUTION_576p},   // 720x576p @ 100Hz
-    {50, dsTV_RESOLUTION_576p},   // 720x576p @ 200Hz
-    {51, dsTV_RESOLUTION_576p},   // 720x576p @ 200Hz
+    {17, dsTV_RESOLUTION_576p, "720x576px50" },   // 720x576p @ 50Hz
+    {18, dsTV_RESOLUTION_576p, "720x576px50" },   // 720x576p @ 50Hz
+    {40, dsTV_RESOLUTION_576p, "720x576px100" },   // 720x576p @ 100Hz
+    {41, dsTV_RESOLUTION_576p, "720x576px100" },   // 720x576p @ 100Hz
+    {50, dsTV_RESOLUTION_576p, "720x576px200" },   // 720x576p @ 200Hz
+    {51, dsTV_RESOLUTION_576p,  "720x576px200" },   // 720x576p @ 200Hz
 
     // 720p resolutions
-    {4, dsTV_RESOLUTION_720p},    // 1280x720p @ 59.94/60Hz
-    {19, dsTV_RESOLUTION_720p50}, // 1280x720p @ 50Hz
-    {39, dsTV_RESOLUTION_720p},   // 1280x720p @ 100Hz
-    {45, dsTV_RESOLUTION_720p},   // 1280x720p @ 120Hz
-    {58, dsTV_RESOLUTION_720p},   // 1280x720p @ 24Hz
-    {59, dsTV_RESOLUTION_720p},   // 1280x720p @ 25Hz
-    {60, dsTV_RESOLUTION_720p},   // 1280x720p @ 30Hz
-    {63, dsTV_RESOLUTION_720p},   // 1280x720p @ 24Hz
-    {64, dsTV_RESOLUTION_720p},   // 1280x720p @ 25Hz
-    {65, dsTV_RESOLUTION_720p},   // 1280x720p @ 30Hz
-    {66, dsTV_RESOLUTION_720p50}, // 1280x720p @ 50Hz
-    {67, dsTV_RESOLUTION_720p},   // 1280x720p @ 60Hz
-    {68, dsTV_RESOLUTION_720p},   // 1280x720p @ 100Hz
-    {69, dsTV_RESOLUTION_720p},   // 1280x720p @ 120Hz
+    {4, dsTV_RESOLUTION_720p, "1280x720px60" },    // 1280x720p @ 59.94/60Hz
+    {19, dsTV_RESOLUTION_720p50, "1280x720px50" }, // 1280x720p @ 50Hz
+    {39, dsTV_RESOLUTION_720p, "1280x720px100" },   // 1280x720p @ 100Hz
+    {45, dsTV_RESOLUTION_720p, "1280x720px120" },   // 1280x720p @ 120Hz
+    {58, dsTV_RESOLUTION_720p, "1280x720px24" },   // 1280x720p @ 24Hz
+    {59, dsTV_RESOLUTION_720p, "1280x720px25" },   // 1280x720p @ 25Hz
+    {60, dsTV_RESOLUTION_720p, "1280x720px30" },   // 1280x720p @ 30Hz
+    {63, dsTV_RESOLUTION_720p, "1280x720px24" },   // 1280x720p @ 24Hz
+    {64, dsTV_RESOLUTION_720p, "1280x720px25" },   // 1280x720p @ 25Hz
+    {65, dsTV_RESOLUTION_720p, "1280x720px30" },   // 1280x720p @ 30Hz
+    {66, dsTV_RESOLUTION_720p50, "1280x720px50" }, // 1280x720p @ 50Hz
+    {67, dsTV_RESOLUTION_720p, "1280x720px60" },   // 1280x720p @ 60Hz
+    {68, dsTV_RESOLUTION_720p, "1280x720px100" },   // 1280x720p @ 100Hz
+    {69, dsTV_RESOLUTION_720p, "1280x720px120" },   // 1280x720p @ 120Hz
 
     // 1080i resolutions
-    {5, dsTV_RESOLUTION_1080i},   // 1920x1080i @ 59.94/60Hz
-    {20, dsTV_RESOLUTION_1080i50},// 1920x1080i @ 50Hz
-    {37, dsTV_RESOLUTION_1080i50},// 1920x1080i @ 50Hz
-    {38, dsTV_RESOLUTION_1080i},  // 1920x1080i @ 100Hz
-    {44, dsTV_RESOLUTION_1080i},  // 1920x1080i @ 120Hz
+    {5, dsTV_RESOLUTION_1080i, "1920x1080ix60" },   // 1920x1080i @ 59.94/60Hz
+    {20, dsTV_RESOLUTION_1080i50, "1920x1080ix50" },// 1920x1080i @ 50Hz
+    {37, dsTV_RESOLUTION_1080i50, "1920x1080ix50" },// 1920x1080i @ 50Hz
+    {38, dsTV_RESOLUTION_1080i, "1920x1080ix100" },  // 1920x1080i @ 100Hz
+    {44, dsTV_RESOLUTION_1080i, "1920x1080ix120" },  // 1920x1080i @ 120Hz
 
     // 1080p resolutions
-    {16, dsTV_RESOLUTION_1080p},  // 1920x1080p @ 59.94/60Hz
-    {31, dsTV_RESOLUTION_1080p50},// 1920x1080p @ 50Hz
-    {32, dsTV_RESOLUTION_1080p24},// 1920x1080p @ 24Hz
-    {33, dsTV_RESOLUTION_1080p25},// 1920x1080p @ 25Hz
-    {34, dsTV_RESOLUTION_1080p30},// 1920x1080p @ 30Hz
-    {44, dsTV_RESOLUTION_1080p},  // 1920x1080p @ 120Hz
-    {61, dsTV_RESOLUTION_1080p},  // 1920x1080p @ 120Hz
-    {62, dsTV_RESOLUTION_1080p},  // 1920x1080p @ 100Hz
-    {70, dsTV_RESOLUTION_1080p24},// 1920x1080p @ 24Hz
-    {71, dsTV_RESOLUTION_1080p25},// 1920x1080p @ 25Hz
-    {72, dsTV_RESOLUTION_1080p30},// 1920x1080p @ 30Hz
-    {73, dsTV_RESOLUTION_1080p50},// 1920x1080p @ 50Hz
-    {74, dsTV_RESOLUTION_1080p60},// 1920x1080p @ 60Hz
-    {75, dsTV_RESOLUTION_1080p},  // 1920x1080p @ 100Hz
-    {76, dsTV_RESOLUTION_1080p},  // 1920x1080p @ 120Hz
+    {16, dsTV_RESOLUTION_1080p, "1920x1080px60" },  // 1920x1080p @ 59.94/60Hz
+    {31, dsTV_RESOLUTION_1080p50, "1920x1080px50" },// 1920x1080p @ 50Hz
+    {32, dsTV_RESOLUTION_1080p24, "1920x1080px24" },// 1920x1080p @ 24Hz
+    {33, dsTV_RESOLUTION_1080p25, "1920x1080px25" },// 1920x1080p @ 25Hz
+    {34, dsTV_RESOLUTION_1080p30, "1920x1080px30" },// 1920x1080p @ 30Hz
+    {44, dsTV_RESOLUTION_1080p, "1920x1080px120" },  // 1920x1080p @ 120Hz
+    {61, dsTV_RESOLUTION_1080p, "1920x1080px120" },  // 1920x1080p @ 120Hz
+    {62, dsTV_RESOLUTION_1080p, "1920x1080px100" },  // 1920x1080p @ 100Hz
+    {70, dsTV_RESOLUTION_1080p24, "1920x1080px24" },// 1920x1080p @ 24Hz
+    {71, dsTV_RESOLUTION_1080p25, "1920x1080px25" },// 1920x1080p @ 25Hz
+    {72, dsTV_RESOLUTION_1080p30, "1920x1080px30" },// 1920x1080p @ 30Hz
+    {73, dsTV_RESOLUTION_1080p50, "1920x1080px50" },// 1920x1080p @ 50Hz
+    {74, dsTV_RESOLUTION_1080p60, "1920x1080px60" },// 1920x1080p @ 60Hz
+    {75, dsTV_RESOLUTION_1080p, "1920x1080px100" },  // 1920x1080p @ 100Hz
+    {76, dsTV_RESOLUTION_1080p, "1920x1080px120" },  // 1920x1080p @ 120Hz
 
     // 2160p resolutions
-    {77, dsTV_RESOLUTION_2160p24},// 3840x2160p @ 24Hz
-    {78, dsTV_RESOLUTION_2160p25},// 3840x2160p @ 25Hz
-    {79, dsTV_RESOLUTION_2160p30},// 3840x2160p @ 30Hz
-    {80, dsTV_RESOLUTION_2160p50},// 3840x2160p @ 50Hz
-    {81, dsTV_RESOLUTION_2160p60},// 3840x2160p @ 60Hz
-    {87, dsTV_RESOLUTION_2160p24},// 3840x2160p @ 24Hz
-    {88, dsTV_RESOLUTION_2160p25},// 3840x2160p @ 25Hz
-    {89, dsTV_RESOLUTION_2160p30},// 3840x2160p @ 30Hz
-    {90, dsTV_RESOLUTION_2160p50},// 3840x2160p @ 50Hz
-    {91, dsTV_RESOLUTION_2160p60},// 3840x2160p @ 60Hz
+    {77, dsTV_RESOLUTION_2160p24, "3840x2160px24" },// 3840x2160p @ 24Hz
+    {78, dsTV_RESOLUTION_2160p25, "3840x2160px25" },// 3840x2160p @ 25Hz
+    {79, dsTV_RESOLUTION_2160p30, "3840x2160px30" },// 3840x2160p @ 30Hz
+    {80, dsTV_RESOLUTION_2160p50, "3840x2160px50" },// 3840x2160p @ 50Hz
+    {81, dsTV_RESOLUTION_2160p60, "3840x2160px60" },// 3840x2160p @ 60Hz
+    {87, dsTV_RESOLUTION_2160p24, "3840x2160px24" },// 3840x2160p @ 24Hz
+    {88, dsTV_RESOLUTION_2160p25, "3840x2160px25" },// 3840x2160p @ 25Hz
+    {89, dsTV_RESOLUTION_2160p30, "3840x2160px30" },// 3840x2160p @ 30Hz
+    {90, dsTV_RESOLUTION_2160p50, "3840x2160px50" },// 3840x2160p @ 50Hz
+    {91, dsTV_RESOLUTION_2160p60, "3840x2160px60" },// 3840x2160p @ 60Hz
 
     // 4K resolutions
-    {82, dsTV_RESOLUTION_2160p24},// 4096x2160p @ 24Hz
-    {83, dsTV_RESOLUTION_2160p25},// 4096x2160p @ 25Hz
-    {84, dsTV_RESOLUTION_2160p30},// 4096x2160p @ 30Hz
-    {85, dsTV_RESOLUTION_2160p50},// 4096x2160p @ 50Hz
-    {86, dsTV_RESOLUTION_2160p60},// 4096x2160p @ 60Hz
-    {93, dsTV_RESOLUTION_2160p24},// 4096x2160p @ 24Hz
-    {94, dsTV_RESOLUTION_2160p25},// 4096x2160p @ 25Hz
-    {95, dsTV_RESOLUTION_2160p30},// 4096x2160p @ 30Hz
-    {98, dsTV_RESOLUTION_2160p24},// 4096x2160p @ 24Hz
-    {99, dsTV_RESOLUTION_2160p25},// 4096x2160p @ 25Hz
-    {100, dsTV_RESOLUTION_2160p30},// 4096x2160p @ 30Hz
-    {101, dsTV_RESOLUTION_2160p50},// 4096x2160p @ 50Hz
-    {102, dsTV_RESOLUTION_2160p60},// 4096x2160p @ 60Hz
+    {82, dsTV_RESOLUTION_2160p24, "4096x2160px24" },// 4096x2160p @ 24Hz
+    {83, dsTV_RESOLUTION_2160p25, "4096x2160px25" },// 4096x2160p @ 25Hz
+    {84, dsTV_RESOLUTION_2160p30, "4096x2160px30" },// 4096x2160p @ 30Hz
+    {85, dsTV_RESOLUTION_2160p50, "4096x2160px50" },// 4096x2160p @ 50Hz
+    {86, dsTV_RESOLUTION_2160p60, "4096x2160px60" },// 4096x2160p @ 60Hz
+    {93, dsTV_RESOLUTION_2160p24, "4096x2160px24" },// 4096x2160p @ 24Hz
+    {94, dsTV_RESOLUTION_2160p25, "4096x2160px25" },// 4096x2160p @ 25Hz
+    {95, dsTV_RESOLUTION_2160p30, "4096x2160px30" },// 4096x2160p @ 30Hz
+    {98, dsTV_RESOLUTION_2160p24, "4096x2160px24" },// 4096x2160p @ 24Hz
+    {99, dsTV_RESOLUTION_2160p25, "4096x2160px25" },// 4096x2160p @ 25Hz
+    {100, dsTV_RESOLUTION_2160p30, "4096x2160px30" },// 4096x2160p @ 30Hz
+    {101, dsTV_RESOLUTION_2160p50, "4096x2160px50" },// 4096x2160p @ 50Hz
+    {102, dsTV_RESOLUTION_2160p60, "4096x2160px60" },// 4096x2160p @ 60Hz
 };
 
 #define VIC_MAP_TABLE_SIZE (sizeof(vicMapTable) / sizeof(VicMapEntry))
@@ -412,6 +412,16 @@ bool westerosRWWrapper(const char *cmd, char *resp, size_t respSize)
         return true;
     }
     return false;
+}
+
+const char *getWesterosResolutionFromVic(int vic)
+{
+    for (size_t i = 0; i < VIC_MAP_TABLE_SIZE; ++i) {
+        if (vicMapTable[i].vic == vic) {
+            return &vicMapTable[i].westerosResolution;
+        }
+    }
+    return NULL; // VIC not found
 }
 
 const dsTVResolution_t *getResolutionFromVic(int vic)
