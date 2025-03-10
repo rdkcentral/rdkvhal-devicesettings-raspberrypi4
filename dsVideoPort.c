@@ -785,12 +785,11 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
     }
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
         hal_dbg("Setting HDMI resolution '%s'\n", resolution->name);
-        uint32_t hdmi_mode;
-		char *westerosRes = NULL;
+        uint32_t hdmi_mode = dsGetHdmiMode(resolution);
+		const char *westerosRes = getWesterosResolutionFromVic(hdmi_mode);
 		char cmd[256] = {0};
 		char data[128] = {0};
-        hdmi_mode = dsGetHdmiMode(resolution);
-		if ((westerosRes = getWesterosResolutionFromVic(hdmi_mode)) == NULL) {
+		if (westerosRes == NULL) {
 			hal_err("Failed to convert resolution '%s' to westeros format\n", resolution->name);
 			return dsERR_GENERAL;
 		}
@@ -831,9 +830,10 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
             hal_dbg("Setting SDTV resolution SDTV_MODE_PAL\n");
             res = vc_tv_sdtv_power_on(SDTV_MODE_PAL, &options);
         }
+		hal_dbg("dsVIDEOPORT_TYPE_BB vc_tv_sdtv_power_on returned %d\n", res);
     } else {
-        hal_err("Video port type not supported\n");
-        return dsERR_OPERATION_NOT_SUPPORTED;
+	    hal_err("Video port type not supported\n");
+	    return dsERR_OPERATION_NOT_SUPPORTED;
     }
     return dsERR_NONE;
 }
