@@ -786,11 +786,11 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
         hal_dbg("Setting HDMI resolution '%s'\n", resolution->name);
         uint32_t hdmi_mode;
-		char westerosRes[64] = {0};
+		char *westerosRes = NULL;
 		char cmd[256] = {0};
 		char data[128] = {0};
         hdmi_mode = dsGetHdmiMode(resolution);
-		if (!getWesterosResolutionFromVic(hdmi_mode, westerosRes, sizeof(westerosRes))) {
+		if ((westerosRes = getWesterosResolutionFromVic(hdmi_mode)) == NULL) {
 			hal_err("Failed to convert resolution '%s' to westeros format\n", resolution->name);
 			return dsERR_GENERAL;
 		}
