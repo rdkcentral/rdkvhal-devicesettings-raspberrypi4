@@ -239,11 +239,8 @@ int vchi_tv_init()
 			return -1;
 		}
         // Initialize the gencmd
-        if (vc_vchi_gencmd_init(vchi_instance, &vchi_connection, 1) < 0) {
-			hal_err("Failed to initialize vc_vchi_gencmd_init()\n");
-			return -1;
-		}
-        initialised = 1;
+		vc_vchi_gencmd_init(vchi_instance, &vchi_connection, 1);
+		initialised = 1;
     }
     return res;
 }
