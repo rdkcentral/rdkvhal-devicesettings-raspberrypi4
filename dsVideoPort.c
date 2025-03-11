@@ -684,7 +684,7 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         hal_err("handle(%p) is invalid or resolution(%p) is NULL.\n", handle, resolution);
         return dsERR_INVALID_PARAM;
     }
-#if 0
+#if 1
     if (vc_tv_get_display_state(&tvstate) == 0) {
         hal_dbg("vc_tv_get_display_state: 0x%X\n", tvstate.state);
         if (tvstate.state & VC_HDMI_ATTACHED) {
@@ -701,18 +701,21 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
                     tvstate.display.hdmi.pixel_rep);
             hal_dbg("  Group: %d\n", tvstate.display.hdmi.group);
             hal_dbg("  Mode: %d\n", tvstate.display.hdmi.mode);
-        } else {
-            hal_err("HDMI not connected.\n");
-        }
-
-        resolution_name = dsVideoGetResolution(tvstate.display.hdmi.mode);
-    }
-    if (resolution_name == NULL) {
-        hdmi_mode = dsGetHdmiMode(resolution);
-        resolution_name = dsVideoGetResolution(hdmi_mode);
-    }
-    if (resolution_name)
-        strncpy(resolution->name, resolution_name, strlen(resolution_name));
+			resolution->pixelResolution = getdsVideoResolution(tvstate.display.hdmi.width, tvstate.display.hdmi.height);
+			resolution->interlaced = (tvstate.display.hdmi.scan_mode ? true : false);
+			resolution->aspectRatio = getdsVideoAspectRatio(tvstate.display.hdmi.aspect_ratio);
+			resolution->frameRate = getdsVideoFrameRate(tvstate.display.hdmi.frame_rate);
+			snprintf(resolution->name, sizeof(resolution->name), "%d%c%d",
+				tvstate.display.hdmi.height, (tvstate.display.hdmi.scan_mode ? 'i' : 'p'), tvstate.display.hdmi.frame_rate);
+			return dsERR_NONE;
+		} else {
+			hal_err("HDMI not connected.\n");
+			return dsERR_GENERAL;
+		}
+    } else {
+		hal_err("Failed to get display state.\n");
+		return dsERR_GENERAL;
+	}
 #else
 	if (westerosRWWrapper("export XDG_RUNTIME_DIR=/run; westeros-gl-console get mode", data, sizeof(data))) {
 		char wstresolution[64] = {0};
@@ -728,6 +731,10 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 				strncpy(wstresolution, start, sizeof(wstresolution));
 				hal_info("Resolution string: '%s'\n", wstresolution);
 				resolution->name = wstresolution;
+				resolution->pixelResolution = 0;
+				resolution->aspectRatio = 0;
+				resolution->stereoScopicMode = 0;
+				resolution->frameRate = 0;
 				resolution->interlaced = ((strstr(wstresolution, "i") != NULL)? true : false);
 			} else {
 				hal_err("Failed to parse westerosRWWrapper response; ']' not found.\n");
@@ -739,7 +746,6 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 		}
     }
 #endif
-    return dsERR_NONE;
 }
 
 static const char* dsVideoGetResolution(uint32_t hdmiMode)

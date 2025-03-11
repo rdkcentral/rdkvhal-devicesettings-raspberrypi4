@@ -161,6 +161,53 @@ const VicMapEntry vicMapTable[] = {
 
 #define VIC_MAP_TABLE_SIZE (sizeof(vicMapTable) / sizeof(VicMapEntry))
 
+dsVideoFrameRate_t getdsVideoFrameRate(uint16_t frameRate)
+{
+	switch (frameRate) {
+		case 24: return dsVIDEO_FRAMERATE_24;
+		case 25: return dsVIDEO_FRAMERATE_25;
+		case 30: return dsVIDEO_FRAMERATE_30;
+		case 60: return dsVIDEO_FRAMERATE_60;
+		case 23: return dsVIDEO_FRAMERATE_23dot98;
+		case 29: return dsVIDEO_FRAMERATE_29dot97;
+		case 50: return dsVIDEO_FRAMERATE_50;
+		case 59: return dsVIDEO_FRAMERATE_59dot94;
+		default: return dsVIDEO_FRAMERATE_MAX;
+	}
+}
+
+dsVideoAspectRatio_t getdsVideoAspectRatio(uint16_t aspectRatio)
+{
+	//Ref: https://github.com/raspberrypi/userland/blob/master/interface/vmcs_host/vc_hdmi.h#L73
+	// rdk only supports 4:3 and 16:9 aspect ratios
+	switch (aspectRatio) {
+		case 1:	return dsVIDEO_ASPECT_RATIO_4x3;
+		case 3: return dsVIDEO_ASPECT_RATIO_16x9;
+		default:
+			return dsVIDEO_ASPECT_RATIO_MAX;
+	}
+}
+
+dsVideoResolution_t getdsVideoResolution(uint32_t width, uint32_t height)
+{
+	if (width == 720 && height == 480)
+		return dsVIDEO_PIXELRES_720x480;
+	else if (width == 720 && height == 576)
+		return dsVIDEO_PIXELRES_720x576;
+	else if (width == 1280 && height == 720)
+		return dsVIDEO_PIXELRES_1280x720;
+	else if (width == 1366 && height == 768)
+		return dsVIDEO_PIXELRES_1366x768;
+	else if (width == 1920 && height == 1080)
+		return dsVIDEO_PIXELRES_1920x1080;
+	else if (width == 3840 && height == 2160)
+		return dsVIDEO_PIXELRES_3840x2160;
+	else if (width == 4096 && height == 2160)
+		return dsVIDEO_PIXELRES_4096x2160;
+	else
+		return dsVIDEO_PIXELRES_MAX;
+}
+
 static uint16_t initialised = 0;
 VCHI_INSTANCE_T vchi_instance;
 VCHI_CONNECTION_T *vchi_connection;
@@ -187,9 +234,15 @@ int vchi_tv_init()
         }
 
         // Initialize the tvservice
-        vc_vchi_tv_init(vchi_instance, &vchi_connection, 1);
+        if (vc_vchi_tv_init(vchi_instance, &vchi_connection, 1) < 0) {
+			hal_err("Failed to initialize vc_vchi_tv_init()\n");
+			return -1;
+		}
         // Initialize the gencmd
-        vc_vchi_gencmd_init(vchi_instance, &vchi_connection, 1);
+        if (vc_vchi_gencmd_init(vchi_instance, &vchi_connection, 1) < 0) {
+			hal_err("Failed to initialize vc_vchi_gencmd_init()\n");
+			return -1;
+		}
         initialised = 1;
     }
     return res;

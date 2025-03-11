@@ -67,5 +67,8 @@ bool westerosRWWrapper(const char *cmd, char *resp, size_t respSize);
 const dsTVResolution_t *getResolutionFromVic(int vic);
 const char *getWesterosResolutionFromVic(int vic);
 const int *getVicFromResolution(dsTVResolution_t resolution);
+dsVideoResolution_t getdsVideoResolution(uint32_t width, uint32_t height);
+dsVideoAspectRatio_t getdsVideoAspectRatio(uint16_t aspectRatio);
+dsVideoFrameRate_t getdsVideoFrameRate(uint16_t frameRate);
 
 #endif
