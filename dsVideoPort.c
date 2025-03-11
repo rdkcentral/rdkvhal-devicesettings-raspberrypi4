@@ -684,6 +684,7 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         hal_err("handle(%p) is invalid or resolution(%p) is NULL.\n", handle, resolution);
         return dsERR_INVALID_PARAM;
     }
+#if 0
     if (vc_tv_get_display_state(&tvstate) == 0) {
         hal_dbg("vc_tv_get_display_state: 0x%X\n", tvstate.state);
         if (tvstate.state & VC_HDMI_ATTACHED) {
@@ -703,6 +704,7 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         } else {
             hal_err("HDMI not connected.\n");
         }
+
         resolution_name = dsVideoGetResolution(tvstate.display.hdmi.mode);
     }
     if (resolution_name == NULL) {
@@ -711,6 +713,32 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
     }
     if (resolution_name)
         strncpy(resolution->name, resolution_name, strlen(resolution_name));
+#else
+	if (westerosRWWrapper("export XDG_RUNTIME_DIR=/run; westeros-gl-console get mode", data, sizeof(data))) {
+		char wstresolution[64] = {0};
+        hal_info("data:'%s'\n", data);
+        // Response: [0: mode 1280x720px60]
+        // Extract string between 'mode ' and ']' and store in resolution
+		char *start = strstr(data, "mode ");
+		if (start) {
+			start += strlen("mode ");
+			char *end = strstr(start, "]");
+			if (end) {
+				*end = '\0';
+				strncpy(wstresolution, start, sizeof(wstresolution));
+				hal_info("Resolution string: '%s'\n", wstresolution);
+				resolution->name = wstresolution;
+				resolution->interlaced = ((strstr(wstresolution, "i") != NULL)? true : false);
+			} else {
+				hal_err("Failed to parse westerosRWWrapper response; ']' not found.\n");
+				return dsERR_GENERAL;
+			}
+		} else {
+			hal_err("Failed to parse westerosRWWrapper response; 'mode ' not found.\n");
+			return dsERR_GENERAL;
+		}
+    }
+#endif
     return dsERR_NONE;
 }
 
