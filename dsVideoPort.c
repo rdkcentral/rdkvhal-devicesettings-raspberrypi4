@@ -673,9 +673,7 @@ dsError_t dsIsHDCPEnabled(intptr_t handle, bool *pContentProtected)
 dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 {
     hal_info("invoked.\n");
-    const char *resolution_name = NULL;
     TV_DISPLAY_STATE_T tvstate;
-    uint32_t hdmi_mode;
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
@@ -748,6 +746,7 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 #endif
 }
 
+#if 0
 static const char* dsVideoGetResolution(uint32_t hdmiMode)
 {
     hal_info("invoked.\n");
@@ -758,6 +757,7 @@ static const char* dsVideoGetResolution(uint32_t hdmiMode)
     }
     return res_name;
 }
+#endif
 
 static uint32_t dsGetHdmiMode(dsVideoPortResolution_t *resolution)
 {
