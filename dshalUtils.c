@@ -176,6 +176,33 @@ dsVideoFrameRate_t getdsVideoFrameRate(uint16_t frameRate)
 	}
 }
 
+int gcd(int a, int b) {
+    while (b != 0) {
+        int temp = b;
+        b = a % b;
+        a = temp;
+    }
+    return a;
+}
+
+dsVideoAspectRatio_t getAspectRatioFromWidthHeight(int width, int height)
+{
+    if (width == 0 || height == 0) {
+        return dsVIDEO_ASPECT_RATIO_MAX;
+    }
+    int divisor = gcd(width, height);
+    int aspectWidth = width / divisor;
+    int aspectHeight = height / divisor;
+
+    if (aspectWidth == 4 && aspectHeight == 3) {
+        return dsVIDEO_ASPECT_RATIO_4x3;
+    } else if (aspectWidth == 16 && aspectHeight == 9) {
+        return dsVIDEO_ASPECT_RATIO_16x9;
+    } else {
+        return dsVIDEO_ASPECT_RATIO_MAX;
+    }
+}
+
 dsVideoAspectRatio_t getdsVideoAspectRatio(uint16_t aspectRatio)
 {
 	//Ref: https://github.com/raspberrypi/userland/blob/master/interface/vmcs_host/vc_hdmi.h#L73

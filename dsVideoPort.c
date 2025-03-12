@@ -685,6 +685,7 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 	// check if '/tmp/.dshal_use_westeros' file exists
 	if (access("/tmp/.dshal_use_westeros", F_OK) != -1) {
 		hal_info("Using westeros for resolution\n");
+		char data[128] = {0};
 		if (westerosRWWrapper("export XDG_RUNTIME_DIR=/run; westeros-gl-console get mode", data, sizeof(data))) {
 			char wstresolution[64] = {0};
 			hal_info("data:'%s'\n", data);
@@ -706,7 +707,7 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 					if (sscanf(wstresolution, "%dx%dp%d", &Width, &Height, &FrameRate) == 3 ||
 						sscanf(wstresolution, "%dx%di%d", &Width, &Height, &FrameRate) == 3) {
 						resolution->pixelResolution = getdsVideoResolution(Width, Height);
-						resolution->aspectRatio = getdsVideoAspectRatio(Width, Height);
+						resolution->aspectRatio = getAspectRatioFromWidthHeight(Width, Height);
 						resolution->frameRate = getdsVideoFrameRate(FrameRate);
 						snprintf(resolution->name, sizeof(resolution->name), "%d%c%d", Height, (resolution->interlaced ? 'i' : 'p'), FrameRate);
 						hal_dbg(

@@ -69,6 +69,7 @@ const char *getWesterosResolutionFromVic(int vic);
 const int *getVicFromResolution(dsTVResolution_t resolution);
 dsVideoResolution_t getdsVideoResolution(uint32_t width, uint32_t height);
 dsVideoAspectRatio_t getdsVideoAspectRatio(uint16_t aspectRatio);
+dsVideoAspectRatio_t getAspectRatioFromWidthHeight(int width, int height);
 dsVideoFrameRate_t getdsVideoFrameRate(uint16_t frameRate);
 
 #endif
