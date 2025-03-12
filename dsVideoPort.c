@@ -682,7 +682,51 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         hal_err("handle(%p) is invalid or resolution(%p) is NULL.\n", handle, resolution);
         return dsERR_INVALID_PARAM;
     }
-#if 1
+	// check if '/tmp/.dshal_use_westeros' file exists
+	if (access("/tmp/.dshal_use_westeros", F_OK) != -1) {
+		hal_info("Using westeros for resolution\n");
+		if (westerosRWWrapper("export XDG_RUNTIME_DIR=/run; westeros-gl-console get mode", data, sizeof(data))) {
+			char wstresolution[64] = {0};
+			hal_info("data:'%s'\n", data);
+			// Response: [0: mode 1280x720px60]
+			// Extract string between 'mode ' and ']' and store in resolution
+			char *start = strstr(data, "mode ");
+			if (start) {
+				start += strlen("mode ");
+				char *end = strstr(start, "]");
+				if (end) {
+					*end = '\0';
+					strncpy(wstresolution, start, sizeof(wstresolution));
+					hal_info("Resolution string: '%s'\n", wstresolution);
+					int Width = 0;
+					int Height = 0;
+					int FrameRate = 0;
+					resolution->interlaced = ((strstr(wstresolution, "i") != NULL) ? true : false);
+
+					if (sscanf(wstresolution, "%dx%dp%d", &Width, &Height, &FrameRate) == 3 ||
+						sscanf(wstresolution, "%dx%di%d", &Width, &Height, &FrameRate) == 3) {
+						resolution->pixelResolution = getdsVideoResolution(Width, Height);
+						resolution->aspectRatio = getdsVideoAspectRatio(Width, Height);
+						resolution->frameRate = getdsVideoFrameRate(FrameRate);
+						snprintf(resolution->name, sizeof(resolution->name), "%d%c%d", Height, (resolution->interlaced ? 'i' : 'p'), FrameRate);
+						hal_dbg(
+							"Resolution: '%s', pixelResolution: '%u', aspectRatio: '%u', frameRate: '%u'\n",
+							resolution->name, resolution->pixelResolution, resolution->aspectRatio, resolution->frameRate);
+						return dsERR_NONE;
+					} else {
+						hal_err("Failed to parse resolution string\n");
+						return dsERR_GENERAL;
+					}
+				} else {
+					hal_err("Failed to parse westerosRWWrapper response; ']' not found.\n");
+					return dsERR_GENERAL;
+				}
+			} else {
+				hal_err("Failed to parse westerosRWWrapper response; 'mode ' not found.\n");
+				return dsERR_GENERAL;
+			}
+		}
+	}
     if (vc_tv_get_display_state(&tvstate) == 0) {
         hal_dbg("vc_tv_get_display_state: 0x%X\n", tvstate.state);
         if (tvstate.state & VC_HDMI_ATTACHED) {
@@ -714,36 +758,6 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 		hal_err("Failed to get display state.\n");
 		return dsERR_GENERAL;
 	}
-#else
-	if (westerosRWWrapper("export XDG_RUNTIME_DIR=/run; westeros-gl-console get mode", data, sizeof(data))) {
-		char wstresolution[64] = {0};
-        hal_info("data:'%s'\n", data);
-        // Response: [0: mode 1280x720px60]
-        // Extract string between 'mode ' and ']' and store in resolution
-		char *start = strstr(data, "mode ");
-		if (start) {
-			start += strlen("mode ");
-			char *end = strstr(start, "]");
-			if (end) {
-				*end = '\0';
-				strncpy(wstresolution, start, sizeof(wstresolution));
-				hal_info("Resolution string: '%s'\n", wstresolution);
-				resolution->name = wstresolution;
-				resolution->pixelResolution = 0;
-				resolution->aspectRatio = 0;
-				resolution->stereoScopicMode = 0;
-				resolution->frameRate = 0;
-				resolution->interlaced = ((strstr(wstresolution, "i") != NULL)? true : false);
-			} else {
-				hal_err("Failed to parse westerosRWWrapper response; ']' not found.\n");
-				return dsERR_GENERAL;
-			}
-		} else {
-			hal_err("Failed to parse westerosRWWrapper response; 'mode ' not found.\n");
-			return dsERR_GENERAL;
-		}
-    }
-#endif
 }
 
 #if 0

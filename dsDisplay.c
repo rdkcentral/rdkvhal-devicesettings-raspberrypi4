@@ -148,10 +148,10 @@ dsError_t dsDisplayInit()
     _bDisplayInited = true;
 	TV_ATTACHED_DEVICES_T devices;
 	if ((vc_tv_get_attached_devices(&devices) != -1) && (devices.num_attached > 0)) {
-			hal_info("vc_tv_get_attached_devices: %d\n", devices.num_attached);
-			for (int i = 0; i < devices.num_attached; i++) {
-					hal_info("Device %d: %d\n", i, devices.display_number[i]);
-			}
+		hal_info("vc_tv_get_attached_devices: %d\n", devices.num_attached);
+		for (int i = 0; i < devices.num_attached; i++) {
+			hal_info("Device %d: %d\n", i, devices.display_number[i]);
+		}
 	}
 
     return dsERR_NONE;
