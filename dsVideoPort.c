@@ -704,8 +704,8 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 					int FrameRate = 0;
 					resolution->interlaced = ((strstr(wstresolution, "i") != NULL) ? true : false);
 
-					if (sscanf(wstresolution, "%dx%dp%d", &Width, &Height, &FrameRate) == 3 ||
-						sscanf(wstresolution, "%dx%di%d", &Width, &Height, &FrameRate) == 3) {
+					if (sscanf(wstresolution, "%dx%dpx%d", &Width, &Height, &FrameRate) == 3 ||
+						sscanf(wstresolution, "%dx%dix%d", &Width, &Height, &FrameRate) == 3) {
 						resolution->pixelResolution = getdsVideoResolution(Width, Height);
 						resolution->aspectRatio = getAspectRatioFromWidthHeight(Width, Height);
 						resolution->frameRate = getdsVideoFrameRate(FrameRate);
