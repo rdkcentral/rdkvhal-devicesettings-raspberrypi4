@@ -155,20 +155,11 @@ dsError_t  dsVideoPortInit()
     _vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index = 0;
     _vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_isEnabled = true;
 
-    _vopHandles[dsVIDEOPORT_TYPE_BB][0].m_vType  = dsVIDEOPORT_TYPE_BB;
-    _vopHandles[dsVIDEOPORT_TYPE_BB][0].m_nativeHandle = dsVIDEOPORT_TYPE_BB;
-    _vopHandles[dsVIDEOPORT_TYPE_BB][0].m_index = 0;
-    _vopHandles[dsVIDEOPORT_TYPE_BB][0].m_isEnabled = false;
-
     hal_info("&_vopHandles = %p\n", &_vopHandles);
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_vType = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_vType);
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle);
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index);
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_isEnabled = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_isEnabled);
-    hal_info("&_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_vType = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_vType);
-    hal_info("&_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_nativeHandle = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_nativeHandle);
-    hal_info("&_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_index = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_index);
-    hal_info("&_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_isEnabled = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_isEnabled);
     _resolution = kResolutions[kDefaultResIndex];
     int rc = vchi_tv_init();
     if (rc != 0) {
@@ -348,47 +339,32 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
     VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
     int res = 0;
 
-    if (vopHandle->m_vType == dsVIDEOPORT_TYPE_BB) {
-        SDTV_OPTIONS_T options = { .aspect = SDTV_ASPECT_16_9 };
-        if (enabled) {
-            res = vc_tv_sdtv_power_on(SDTV_MODE_NTSC, &options);
-            if (res != 0) {
-                hal_err("Failed to enable composite video port\n");
-                return dsERR_GENERAL;
-            }
-        } else {
-            res = vc_tv_power_off();
-            if (res != 0) {
-                hal_err("Failed to disable composite video port\n");
-                return dsERR_GENERAL;
-            }
-        }
-    } else if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
+    if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
         char cmd[128] = {0};
         char resp[128] = {0};
-        snprintf(cmd, sizeof(cmd), "export XDG_RUNTIME_DIR=/run; westeros-gl-console set display enable %d", enabled);
+		snprintf(cmd, sizeof(cmd), "export XDG_RUNTIME_DIR=/run; westeros-gl-console set display enable %d;sync", (enabled ? 1 : 0));
 
-        if (enabled) {
-            res = vc_tv_hdmi_power_on_preferred();
-            if (res != 0) {
-                hal_err("Failed to power on HDMI with preferred settings\n");
-                return dsERR_GENERAL;
-            }
-        }
+		if (enabled) {
+			res = vc_tv_hdmi_power_on_preferred();
+			if (res != 0) {
+				hal_err("Failed to power on HDMI with preferred settings\n");
+				return dsERR_GENERAL;
+			}
+		}
 
-        if (!westerosRWWrapper(cmd, resp, sizeof(resp))) {
-            hal_err("Failed to run '%s', got response '%s'\n", cmd, resp);
-            return dsERR_GENERAL;
-        }
+		if (!westerosRWWrapper(cmd, resp, sizeof(resp))) {
+			hal_err("Failed to run '%s', got response '%s'\n", cmd, resp);
+			return dsERR_GENERAL;
+		}
 
-        if (!enabled) {
-            sleep(1);
-            res = vc_tv_power_off();
-            if (res != 0) {
-                hal_err("Failed to disable HDMI video port\n");
-                return dsERR_GENERAL;
-            }
-        }
+		if (!enabled) {
+			sleep(1);
+			res = vc_tv_power_off();
+			if (res != 0) {
+				hal_err("Failed to disable HDMI video port\n");
+				return dsERR_GENERAL;
+			}
+		}
     } else {
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
@@ -435,15 +411,13 @@ dsError_t dsIsDisplayConnected(intptr_t handle, bool *connected)
         hal_err("handle(%p) is invalid or connected(%p) is null.\n", handle, connected);
         return dsERR_INVALID_PARAM;
     }
-    /*Default is false*/
-    *connected = false;
 
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_BB) {
-        hal_dbg("Port is BB, returning connected as TRUE\n");
-        *connected = true;
-        return dsERR_NONE;
+        hal_warn("Handle is dsVIDEOPORT_TYPE_BB, return not supported\n");
+		return dsERR_OPERATION_NOT_SUPPORTED;
     }
-
+	/*Default is false*/
+    *connected = false;
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
         hal_dbg("Isdisplayconnected HDMI port\n");
         if (vc_tv_get_display_state(&tvstate) == 0) {
@@ -776,19 +750,18 @@ static const char* dsVideoGetResolution(uint32_t hdmiMode)
 
 static uint32_t dsGetHdmiMode(dsVideoPortResolution_t *resolution)
 {
-    hal_info("invoked.\n");
+    hal_info("invoked with resolution->name:'%s'.\n", resolution->name);
     uint32_t hdmi_mode = 0;
     for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
         size_t length = strlen(resolution->name) > strlen(resolutionMap[i].rdkRes) ? strlen(resolution->name) : strlen(resolutionMap[i].rdkRes);
-        if (!strncmp(resolution->name, resolutionMap[i].rdkRes, length))
-        {
+        if (!strncmp(resolution->name, resolutionMap[i].rdkRes, length)) {
             hdmi_mode = resolutionMap[i].mode;
             break;
         }
     }
     if (!hdmi_mode) {
-        hal_dbg("Given resolution not found, setting default Resolution HDMI_CEA_720p60\n");
-        hdmi_mode = HDMI_CEA_720p60;
+        hal_dbg("Given resolution not found, setting default Resolution 1080p60.\n");
+        hdmi_mode = 16;
     }
     return hdmi_mode;
 }
@@ -869,17 +842,6 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 				return dsERR_GENERAL;
 			}
 		}
-    } else if (vopHandle->m_vType == dsVIDEOPORT_TYPE_BB) {
-        SDTV_OPTIONS_T options;
-        options.aspect = SDTV_ASPECT_16_9;
-        if (!strncmp(resolution->name, "480i", strlen("480i"))) {
-            hal_dbg("Setting SDTV default resolution SDTV_MODE_NTSC\n");
-            res = vc_tv_sdtv_power_on(SDTV_MODE_NTSC, &options);
-        } else {
-            hal_dbg("Setting SDTV resolution SDTV_MODE_PAL\n");
-            res = vc_tv_sdtv_power_on(SDTV_MODE_PAL, &options);
-        }
-		hal_dbg("dsVIDEOPORT_TYPE_BB vc_tv_sdtv_power_on returned %d\n", res);
     } else {
 	    hal_err("Video port type not supported\n");
 	    return dsERR_OPERATION_NOT_SUPPORTED;

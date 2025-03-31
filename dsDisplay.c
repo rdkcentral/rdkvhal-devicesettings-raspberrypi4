@@ -124,17 +124,10 @@ dsError_t dsDisplayInit()
     _VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle = dsVIDEOPORT_TYPE_HDMI;
     _VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index = 0;
 
-    _VDispHandles[dsVIDEOPORT_TYPE_COMPONENT][0].m_vType  = dsVIDEOPORT_TYPE_BB;
-    _VDispHandles[dsVIDEOPORT_TYPE_COMPONENT][0].m_nativeHandle = dsVIDEOPORT_TYPE_BB;
-    _VDispHandles[dsVIDEOPORT_TYPE_COMPONENT][0].m_index = 0;
-
     hal_info("&_VDispHandles = %p\n", &_VDispHandles);
     hal_info("&_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_vType = %p\n", &_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_vType);
     hal_info("&_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle = %p\n", &_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle);
     hal_info("&_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index = %p\n", &_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index);
-    hal_info("&_VDispHandles[dsVIDEOPORT_TYPE_COMPONENT][0].m_vType = %p\n", &_VDispHandles[dsVIDEOPORT_TYPE_COMPONENT][0].m_vType);
-    hal_info("&_VDispHandles[dsVIDEOPORT_TYPE_COMPONENT][0].m_nativeHandle = %p\n", &_VDispHandles[dsVIDEOPORT_TYPE_COMPONENT][0].m_nativeHandle);
-    hal_info("&_VDispHandles[dsVIDEOPORT_TYPE_COMPONENT][0].m_index = %p\n", &_VDispHandles[dsVIDEOPORT_TYPE_COMPONENT][0].m_index);
 
     int32_t res = vchi_tv_init();
     if (res != 0) {
@@ -222,18 +215,8 @@ dsError_t dsGetDisplayAspectRatio(intptr_t handle, dsVideoAspectRatio_t *aspect)
                     break;
             }
         } else if (vDispHandle->m_vType == dsVIDEOPORT_TYPE_BB) {
-            hal_info("PortType:BB, aspect ratio is %d\n", tvstate.display.sdtv.display_options.aspect);
-            switch (tvstate.display.sdtv.display_options.aspect) {
-                case SDTV_ASPECT_4_3:
-                    *aspect = dsVIDEO_ASPECT_RATIO_4x3;
-                    break;
-                case SDTV_ASPECT_16_9:
-                    *aspect = dsVIDEO_ASPECT_RATIO_16x9;
-                    break;
-                default:
-                    *aspect = dsVIDEO_ASPECT_RATIO_4x3;
-                    break;
-            }
+            hal_warn("Handle is dsVIDEOPORT_TYPE_BB, return not supported\n");
+			return dsERR_OPERATION_NOT_SUPPORTED;
         }
     } else {
         hal_err("Error getting current display state\n");
