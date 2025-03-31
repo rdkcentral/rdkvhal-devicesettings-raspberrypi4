@@ -797,7 +797,6 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
     /* Auto Select uses 720p. Should be converted to dsVideoPortResolution_t = 720p in DS-VOPConfig, not here */
     hal_info("invoked.\n");
     VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
-    int res = 0;
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
