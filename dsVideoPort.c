@@ -342,7 +342,7 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
         char cmd[128] = {0};
         char resp[128] = {0};
-		snprintf(cmd, sizeof(cmd), "export XDG_RUNTIME_DIR=/run; westeros-gl-console set display enable %d;sync", (enabled ? 1 : 0));
+		snprintf(cmd, sizeof(cmd), "export XDG_RUNTIME_DIR=/run; westeros-gl-console set display enable %d", (enabled ? 1 : 0));
 
 		if (enabled) {
 			res = vc_tv_hdmi_power_on_preferred();
