@@ -132,7 +132,7 @@ bool convertkResolutionToWesterosResolution(const dsVideoPortResolution_t *kReso
 	// get from westerosReskResMap
 	for (size_t i = 0; i < sizeof(westerosReskResMap) / sizeof(WesterosReskResMap_t); i++) {
 		if (strcmp(kResolution->name, westerosReskResMap[i].dsVideoPortResolutionName) == 0) {
-			snprintf(westerosRes, size, "%s", westerosReskResMap[i].westerosRes);
+			snprintf(westerosRes, size, "%s", westerosReskResMap[i].westerosResolution);
 			return true;
 		}
 	}
@@ -607,12 +607,12 @@ const dsTVResolution_t *getResolutionFromVic(int vic)
     return NULL; // VIC not found
 }
 
-// const int *getVicFromResolution(dsTVResolution_t resolution)
-// {
-//     for (size_t i = 0; i < VIC_MAP_TABLE_SIZE; ++i) {
-//         if (vicMapTable[i].tvresolution == resolution) {
-//             return &vicMapTable[i].vic;
-//         }
-//     }
-//     return NULL;  // VIC not found
-// }
+const int *getVicFromResolution(dsTVResolution_t resolution)
+{
+    for (size_t i = 0; i < VIC_MAP_TABLE_SIZE; ++i) {
+        if (vicMapTable[i].tvresolution == resolution) {
+            return &vicMapTable[i].vic;
+        }
+    }
+    return NULL;  // VIC not found
+}
