@@ -38,7 +38,7 @@ static bool isBootup = true;
 static bool _bIsVideoPortInitialized = false;
 static bool isValidVopHandle(intptr_t handle);
 //static const char *dsVideoGetResolution(uint32_t mode);
-static uint32_t dsGetHdmiMode(dsVideoPortResolution_t *resolution);
+//static uint32_t dsGetHdmiMode(dsVideoPortResolution_t *resolution);
 #define MAX_HDMI_MODE_ID (127)
 
 dsHDCPStatusCallback_t _halhdcpcallback = NULL;
@@ -730,23 +730,23 @@ static const char* dsVideoGetResolution(uint32_t hdmiMode)
 }
 #endif
 
-static uint32_t dsGetHdmiMode(dsVideoPortResolution_t *resolution)
-{
-    hal_info("invoked with resolution->name:'%s'.\n", resolution->name);
-    uint32_t hdmi_mode = 0;
-    for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
-        size_t length = strlen(resolution->name) > strlen(resolutionMap[i].rdkRes) ? strlen(resolution->name) : strlen(resolutionMap[i].rdkRes);
-        if (!strncmp(resolution->name, resolutionMap[i].rdkRes, length)) {
-            hdmi_mode = resolutionMap[i].mode;
-            break;
-        }
-    }
-    if (!hdmi_mode) {
-        hal_dbg("Given resolution not found, setting default Resolution 1080p60.\n");
-        hdmi_mode = 16;
-    }
-    return hdmi_mode;
-}
+// static uint32_t dsGetHdmiMode(dsVideoPortResolution_t *resolution)
+// {
+//     hal_info("invoked with resolution->name:'%s'.\n", resolution->name);
+//     uint32_t hdmi_mode = 0;
+//     for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
+//         size_t length = strlen(resolution->name) > strlen(resolutionMap[i].rdkRes) ? strlen(resolution->name) : strlen(resolutionMap[i].rdkRes);
+//         if (!strncmp(resolution->name, resolutionMap[i].rdkRes, length)) {
+//             hdmi_mode = resolutionMap[i].mode;
+//             break;
+//         }
+//     }
+//     if (!hdmi_mode) {
+//         hal_dbg("Given resolution not found, setting default Resolution 1080p60.\n");
+//         hdmi_mode = 16;
+//     }
+//     return hdmi_mode;
+// }
 
 /**
  * @brief Sets the display resolution of specified video port.

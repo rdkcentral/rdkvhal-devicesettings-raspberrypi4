@@ -59,7 +59,29 @@ const hdmiSupportedRes_t resolutionMap[] = {
 };
 
 const size_t  noOfItemsInResolutionMap = sizeof(resolutionMap) / sizeof(hdmiSupportedRes_t);
-const sizze_t noOfItemsInkResolutions = sizeof(kResolutions) / sizeof(dsVideoPortResolution_t);
+const size_t noOfItemsInkResolutions = sizeof(kResolutions) / sizeof(dsVideoPortResolution_t);
+
+
+const WesterosReskResMap_t westerosReskResMap[] = {
+	{"720x480px60", "480p"},
+	{"720x480ix60", "480i"},
+	{"720x576px50", "576p"},
+	{"720x576ix50", "576i"},
+	{"1280x720px60", "720p"},
+	{"1280x720px50", "720p50"},
+	{"1920x1080p24", "1080p24"},
+	{"1920x1080p25", "1080p25"},
+	{"1920x1080p30", "1080p30"},
+	{"1920x1080p50", "1080p50"},
+	{"1920x1080p60", "1080p60"},
+	{"1920x1080ix60", "1080i"},
+	{"1920x1080ix50", "1080i50"},
+	{"3840x2160px24", "2160p24"},
+	{"3840x2160px25", "2160p25"},
+	{"3840x2160px30", "2160p30"},
+	{"3840x2160px50", "2160p50"},
+	{"3840x2160px60", "2160p60"}
+};
 
 dsVideoPortResolution_t *dsGetkResolutionByName(const char *name)
 {
@@ -71,7 +93,7 @@ dsVideoPortResolution_t *dsGetkResolutionByName(const char *name)
 	return NULL;
 }
 
-dsVideoPortResolution_t *dsGetkResolutionByPixelResolutionAndFrameRate(dsVideoPortPixelResolution_t pixelResolution, dsVideoPortFrameRate_t frameRate)
+dsVideoPortResolution_t *dsGetkResolutionByPixelResolutionAndFrameRate(dsVideoResolution_t pixelResolution, dsVideoFrameRate_t frameRate)
 {
 	for (size_t i = 0; i < noOfItemsInkResolutions; i++) {
 		if ((kResolutions[i].pixelResolution == pixelResolution) && (kResolutions[i].frameRate == frameRate)) {
@@ -83,15 +105,14 @@ dsVideoPortResolution_t *dsGetkResolutionByPixelResolutionAndFrameRate(dsVideoPo
 
 bool convertWesterosResolutionTokResolution(const char *westerosRes, dsVideoPortResolution_t *kResolution)
 {
-	if (westerosRes == NULL || resolution == NULL) {
+	if (westerosRes == NULL || kResolution == NULL) {
 		return false;
 	}
 	int Width = 0;
 	int Height = 0;
 	int FrameRate = 0;
-	if (sscanf(wstresolution, "%dx%dpx%d", &Width, &Height, &FrameRate) == 3 ||
-			sscanf(wstresolution, "%dx%dix%d", &Width, &Height, &FrameRate) == 3) {
-		snprintf(sFrameRate, sizeof(sFrameRate), "%d", FrameRate);
+	if (sscanf(westerosRes, "%dx%dpx%d", &Width, &Height, &FrameRate) == 3 ||
+			sscanf(westerosRes, "%dx%dix%d", &Width, &Height, &FrameRate) == 3) {
 		hal_dbg("Width: %d, Height: %d, FrameRate: %d\n", Width, Height, FrameRate);
 		kResolution->pixelResolution = getdsVideoResolution(Width, Height);
 		if (kResolution->pixelResolution != dsVIDEO_PIXELRES_MAX) {
@@ -117,27 +138,6 @@ bool convertkResolutionToWesterosResolution(const dsVideoPortResolution_t *kReso
 	}
 	return false;
 }
-
-const WesterosReskResMap_t westerosReskResMap[] = {
-	{"720x480px60", "480p"},
-	{"720x480ix60", "480i"},
-	{"720x576px50", "576p"},
-	{"720x576ix50", "576i"},
-	{"1280x720px60", "720p"},
-	{"1280x720px50", "720p50"},
-	{"1920x1080p24", "1080p24"},
-	{"1920x1080p25", "1080p25"},
-	{"1920x1080p30", "1080p30"},
-	{"1920x1080p50", "1080p50"},
-	{"1920x1080p60", "1080p60"},
-	{"1920x1080ix60", "1080i"},
-	{"1920x1080ix50", "1080i50"},
-	{"3840x2160px24", "2160p24"},
-	{"3840x2160px25", "2160p25"},
-	{"3840x2160px30", "2160p30"},
-	{"3840x2160px50", "2160p50"},
-	{"3840x2160px60", "2160p60"}
-};
 
 const VicMapEntry vicMapTable[] = {
     // 480i resolutions
