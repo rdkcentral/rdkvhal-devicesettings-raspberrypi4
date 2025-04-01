@@ -106,6 +106,7 @@ dsVideoPortResolution_t *dsGetkResolutionByPixelResolutionAndFrameRate(dsVideoRe
 
 bool convertWesterosResolutionTokResolution(const char *westerosRes, dsVideoPortResolution_t *kResolution)
 {
+	dsVideoPortResolution_t *localkResolution = NULL;
 	if (westerosRes == NULL || kResolution == NULL) {
 		return false;
 	}
@@ -116,13 +117,16 @@ bool convertWesterosResolutionTokResolution(const char *westerosRes, dsVideoPort
 	if (sscanf(westerosRes, "%dx%d%cx%d", &Width, &Height, &ilaced, &FrameRate) == 4 ||
 	    sscanf(westerosRes, "%dx%d%cx%d", &Width, &Height,  &ilaced, &FrameRate) == 4) {
 		hal_dbg("Width: %d, Height: %d, FrameRate: %d, ilaced = %c\n", Width, Height, FrameRate, ilaced);
-		kResolution->pixelResolution = getdsVideoResolution(Width, Height);
-		hal_dbg("PixelResolution: %d\n", kResolution->pixelResolution);
-		if (kResolution->pixelResolution != dsVIDEO_PIXELRES_MAX) {
-			kResolution->frameRate = getdsVideoFrameRate(FrameRate);
+		localkResolution->pixelResolution = getdsVideoResolution(Width, Height);
+		hal_dbg("PixelResolution: %d\n", localkResolution->pixelResolution);
+		if (localkResolution->pixelResolution != dsVIDEO_PIXELRES_MAX) {
+			localkResolution->frameRate = getdsVideoFrameRate(FrameRate);
 			hal_dbg("FrameRate: %d\n", kResolution->frameRate);
-			kResolution = dsGetkResolutionByPixelResolutionAndFrameRate(kResolution->pixelResolution, kResolution->frameRate, (ilaced == 'p' ? false : true));
-			return (kResolution != NULL) ? true : false;
+			localkResolution = dsGetkResolutionByPixelResolutionAndFrameRate(localkResolution->pixelResolution, localkResolution->frameRate, (ilaced == 'p' ? false : true));
+			if (localkResolution != NULL) {
+				memcpy(kResolution, localkResolution, sizeof(dsVideoPortResolution_t));
+				return true;
+			}
 		}
 	}
 	return false;
