@@ -673,7 +673,17 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 					*end = '\0';
 					strncpy(wstresolution, start, sizeof(wstresolution));
 					hal_info("Resolution string: '%s'\n", wstresolution);
-					return (convertWesterosResolutionTokResolution(wstresolution, resolution)? dsERR_NONE: dsERR_GENERAL);
+					if (convertWesterosResolutionTokResolution(wstresolution, resolution)) {
+						hal_dbg("Leena name: '%s'\n", resolution->name);
+						hal_dbg("Leena pixelResolution: '0x%x'\n", resolution->pixelResolution);
+						hal_dbg("Leena aspectRatio: '0x%x'\n", resolution->aspectRatio);
+						hal_dbg("Leena frameRate: '%s'\n", getdsVideoFrameRateString(resolution->frameRate));
+						hal_dbg("Leena interlaced: '%d'\n", resolution->interlaced);
+						return dsERR_NONE;
+					} else {
+						hal_err("Failed to convert westeros resolution '%s' to dsVideoPortResolution_t\n", wstresolution);
+						return dsERR_GENERAL;
+					}
 				} else {
 					hal_err("Failed to parse westerosRWWrapper response; ']' not found.\n");
 					return dsERR_GENERAL;
