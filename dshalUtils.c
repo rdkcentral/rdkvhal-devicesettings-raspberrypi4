@@ -96,6 +96,7 @@ dsVideoPortResolution_t *dsGetkResolutionByPixelResolutionAndFrameRate(dsVideoRe
 {
 	for (size_t i = 0; i < noOfItemsInkResolutions; i++) {
 		if ((kResolutions[i].pixelResolution == pixelResolution) && (kResolutions[i].frameRate == frameRate)) {
+			hal_dbg("Found matching resolution: %s\n", kResolutions[i].name);
 			return &kResolutions[i];
 		}
 	}
@@ -114,8 +115,10 @@ bool convertWesterosResolutionTokResolution(const char *westerosRes, dsVideoPort
 			sscanf(westerosRes, "%dx%dix%d", &Width, &Height, &FrameRate) == 3) {
 		hal_dbg("Width: %d, Height: %d, FrameRate: %d\n", Width, Height, FrameRate);
 		kResolution->pixelResolution = getdsVideoResolution(Width, Height);
+		hal_dbg("PixelResolution: %d\n", kResolution->pixelResolution);
 		if (kResolution->pixelResolution != dsVIDEO_PIXELRES_MAX) {
 			kResolution->frameRate = getdsVideoFrameRate(FrameRate);
+			hal_dbg("FrameRate: %d\n", kResolution->frameRate);
 			kResolution = dsGetkResolutionByPixelResolutionAndFrameRate(kResolution->pixelResolution, kResolution->frameRate);
 			return (kResolution != NULL) ? true : false;
 		}
