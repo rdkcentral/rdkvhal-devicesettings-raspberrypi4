@@ -433,13 +433,16 @@ static dsError_t dsQueryHdmiResolution()
     numSupportedResn = 0;
     HdmiSupportedResolution = (dsVideoPortResolution_t *)malloc(sizeof(dsVideoPortResolution_t)*noOfItemsInResolutionMap);
     if (HdmiSupportedResolution) {
+		hal_dbg("Leena noOfItemsInResolutionMap: %d, num_of_modes: %d\n", noOfItemsInResolutionMap, num_of_modes);
         for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
             for (int j = 0; j < num_of_modes; j++) {
                 if (modeSupported[j].code == resolutionMap[i].mode) {
                     dsVideoPortResolution_t *resolution = dsgetResolutionInfo(resolutionMap[i].rdkRes);
-                    memcpy(&HdmiSupportedResolution[numSupportedResn], resolution, sizeof(dsVideoPortResolution_t));
-                    hal_dbg("Supported Resolution '%s'\n", HdmiSupportedResolution[numSupportedResn].name);
-                    numSupportedResn++;
+					if (resolution != NULL) {
+                    	memcpy(&HdmiSupportedResolution[numSupportedResn], resolution, sizeof(dsVideoPortResolution_t));
+                    	hal_dbg("Supported Resolution '%s'\n", HdmiSupportedResolution[numSupportedResn].name);
+                    	numSupportedResn++;
+					}
                 }
             }
         }
