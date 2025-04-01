@@ -61,26 +61,25 @@ const hdmiSupportedRes_t resolutionMap[] = {
 const size_t  noOfItemsInResolutionMap = sizeof(resolutionMap) / sizeof(hdmiSupportedRes_t);
 const size_t noOfItemsInkResolutions = sizeof(kResolutions) / sizeof(dsVideoPortResolution_t);
 
-
 const WesterosReskResMap_t westerosReskResMap[] = {
-	{"720x480px60", "480p"},
-	{"720x480ix60", "480i"},
-	{"720x576px50", "576p"},
-	{"720x576ix50", "576i"},
-	{"1280x720px60", "720p"},
-	{"1280x720px50", "720p50"},
-	{"1920x1080p24", "1080p24"},
-	{"1920x1080p25", "1080p25"},
-	{"1920x1080p30", "1080p30"},
-	{"1920x1080p50", "1080p50"},
-	{"1920x1080p60", "1080p60"},
-	{"1920x1080ix60", "1080i"},
-	{"1920x1080ix50", "1080i50"},
-	{"3840x2160px24", "2160p24"},
-	{"3840x2160px25", "2160p25"},
-	{"3840x2160px30", "2160p30"},
-	{"3840x2160px50", "2160p50"},
-	{"3840x2160px60", "2160p60"}
+    {"480p", "720x480px60"},
+    {"480i", "720x480ix60"},
+    {"576p", "720x576px50"},
+    {"576i", "720x576ix50"},
+    {"720p", "1280x720px60"},
+    {"720p50", "1280x720px50"},
+    {"1080p24", "1920x1080p24"},
+    {"1080p25", "1920x1080p25"},
+    {"1080p30", "1920x1080p30"},
+    {"1080p50", "1920x1080p50"},
+    {"1080p60", "1920x1080p60"},
+    {"1080i", "1920x1080ix60"},
+    {"1080i50", "1920x1080ix50"},
+    {"2160p24", "3840x2160px24"},
+    {"2160p25", "3840x2160px25"},
+    {"2160p30", "3840x2160px30"},
+    {"2160p50", "3840x2160px50"},
+    {"2160p60", "3840x2160px60"}
 };
 
 dsVideoPortResolution_t *dsGetkResolutionByName(const char *name)
