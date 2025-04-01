@@ -78,8 +78,11 @@ dsVideoAspectRatio_t getAspectRatioFromWidthHeight(int width, int height);
 dsVideoFrameRate_t getdsVideoFrameRate(uint16_t frameRate);
 dsVideoPortResolution_t *dsGetkResolutionByName(const char *name);
 char *getdsVideoFrameRateString(dsVideoFrameRate_t framerate);
-dsVideoPortResolution_t *dsGetkResolutionByPixelResolutionAndFrameRate(dsVideoResolution_t pixelResolution, dsVideoFrameRate_t frameRate);
-bool convertWesterosResolutionTokResolution(const char *westerosRes, dsVideoPortResolution_t *kResolution);
+dsVideoPortResolution_t *dsGetkResolutionByPixelResolutionAndFrameRate(
+    dsVideoResolution_t pixelResolution, dsVideoFrameRate_t frameRate,
+    bool scanMode);
+bool convertWesterosResolutionTokResolution(
+    const char *westerosRes, dsVideoPortResolution_t *kResolution);
 bool convertkResolutionToWesterosResolution(const dsVideoPortResolution_t *kResolution, char *westerosRes, size_t size);
 
 #endif

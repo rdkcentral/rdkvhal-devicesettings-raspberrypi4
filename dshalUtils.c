@@ -92,10 +92,11 @@ dsVideoPortResolution_t *dsGetkResolutionByName(const char *name)
 	return NULL;
 }
 
-dsVideoPortResolution_t *dsGetkResolutionByPixelResolutionAndFrameRate(dsVideoResolution_t pixelResolution, dsVideoFrameRate_t frameRate)
+dsVideoPortResolution_t *dsGetkResolutionByPixelResolutionAndFrameRate(dsVideoResolution_t pixelResolution, dsVideoFrameRate_t frameRate, bool scanMode)
 {
 	for (size_t i = 0; i < noOfItemsInkResolutions; i++) {
-		if ((kResolutions[i].pixelResolution == pixelResolution) && (kResolutions[i].frameRate == frameRate)) {
+		if ((kResolutions[i].pixelResolution == pixelResolution) && (kResolutions[i].frameRate == frameRate)
+			&& (kResolutions[i].interlaced == scanMode)) {
 			hal_dbg("Found matching resolution: %s\n", kResolutions[i].name);
 			return &kResolutions[i];
 		}
@@ -111,15 +112,16 @@ bool convertWesterosResolutionTokResolution(const char *westerosRes, dsVideoPort
 	int Width = 0;
 	int Height = 0;
 	int FrameRate = 0;
-	if (sscanf(westerosRes, "%dx%dpx%d", &Width, &Height, &FrameRate) == 3 ||
-			sscanf(westerosRes, "%dx%dix%d", &Width, &Height, &FrameRate) == 3) {
-		hal_dbg("Width: %d, Height: %d, FrameRate: %d\n", Width, Height, FrameRate);
+	char ilaced = 0;
+	if (sscanf(westerosRes, "%dx%d%cx%d", &Width, &Height, &ilaced, &FrameRate) == 4 ||
+	    sscanf(westerosRes, "%dx%d%cx%d", &Width, &Height,  &ilaced, &FrameRate) == 4) {
+		hal_dbg("Width: %d, Height: %d, FrameRate: %d, ilaced = %c\n", Width, Height, FrameRate, ilaced);
 		kResolution->pixelResolution = getdsVideoResolution(Width, Height);
 		hal_dbg("PixelResolution: %d\n", kResolution->pixelResolution);
 		if (kResolution->pixelResolution != dsVIDEO_PIXELRES_MAX) {
 			kResolution->frameRate = getdsVideoFrameRate(FrameRate);
 			hal_dbg("FrameRate: %d\n", kResolution->frameRate);
-			kResolution = dsGetkResolutionByPixelResolutionAndFrameRate(kResolution->pixelResolution, kResolution->frameRate);
+			kResolution = dsGetkResolutionByPixelResolutionAndFrameRate(kResolution->pixelResolution, kResolution->frameRate, (ilaced == 'p' ? false : true));
 			return (kResolution != NULL) ? true : false;
 		}
 	}

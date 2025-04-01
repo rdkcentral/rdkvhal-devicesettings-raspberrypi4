@@ -22,7 +22,7 @@
 
 #include "dsTypes.h"
 
-#define  _INTERLACED true
+#define _INTERLACED true
 #define _PROGRESSIVE false
 
 #define dsVideoPortRESOLUTION_NUMMAX 32
