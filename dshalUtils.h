@@ -24,7 +24,14 @@
 #include "interface/vmcs_host/vc_vchi_gencmd.h"
 #include "dsTypes.h"
 #include "dsAVDTypes.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include "dsVideoDeviceSettings.h"
+#ifdef __cplusplus
+}
+#endif
 
 typedef struct {
 	const char *dsVideoPortResolutionName;
