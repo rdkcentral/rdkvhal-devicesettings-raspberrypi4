@@ -793,15 +793,9 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 		hal_dbg("Setting HDMI resolution interlaced '%d'\n", resolution->interlaced);
 		if (!dsVideoPortFrameRate_isValid(resolution->frameRate) ||
 			!dsVideoPortPixelResolution_isValid(resolution->pixelResolution)) {
-			hal_err("Invalid %s: '%s'\n",
-					!dsVideoPortFrameRate_isValid(resolution->frameRate) ? "frameRate" : "pixelResolution",
-					!dsVideoPortFrameRate_isValid(resolution->frameRate) ?
-						getdsVideoFrameRateString(resolution->frameRate) :
-						getdsVideoResolutionString(resolution->pixelResolution));
+			hal_err("Invalid param; framerate 0x%x or pixelResolution 0x%x\n", resolution->frameRate, resolution->pixelResolution);
 			return dsERR_INVALID_PARAM;
 		}
-        // ToDO: implement it.
-		// get westeros resolution string for the given resolution and frame rate
 		char cmd[256] = {0};
 		char data[128] = {0};
 		char westerosRes[64] = {0};
