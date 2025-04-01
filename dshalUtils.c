@@ -27,19 +27,21 @@
 
 #include "dshalUtils.h"
 #include "dshalLogger.h"
+#include "dsVideoResolutionSettings.h"
 
 const hdmiSupportedRes_t resolutionMap[] = {
     {"480p", 2},       // 720x480p @ 59.94/60Hz
-    {"480p", 3},       // 720x480p @ 59.94/60Hz
+    //{"480p", 3},       // 720x480p @ 59.94/60Hz
     {"480i", 6},       // 720x480i @ 59.94/60Hz
-    {"480i", 7},       // 720x480i @ 59.94/60Hz
+    //{"480i", 7},       // 720x480i @ 59.94/60Hz
     {"576p", 17},      // 720x576p @ 50Hz
-    {"576p", 18},      // 720x576p @ 50Hz
+    //{"576p", 18},      // 720x576p @ 50Hz
     {"576i", 21},      // 720x576i @ 50Hz
-    {"576i", 22},      // 720x576i @ 50Hz
+    //{"576i", 22},      // 720x576i @ 50Hz
     {"720p", 4},       // 1280x720p @ 59.94/60Hz
     {"720p50", 19},    // 1280x720p @ 50Hz
     {"1080i", 5},      // 1920x1080i @ 59.94/60Hz
+	{"1080i60", 5},    // 1920x1080i @ 59.94/60Hz
     {"1080i50", 20},   // 1920x1080i @ 50Hz
     {"1080p24", 32},   // 1920x1080p @ 24Hz
     {"1080p25", 33},   // 1920x1080p @ 25Hz
@@ -50,13 +52,92 @@ const hdmiSupportedRes_t resolutionMap[] = {
     {"2160p25", 94},   // 3840x2160p @ 25Hz
     {"2160p30", 95},   // 3840x2160p @ 30Hz
     {"2160p24", 98},   // 4096x2160p @ 24Hz
-    {"2160p25", 99},   // 4096x2160p @ 25Hz
-    {"2160p30", 100},  // 4096x2160p @ 30Hz
-    {"2160p50", 101},  // 4096x2160p @ 50Hz
-    {"2160p60", 102}   // 4096x2160p @ 60Hz
+    //{"2160p25", 99},   // 4096x2160p @ 25Hz
+    //{"2160p30", 100},  // 4096x2160p @ 30Hz
+    //{"2160p50", 101},  // 4096x2160p @ 50Hz
+    //{"2160p60", 102}   // 4096x2160p @ 60Hz
 };
 
 const size_t  noOfItemsInResolutionMap = sizeof(resolutionMap) / sizeof(hdmiSupportedRes_t);
+const sizze_t noOfItemsInkResolutions = sizeof(kResolutions) / sizeof(dsVideoPortResolution_t);
+
+dsVideoPortResolution_t *dsGetkResolutionByName(const char *name)
+{
+	for (size_t i = 0; i < noOfItemsInkResolutions; i++) {
+		if (strcmp(kResolutions[i].name, name) == 0) {
+			return &kResolutions[i];
+		}
+	}
+	return NULL;
+}
+
+dsVideoPortResolution_t *dsGetkResolutionByPixelResolutionAndFrameRate(dsVideoPortPixelResolution_t pixelResolution, dsVideoPortFrameRate_t frameRate)
+{
+	for (size_t i = 0; i < noOfItemsInkResolutions; i++) {
+		if ((kResolutions[i].pixelResolution == pixelResolution) && (kResolutions[i].frameRate == frameRate)) {
+			return &kResolutions[i];
+		}
+	}
+	return NULL;
+}
+
+bool convertWesterosResolutionTokResolution(const char *westerosRes, dsVideoPortResolution_t *kResolution)
+{
+	if (westerosRes == NULL || resolution == NULL) {
+		return false;
+	}
+	int Width = 0;
+	int Height = 0;
+	int FrameRate = 0;
+	if (sscanf(wstresolution, "%dx%dpx%d", &Width, &Height, &FrameRate) == 3 ||
+			sscanf(wstresolution, "%dx%dix%d", &Width, &Height, &FrameRate) == 3) {
+		snprintf(sFrameRate, sizeof(sFrameRate), "%d", FrameRate);
+		hal_dbg("Width: %d, Height: %d, FrameRate: %d\n", Width, Height, FrameRate);
+		kResolution->pixelResolution = getdsVideoResolution(Width, Height);
+		if (kResolution->pixelResolution != dsVIDEO_PIXELRES_MAX) {
+			kResolution->frameRate = getdsVideoFrameRate(FrameRate);
+			kResolution = dsGetkResolutionByPixelResolutionAndFrameRate(kResolution->pixelResolution, kResolution->frameRate);
+			return (kResolution != NULL) ? true : false;
+		}
+	}
+	return false;
+}
+
+bool convertkResolutionToWesterosResolution(const dsVideoPortResolution_t *kResolution, char *westerosRes, size_t size)
+{
+	if (kResolution == NULL || westerosRes == NULL) {
+		return false;
+	}
+	// get from westerosReskResMap
+	for (size_t i = 0; i < sizeof(westerosReskResMap) / sizeof(WesterosReskResMap_t); i++) {
+		if (strcmp(kResolution->name, westerosReskResMap[i].dsVideoPortResolutionName) == 0) {
+			snprintf(westerosRes, size, "%s", westerosReskResMap[i].westerosRes);
+			return true;
+		}
+	}
+	return false;
+}
+
+const WesterosReskResMap_t westerosReskResMap[] = {
+	{"720x480px60", "480p"},
+	{"720x480ix60", "480i"},
+	{"720x576px50", "576p"},
+	{"720x576ix50", "576i"},
+	{"1280x720px60", "720p"},
+	{"1280x720px50", "720p50"},
+	{"1920x1080p24", "1080p24"},
+	{"1920x1080p25", "1080p25"},
+	{"1920x1080p30", "1080p30"},
+	{"1920x1080p50", "1080p50"},
+	{"1920x1080p60", "1080p60"},
+	{"1920x1080ix60", "1080i"},
+	{"1920x1080ix50", "1080i50"},
+	{"3840x2160px24", "2160p24"},
+	{"3840x2160px25", "2160p25"},
+	{"3840x2160px30", "2160p30"},
+	{"3840x2160px50", "2160p50"},
+	{"3840x2160px60", "2160p60"}
+};
 
 const VicMapEntry vicMapTable[] = {
     // 480i resolutions
@@ -160,6 +241,21 @@ const VicMapEntry vicMapTable[] = {
 };
 
 #define VIC_MAP_TABLE_SIZE (sizeof(vicMapTable) / sizeof(VicMapEntry))
+
+char *getdsVideoFrameRateString(dsVideoFrameRate_t framerate)
+{
+	switch (framerate) {
+		case dsVIDEO_FRAMERATE_24: return "24";
+		case dsVIDEO_FRAMERATE_25: return "25";
+		case dsVIDEO_FRAMERATE_30: return "30";
+		case dsVIDEO_FRAMERATE_60: return "60";
+		case dsVIDEO_FRAMERATE_23dot98: return "23.98";
+		case dsVIDEO_FRAMERATE_29dot97: return "29.97";
+		case dsVIDEO_FRAMERATE_50: return "50";
+		case dsVIDEO_FRAMERATE_59dot94: return "59.94";
+		default: return NULL;
+	}
+}
 
 dsVideoFrameRate_t getdsVideoFrameRate(uint16_t frameRate)
 {
@@ -491,15 +587,15 @@ bool westerosRWWrapper(const char *cmd, char *resp, size_t respSize)
     return false;
 }
 
-const char *getWesterosResolutionFromVic(int vic)
-{
-    for (size_t i = 0; i < VIC_MAP_TABLE_SIZE; ++i) {
-        if (vicMapTable[i].vic == vic) {
-            return vicMapTable[i].westerosResolution;
-        }
-    }
-    return NULL; // VIC not found
-}
+// const char *getWesterosResolutionFromVic(int vic)
+// {
+//     for (size_t i = 0; i < VIC_MAP_TABLE_SIZE; ++i) {
+//         if (vicMapTable[i].vic == vic) {
+//             return vicMapTable[i].westerosResolution;
+//         }
+//     }
+//     return NULL; // VIC not found
+// }
 
 const dsTVResolution_t *getResolutionFromVic(int vic)
 {
@@ -511,12 +607,12 @@ const dsTVResolution_t *getResolutionFromVic(int vic)
     return NULL; // VIC not found
 }
 
-const int *getVicFromResolution(dsTVResolution_t resolution)
-{
-    for (size_t i = 0; i < VIC_MAP_TABLE_SIZE; ++i) {
-        if (vicMapTable[i].tvresolution == resolution) {
-            return &vicMapTable[i].vic;
-        }
-    }
-    return NULL;  // VIC not found
-}
+// const int *getVicFromResolution(dsTVResolution_t resolution)
+// {
+//     for (size_t i = 0; i < VIC_MAP_TABLE_SIZE; ++i) {
+//         if (vicMapTable[i].tvresolution == resolution) {
+//             return &vicMapTable[i].vic;
+//         }
+//     }
+//     return NULL;  // VIC not found
+// }
