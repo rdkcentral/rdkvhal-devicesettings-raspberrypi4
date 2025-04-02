@@ -106,7 +106,7 @@ dsVideoPortResolution_t *dsGetkResolutionByPixelResolutionAndFrameRate(dsVideoRe
 
 bool convertWesterosResolutionTokResolution(const char *westerosRes, dsVideoPortResolution_t *kResolution)
 {
-	dsVideoPortResolution_t *localkResolution = NULL;
+	dsVideoPortResolution_t localkResolution;
 	if (westerosRes == NULL || kResolution == NULL) {
 		return false;
 	}
@@ -114,17 +114,22 @@ bool convertWesterosResolutionTokResolution(const char *westerosRes, dsVideoPort
 	int Height = 0;
 	int FrameRate = 0;
 	char ilaced = 0;
+	memset(&localkResolution, 0, sizeof(dsVideoPortResolution_t));
 	if (sscanf(westerosRes, "%dx%d%cx%d", &Width, &Height, &ilaced, &FrameRate) == 4 ||
 	    sscanf(westerosRes, "%dx%d%cx%d", &Width, &Height,  &ilaced, &FrameRate) == 4) {
 		hal_dbg("Width: %d, Height: %d, FrameRate: %d, ilaced = %c\n", Width, Height, FrameRate, ilaced);
-		localkResolution->pixelResolution = getdsVideoResolution(Width, Height);
-		hal_dbg("PixelResolution: %d\n", localkResolution->pixelResolution);
-		if (localkResolution->pixelResolution != dsVIDEO_PIXELRES_MAX) {
-			localkResolution->frameRate = getdsVideoFrameRate(FrameRate);
-			hal_dbg("FrameRate: %d\n", kResolution->frameRate);
-			localkResolution = dsGetkResolutionByPixelResolutionAndFrameRate(localkResolution->pixelResolution, localkResolution->frameRate, (ilaced == 'p' ? false : true));
+		localkResolution.pixelResolution = getdsVideoResolution(Width, Height);
+		hal_dbg("PixelResolution: %d\n", localkResolution.pixelResolution);
+		if (localkResolution.pixelResolution != dsVIDEO_PIXELRES_MAX) {
+			localkResolution.frameRate = getdsVideoFrameRate(FrameRate);
+			hal_dbg("FrameRate: %d\n", localkResolution.frameRate);
+			localkResolution = dsGetkResolutionByPixelResolutionAndFrameRate(localkResolution.pixelResolution, localkResolution.frameRate, (ilaced == 'p' ? false : true));
 			if (localkResolution != NULL) {
-				memcpy(kResolution, localkResolution, sizeof(dsVideoPortResolution_t));
+				sprintf(kResolution->name, "%s", localkResolution.name);
+				kResolution->pixelResolution = localkResolution.pixelResolution;
+				kResolution->aspectRatio = localkResolution.aspectRatio;
+				kResolution->frameRate = localkResolution.frameRate;
+				kResolution->interlaced = localkResolution.interlaced;
 				return true;
 			}
 		}
