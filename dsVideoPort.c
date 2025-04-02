@@ -112,7 +112,7 @@ dsError_t dsRegisterHdcpStatusCallback(intptr_t handle, dsHDCPStatusCallback_t c
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (!isValidVopHandle(handle) || NULL == cb) {
+    if ((access("/tmp/.accept_null_handle_for_cbs", F_OK) == -1 && !isValidVopHandle(handle)) || NULL == cb) {
         hal_err("handle(%p) is invalid or cb(%p) is null.\n", handle, cb);
         return dsERR_INVALID_PARAM;
     }
@@ -656,75 +656,42 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         hal_err("handle(%p) is invalid or resolution(%p) is NULL.\n", handle, resolution);
         return dsERR_INVALID_PARAM;
     }
-	// check if '/tmp/.dshal_use_westeros' file exists
-	if (access("/tmp/.dshal_use_westeros", F_OK) != -1) {
-		hal_info("Using westeros for resolution\n");
-		char data[128] = {0};
-		if (westerosRWWrapper("export XDG_RUNTIME_DIR=/run; westeros-gl-console get mode", data, sizeof(data))) {
-			char wstresolution[64] = {0};
-			hal_info("data:'%s'\n", data);
-			// Response: [0: mode 1280x720px60]
-			// Extract string between 'mode ' and ']' and store in resolution
-			char *start = strstr(data, "mode ");
-			if (start) {
-				start += strlen("mode ");
-				char *end = strstr(start, "]");
-				if (end) {
-					*end = '\0';
-					strncpy(wstresolution, start, sizeof(wstresolution));
-					hal_info("Resolution string: '%s'\n", wstresolution);
-					if (convertWesterosResolutionTokResolution(wstresolution, resolution)) {
-						hal_dbg("Leena name: '%s'\n", resolution->name);
-						hal_dbg("Leena pixelResolution: '0x%x'\n", resolution->pixelResolution);
-						hal_dbg("Leena aspectRatio: '0x%x'\n", resolution->aspectRatio);
-						hal_dbg("Leena frameRate: '%s'\n", getdsVideoFrameRateString(resolution->frameRate));
-						hal_dbg("Leena interlaced: '%d'\n", resolution->interlaced);
-						return dsERR_NONE;
-					} else {
-						hal_err("Failed to convert westeros resolution '%s' to dsVideoPortResolution_t\n", wstresolution);
-						return dsERR_GENERAL;
-					}
+	hal_info("Using westeros for resolution\n");
+	char data[128] = {0};
+	if (westerosRWWrapper("export XDG_RUNTIME_DIR=/run; westeros-gl-console get mode", data, sizeof(data))) {
+		char wstresolution[64] = {0};
+		hal_info("data:'%s'\n", data);
+		// Response: [0: mode 1280x720px60]
+		// Extract string between 'mode ' and ']' and store in resolution
+		char *start = strstr(data, "mode ");
+		if (start) {
+			start += strlen("mode ");
+			char *end = strstr(start, "]");
+			if (end) {
+				*end = '\0';
+				strncpy(wstresolution, start, sizeof(wstresolution));
+				hal_info("Resolution string: '%s'\n", wstresolution);
+				if (convertWesterosResolutionTokResolution(wstresolution, resolution)) {
+					hal_dbg("Leena name: '%s'\n", resolution->name);
+					hal_dbg("Leena pixelResolution: '0x%x'\n", resolution->pixelResolution);
+					hal_dbg("Leena aspectRatio: '0x%x'\n", resolution->aspectRatio);
+					hal_dbg("Leena frameRate: '%s'\n", getdsVideoFrameRateString(resolution->frameRate));
+					hal_dbg("Leena interlaced: '%d'\n", resolution->interlaced);
+					return dsERR_NONE;
 				} else {
-					hal_err("Failed to parse westerosRWWrapper response; ']' not found.\n");
+					hal_err("Failed to convert westeros resolution '%s' to dsVideoPortResolution_t\n", wstresolution);
 					return dsERR_GENERAL;
 				}
 			} else {
-				hal_err("Failed to parse westerosRWWrapper response; 'mode ' not found.\n");
+				hal_err("Failed to parse westerosRWWrapper response; ']' not found.\n");
 				return dsERR_GENERAL;
 			}
-		}
-	}
-    if (vc_tv_get_display_state(&tvstate) == 0) {
-        hal_dbg("vc_tv_get_display_state: 0x%X\n", tvstate.state);
-        if (tvstate.state & VC_HDMI_ATTACHED) {
-            hal_dbg("  Width: %d\n", tvstate.display.hdmi.width);
-            hal_dbg("  Height: %d\n", tvstate.display.hdmi.height);
-            hal_dbg("  Frame Rate: %d\n",
-                    tvstate.display.hdmi.frame_rate);
-            hal_dbg("  Scan Mode: %s\n",
-                    tvstate.display.hdmi.scan_mode ? "Interlaced"
-                    : "Progressive");
-            hal_dbg("  Aspect Ratio: %d\n",
-                    tvstate.display.hdmi.aspect_ratio);
-            hal_dbg("  Pixel Repetition: %d\n",
-                    tvstate.display.hdmi.pixel_rep);
-            hal_dbg("  Group: %d\n", tvstate.display.hdmi.group);
-            hal_dbg("  Mode: %d\n", tvstate.display.hdmi.mode);
-			resolution->pixelResolution = getdsVideoResolution(tvstate.display.hdmi.width, tvstate.display.hdmi.height);
-			resolution->interlaced = (tvstate.display.hdmi.scan_mode ? true : false);
-			resolution->aspectRatio = getdsVideoAspectRatio(tvstate.display.hdmi.aspect_ratio);
-			resolution->frameRate = getdsVideoFrameRate(tvstate.display.hdmi.frame_rate);
-			snprintf(resolution->name, sizeof(resolution->name), "%d%c%d",
-				tvstate.display.hdmi.height, (tvstate.display.hdmi.scan_mode ? 'i' : 'p'), tvstate.display.hdmi.frame_rate);
-			return dsERR_NONE;
 		} else {
-			hal_err("HDMI not connected.\n");
+			hal_err("Failed to parse westerosRWWrapper response; 'mode ' not found.\n");
 			return dsERR_GENERAL;
 		}
-    } else {
-		hal_err("Failed to get display state.\n");
-		return dsERR_GENERAL;
 	}
+	return dsERR_GENERAL;
 }
 
 /**

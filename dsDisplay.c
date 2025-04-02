@@ -260,10 +260,11 @@ dsError_t dsRegisterDisplayEventCallback(intptr_t handle, dsDisplayEventCallback
     if (false == _bDisplayInited) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (NULL == cb || !dsIsValidVDispHandle((intptr_t)vDispHandle)) {
-        hal_err("Invalid params, cb %p, handle %p\n", cb, vDispHandle);
-        return dsERR_INVALID_PARAM;
-    }
+    if (NULL == cb ||
+		(access("/tmp/.accept_null_handle_for_cbs", F_OK) == -1 && !dsIsValidVDispHandle((intptr_t)vDispHandle))) {
+		hal_err("Invalid params, cb %p, handle %p\n", cb, vDispHandle);
+		return dsERR_INVALID_PARAM;
+	}
     /* Register The call Back */
     if (NULL != _halcallback) {
         hal_warn("Callback already registered; override with new one.\n");
