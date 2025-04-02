@@ -106,7 +106,7 @@ dsVideoPortResolution_t *dsGetkResolutionByPixelResolutionAndFrameRate(dsVideoRe
 
 bool convertWesterosResolutionTokResolution(const char *westerosRes, dsVideoPortResolution_t *kResolution)
 {
-	dsVideoPortResolution_t localkResolution;
+	dsVideoPortResolution_t localkResolution, *kResolutionTemp = NULL;
 	if (westerosRes == NULL || kResolution == NULL) {
 		return false;
 	}
@@ -123,13 +123,13 @@ bool convertWesterosResolutionTokResolution(const char *westerosRes, dsVideoPort
 		if (localkResolution.pixelResolution != dsVIDEO_PIXELRES_MAX) {
 			localkResolution.frameRate = getdsVideoFrameRate(FrameRate);
 			hal_dbg("FrameRate: %d\n", localkResolution.frameRate);
-			localkResolution = dsGetkResolutionByPixelResolutionAndFrameRate(localkResolution.pixelResolution, localkResolution.frameRate, (ilaced == 'p' ? false : true));
-			if (localkResolution != NULL) {
-				sprintf(kResolution->name, "%s", localkResolution.name);
-				kResolution->pixelResolution = localkResolution.pixelResolution;
-				kResolution->aspectRatio = localkResolution.aspectRatio;
-				kResolution->frameRate = localkResolution.frameRate;
-				kResolution->interlaced = localkResolution.interlaced;
+			kResolutionTemp = dsGetkResolutionByPixelResolutionAndFrameRate(localkResolution.pixelResolution, localkResolution.frameRate, (ilaced == 'p' ? false : true));
+			if (kResolutionTemp != NULL) {
+				sprintf(kResolution->name, "%s", kResolutionTemp->name);
+				kResolution->pixelResolution = kResolutionTemp->pixelResolution;
+				kResolution->aspectRatio = kResolutionTemp->aspectRatio;
+				kResolution->frameRate = kResolutionTemp->frameRate;
+				kResolution->interlaced = kResolutionTemp->interlaced;
 				return true;
 			}
 		}
