@@ -115,8 +115,7 @@ bool convertWesterosResolutionTokResolution(const char *westerosRes, dsVideoPort
 	int FrameRate = 0;
 	char ilaced = 0;
 	memset(&localkResolution, 0, sizeof(dsVideoPortResolution_t));
-	if (sscanf(westerosRes, "%dx%d%cx%d", &Width, &Height, &ilaced, &FrameRate) == 4 ||
-	    sscanf(westerosRes, "%dx%d%cx%d", &Width, &Height,  &ilaced, &FrameRate) == 4) {
+	if (sscanf(westerosRes, "%dx%d%cx%d", &Width, &Height, &ilaced, &FrameRate) == 4) {
 		hal_dbg("Width: %d, Height: %d, FrameRate: %d, ilaced = %c\n", Width, Height, FrameRate, ilaced);
 		localkResolution.pixelResolution = getdsVideoResolution(Width, Height);
 		hal_dbg("PixelResolution: %d\n", localkResolution.pixelResolution);
@@ -125,7 +124,8 @@ bool convertWesterosResolutionTokResolution(const char *westerosRes, dsVideoPort
 			hal_dbg("FrameRate: %d\n", localkResolution.frameRate);
 			kResolutionTemp = dsGetkResolutionByPixelResolutionAndFrameRate(localkResolution.pixelResolution, localkResolution.frameRate, (ilaced == 'p' ? false : true));
 			if (kResolutionTemp != NULL) {
-				sprintf(kResolution->name, "%s", kResolutionTemp->name);
+				strncpy(kResolution->name, kResolutionTemp->name, sizeof(kResolution->name) - 1);
+				kResolution->name[sizeof(kResolution->name) - 1] = '\0';
 				kResolution->pixelResolution = kResolutionTemp->pixelResolution;
 				kResolution->aspectRatio = kResolutionTemp->aspectRatio;
 				kResolution->frameRate = kResolutionTemp->frameRate;
