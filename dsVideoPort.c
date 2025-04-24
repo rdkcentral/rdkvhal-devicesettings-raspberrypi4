@@ -111,7 +111,7 @@ dsError_t dsRegisterHdcpStatusCallback(intptr_t handle, dsHDCPStatusCallback_t c
     hal_info("invoked.\n");
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
-    }    
+    }
     if (!isValidVopHandle(handle) || NULL == cb) {
         hal_err("handle(%p) is invalid or cb(%p) is null.\n", handle, cb);
         return dsERR_INVALID_PARAM;
@@ -364,9 +364,14 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
             }
         }
     } else if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
+        char xdgRuntimeDir[64] = {0};
         char cmd[128] = {0};
         char resp[128] = {0};
-        snprintf(cmd, sizeof(cmd), "export XDG_RUNTIME_DIR=/run; westeros-gl-console set display enable %d", enabled);
+        if (!getEnv("XDG_RUNTIME_DIR", xdgRuntimeDir, sizeof(xdgRuntimeDir))) {
+            hal_err("Failed to get XDG_RUNTIME_DIR\n");
+            return dsERR_GENERAL;
+        }
+        snprintf(cmd, sizeof(cmd), "export XDG_RUNTIME_DIR=%s; westeros-gl-console set display enable %d", xdgRuntimeDir, enabled);
 
         if (enabled) {
             res = vc_tv_hdmi_power_on_preferred();

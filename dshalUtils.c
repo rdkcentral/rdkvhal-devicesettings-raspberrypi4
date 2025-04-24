@@ -385,6 +385,23 @@ void print_edid(const EDID_t *parsed_edid)
     printf("Checksum: %02x\n", parsed_edid->checksum);
 }
 
+bool getEnv(const char *envName, char *value, size_t size)
+{
+    if (envName == NULL || value == NULL || size == 0) {
+        hal_err("Invalid parameters");
+        return false;
+    }
+    const char *env = getenv(envName);
+    if (env == NULL) {
+        hal_err("Environment variable %s not found", envName);
+        return false;
+    }
+    strncpy(value, env, size - 1);
+    value[size - 1] = '\0';
+    hal_dbg("Environment variable %s: %s", envName, value);
+    return true;
+}
+
 bool westerosRWWrapper(const char *cmd, char *resp, size_t respSize)
 {
     char buffer[256] = {0};

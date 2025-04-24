@@ -402,6 +402,8 @@ dsError_t dsGetFRFMode(intptr_t handle, int *frfmode)
 dsError_t dsGetCurrentDisplayframerate(intptr_t handle, char *framerate)
 {
     hal_info("invoked.\n");
+    char xdgRuntimeDir[64] = {0};
+    char cmd[256] = {0};
     char data[256] = {0};
 
     if (false == _bVideoDeviceInited) {
@@ -411,7 +413,12 @@ dsError_t dsGetCurrentDisplayframerate(intptr_t handle, char *framerate)
 		hal_err("Invalid parameter, handle: %p or framerate: %p\n", handle, framerate);
         return dsERR_INVALID_PARAM;
     }
-    if (westerosRWWrapper("export XDG_RUNTIME_DIR=/run; westeros-gl-console get mode", data, sizeof(data))) {
+    if (!getEnv("XDG_RUNTIME_DIR", xdgRuntimeDir, sizeof(xdgRuntimeDir))) {
+        hal_err("Failed to get XDG_RUNTIME_DIR\n");
+        return dsERR_GENERAL;
+    }
+    snprintf(cmd, sizeof(cmd), "export XDG_RUNTIME_DIR=%s; westeros-gl-console get mode", xdgRuntimeDir);
+    if (westerosRWWrapper(cmd, data, sizeof(data))) {
         hal_info("data:'%s'\n", data);
         // Response: [0: mode 1280x720px60]
         char *start = strstr(data, "px");
