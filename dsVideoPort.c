@@ -377,7 +377,7 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
             size_t xdgRuntimeDirSize = 0;
             char cmd[256] = {0};
             char resp[256] = {0};
-            if (!getEnv("XDG_RUNTIME_DIR", xdgRuntimeDir, sizeof(xdgRuntimeDirSize))) {
+            if (!getEnv("XDG_RUNTIME_DIR", &xdgRuntimeDir, &xdgRuntimeDirSize)) {
                 hal_err("Failed to get XDG_RUNTIME_DIR\n");
                 return dsERR_GENERAL;
             }
