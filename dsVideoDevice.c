@@ -402,7 +402,8 @@ dsError_t dsGetFRFMode(intptr_t handle, int *frfmode)
 dsError_t dsGetCurrentDisplayframerate(intptr_t handle, char *framerate)
 {
     hal_info("invoked.\n");
-    char xdgRuntimeDir[64] = {0};
+    char *xdgRuntimeDir = NULL;
+    size_t xdgRuntimeDirSize = 0;
     char cmd[256] = {0};
     char data[256] = {0};
 
@@ -410,11 +411,15 @@ dsError_t dsGetCurrentDisplayframerate(intptr_t handle, char *framerate)
         return dsERR_NOT_INITIALIZED;
     }
     if (!dsIsValidVDHandle(handle) || framerate == NULL) {
-		hal_err("Invalid parameter, handle: %p or framerate: %p\n", handle, framerate);
+        hal_err("Invalid parameter, handle: %p or framerate: %p\n", handle, framerate);
         return dsERR_INVALID_PARAM;
     }
-    if (!getEnv("XDG_RUNTIME_DIR", xdgRuntimeDir, sizeof(xdgRuntimeDir))) {
+    if (!getEnv("XDG_RUNTIME_DIR", xdgRuntimeDir, xdgRuntimeDirSize)) {
         hal_err("Failed to get XDG_RUNTIME_DIR\n");
+        return dsERR_GENERAL;
+    }
+    if (xdgRuntimeDirSize > (sizeof(cmd) - 55)) {
+        hal_err("XDG_RUNTIME_DIR size is too large: %zu\n", xdgRuntimeDirSize);
         return dsERR_GENERAL;
     }
     snprintf(cmd, sizeof(cmd), "export XDG_RUNTIME_DIR=%s; westeros-gl-console get mode", xdgRuntimeDir);
@@ -437,6 +442,10 @@ dsError_t dsGetCurrentDisplayframerate(intptr_t handle, char *framerate)
         } else {
             return dsERR_GENERAL;
         }
+    }
+    if (xdgRuntimeDir != NULL) {
+        free(xdgRuntimeDir);
+        xdgRuntimeDir = NULL;
     }
     return dsERR_GENERAL;
 }

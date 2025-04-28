@@ -65,6 +65,6 @@ void print_edid(const EDID_t *parsed_edid);
 bool westerosRWWrapper(const char *cmd, char *resp, size_t respSize);
 const dsTVResolution_t *getResolutionFromVic(int vic);
 const int *getVicFromResolution(dsTVResolution_t resolution);
-bool getEnv(const char *envName, char *value, size_t size);
+bool getEnv(const char *envName, char **value, size_t *size);
 
 #endif

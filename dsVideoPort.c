@@ -373,19 +373,27 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
         }
 
         if (access("/opt/add_wstglconsole_based_disable_display", F_OK) != 0) {
-            char xdgRuntimeDir[64] = {0};
+            char *xdgRuntimeDir = NULL;
+            size_t xdgRuntimeDirSize = 0;
             char cmd[256] = {0};
             char resp[256] = {0};
-            if (!getEnv("XDG_RUNTIME_DIR", xdgRuntimeDir, sizeof(xdgRuntimeDir))) {
+            if (!getEnv("XDG_RUNTIME_DIR", xdgRuntimeDir, sizeof(xdgRuntimeDirSize))) {
                 hal_err("Failed to get XDG_RUNTIME_DIR\n");
                 return dsERR_GENERAL;
             }
+            if (xdgRuntimeDirSize > (sizeof(cmd) - 66)) {
+                hal_err("XDG_RUNTIME_DIR size is too large: %zu\n", xdgRuntimeDirSize);
+                return dsERR_GENERAL;
+            }
             snprintf(cmd, sizeof(cmd), "export XDG_RUNTIME_DIR=%s; westeros-gl-console set display enable %d", xdgRuntimeDir, enabled);
-
             sleep(2);
             if (!westerosRWWrapper(cmd, resp, sizeof(resp))) {
                 hal_err("Failed to run '%s', got response '%s'\n", cmd, resp);
                 return dsERR_GENERAL;
+            }
+            if (xdgRuntimeDir != NULL) {
+                free(xdgRuntimeDir);
+                xdgRuntimeDir = NULL;
             }
         }
 

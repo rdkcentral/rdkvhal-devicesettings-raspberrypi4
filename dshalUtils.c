@@ -385,20 +385,38 @@ void print_edid(const EDID_t *parsed_edid)
     printf("Checksum: %02x\n", parsed_edid->checksum);
 }
 
-bool getEnv(const char *envName, char *value, size_t size)
+/**
+ * @brief Get the value of an environment variable
+ * @param envName The name of the environment variable
+ * @param value A pointer to a char pointer. Memory will be allocated for the environment variable value.
+ * @param size A pointer to a size_t variable to store the size of the allocated memory.
+ * @return true if the environment variable is found and value is set, false otherwise.
+ */
+bool getEnv(const char *envName, char **value, size_t *size)
 {
-    if (envName == NULL || value == NULL || size == 0) {
-        hal_err("Invalid parameters");
+    if (envName == NULL || value == NULL || size == NULL) {
+        hal_err("Invalid parameters\n");
         return false;
     }
+
     const char *env = getenv(envName);
     if (env == NULL) {
-        hal_err("Environment variable %s not found\n", envName);
+        hal_err("Environment variable '%s' not found\n", envName);
         return false;
     }
-    strncpy(value, env, size - 1);
-    value[size - 1] = '\0';
-    hal_dbg("Environment variable %s: %s\n", envName, value);
+
+    *size = strlen(env) + 1;
+    *value = (char *)malloc(*size);
+    if (*value == NULL) {
+        hal_err("Memory allocation failed\n");
+        *size = 0;
+        return false;
+    }
+
+    strncpy(*value, env, *size - 1);
+    (*value)[*size - 1] = '\0';
+
+    hal_dbg("Environment variable '%s': '%s'\n", envName, *value);
     return true;
 }
 
