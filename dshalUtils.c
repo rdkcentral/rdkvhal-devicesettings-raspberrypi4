@@ -393,12 +393,12 @@ bool getEnv(const char *envName, char *value, size_t size)
     }
     const char *env = getenv(envName);
     if (env == NULL) {
-        hal_err("Environment variable %s not found", envName);
+        hal_err("Environment variable %s not found\n", envName);
         return false;
     }
     strncpy(value, env, size - 1);
     value[size - 1] = '\0';
-    hal_dbg("Environment variable %s: %s", envName, value);
+    hal_dbg("Environment variable %s: %s\n", envName, value);
     return true;
 }
 
