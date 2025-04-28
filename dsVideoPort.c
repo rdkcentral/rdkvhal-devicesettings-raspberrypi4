@@ -364,26 +364,24 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
             }
         }
     } else if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
-        char xdgRuntimeDir[64] = {0};
-        char cmd[256] = {0};
-        char resp[256] = {0};
-        if (!getEnv("XDG_RUNTIME_DIR", xdgRuntimeDir, sizeof(xdgRuntimeDir))) {
-            hal_err("Failed to get XDG_RUNTIME_DIR\n");
-            return dsERR_GENERAL;
-        }
-        snprintf(cmd, sizeof(cmd), "export XDG_RUNTIME_DIR=%s; westeros-gl-console set display enable %d", xdgRuntimeDir, enabled);
-
-        if (access("/opt/skip_disable_hdmi_out", F_OK) == 0) {
-            if (enabled) {
-                res = vc_tv_hdmi_power_on_preferred();
-                if (res != 0) {
-                    hal_err("Failed to power on HDMI with preferred settings\n");
-                    return dsERR_GENERAL;
-                }
+        if (enabled) {
+            res = vc_tv_hdmi_power_on_preferred();
+            if (res != 0) {
+                hal_err("Failed to power on HDMI with preferred settings\n");
+                return dsERR_GENERAL;
             }
         }
 
-        if (access("/opt/skip_disable_hdmi_out", F_OK) != 0) {
+        if (access("/opt/add_wstglconsole_based_disable_display", F_OK) != 0) {
+            char xdgRuntimeDir[64] = {0};
+            char cmd[256] = {0};
+            char resp[256] = {0};
+            if (!getEnv("XDG_RUNTIME_DIR", xdgRuntimeDir, sizeof(xdgRuntimeDir))) {
+                hal_err("Failed to get XDG_RUNTIME_DIR\n");
+                return dsERR_GENERAL;
+            }
+            snprintf(cmd, sizeof(cmd), "export XDG_RUNTIME_DIR=%s; westeros-gl-console set display enable %d", xdgRuntimeDir, enabled);
+
             sleep(2);
             if (!westerosRWWrapper(cmd, resp, sizeof(resp))) {
                 hal_err("Failed to run '%s', got response '%s'\n", cmd, resp);
@@ -391,14 +389,12 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
             }
         }
 
-        if (access("/opt/skip_disable_hdmi_out", F_OK) == 0) {
-            if (!enabled) {
-                sleep(1);
-                res = vc_tv_power_off();
-                if (res != 0) {
-                    hal_err("Failed to disable HDMI video port\n");
-                    return dsERR_GENERAL;
-                }
+        if (!enabled) {
+            sleep(1);
+            res = vc_tv_power_off();
+            if (res != 0) {
+                hal_err("Failed to disable HDMI video port\n");
+                return dsERR_GENERAL;
             }
         }
     } else {
