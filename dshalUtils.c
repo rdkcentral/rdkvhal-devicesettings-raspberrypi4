@@ -413,9 +413,8 @@ bool getXdgRuntimeDir(char **value, size_t *size)
     char line[PATH_MAX] = {0};
     while (fgets(line, sizeof(line), file) != NULL) {
         if (strncmp(line, "XDG_RUNTIME_DIR=", 16) == 0) {
-            const char *envValue = line + 16;
-            size_t len = strcspn(envValue, "\r\n");
-            envValue[len] = '\0';
+            size_t len = strcspn(line + 16, "\r\n");
+            line[16 + len] = '\0';
 
             *size = len + 1;
             *value = (char *)malloc(*size);
@@ -425,7 +424,7 @@ bool getXdgRuntimeDir(char **value, size_t *size)
                 return false;
             }
 
-            strncpy(*value, envValue, *size);
+            strncpy(*value, line + 16, *size);
             (*value)[*size - 1] = '\0';
 
             hal_dbg("XDG_RUNTIME_DIR from '%s': '%s'\n", WESTEROS_ENV_FILE, *value);
