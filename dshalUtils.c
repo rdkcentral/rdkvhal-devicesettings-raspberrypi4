@@ -388,54 +388,51 @@ void print_edid(const EDID_t *parsed_edid)
 
 /**
  * @brief Get the value of XDG_RUNTIME_DIR from the westeros environment file
- * @param value A pointer to a char pointer. Memory will be allocated for the environment variable value.
- * @param size A pointer to a size_t variable to store the size of the allocated memory.
- * @return true if the environment variable is found and value is set, false otherwise.
+ * @return A pointer to the cached value of XDG_RUNTIME_DIR, or NULL if not found.
  */
-bool getXdgRuntimeDir(char **value, size_t *size)
+const char *getXdgRuntimeDir()
 {
-    if (value == NULL || size == NULL) {
-        hal_err("Invalid parameters\n");
-        return false;
+    static char cachedValue[PATH_MAX] = {0};
+    static bool isCached = false;
+
+    if (isCached) {
+        return cachedValue;
     }
 
     if (access(WESTEROS_ENV_FILE, F_OK) == -1) {
         hal_err("File '%s' not found\n", WESTEROS_ENV_FILE);
-        return false;
+        return NULL;
     }
 
     FILE *file = fopen(WESTEROS_ENV_FILE, "r");
     if (file == NULL) {
         hal_err("Failed to open file '%s'\n", WESTEROS_ENV_FILE);
-        return false;
+        return NULL;
     }
 
     char line[PATH_MAX] = {0};
     while (fgets(line, sizeof(line), file) != NULL) {
         if (strncmp(line, "XDG_RUNTIME_DIR=", 16) == 0) {
             size_t len = strcspn(line + 16, "\r\n");
-            line[16 + len] = '\0';
-
-            *size = len + 1;
-            *value = (char *)malloc(*size);
-            if (*value == NULL) {
-                hal_err("Memory allocation failed\n");
+            if (len >= sizeof(cachedValue)) {
+                hal_err("XDG_RUNTIME_DIR value is too long\n");
                 fclose(file);
-                return false;
+                return NULL;
             }
 
-            strncpy(*value, line + 16, *size);
-            (*value)[*size - 1] = '\0';
+            strncpy(cachedValue, line + 16, len);
+            cachedValue[len] = '\0';
+            isCached = true;
 
-            hal_dbg("XDG_RUNTIME_DIR from '%s': '%s'\n", WESTEROS_ENV_FILE, *value);
+            hal_dbg("XDG_RUNTIME_DIR from '%s': '%s'\n", WESTEROS_ENV_FILE, cachedValue);
             fclose(file);
-            return true;
+            return cachedValue;
         }
     }
 
     hal_err("XDG_RUNTIME_DIR not found in '%s'\n", WESTEROS_ENV_FILE);
     fclose(file);
-    return false;
+    return NULL;
 }
 
 bool westerosRWWrapper(const char *cmd, char *resp, size_t respSize)
