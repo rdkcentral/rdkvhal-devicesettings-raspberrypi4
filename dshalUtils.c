@@ -390,7 +390,7 @@ void print_edid(const EDID_t *parsed_edid)
  * @brief Get the value of XDG_RUNTIME_DIR from the westeros environment file
  * @return A pointer to the cached value of XDG_RUNTIME_DIR, or NULL if not found.
  */
-const char *getXdgRuntimeDir()
+const char *getXDGRuntimeDir()
 {
     static char cachedValue[PATH_MAX] = {0};
     static bool isCached = false;
