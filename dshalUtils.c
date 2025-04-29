@@ -24,6 +24,7 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <limits.h>
 
 #include "dshalUtils.h"
 #include "dshalLogger.h"
@@ -386,38 +387,56 @@ void print_edid(const EDID_t *parsed_edid)
 }
 
 /**
- * @brief Get the value of an environment variable
- * @param envName The name of the environment variable
+ * @brief Get the value of XDG_RUNTIME_DIR from the westeros environment file
  * @param value A pointer to a char pointer. Memory will be allocated for the environment variable value.
  * @param size A pointer to a size_t variable to store the size of the allocated memory.
  * @return true if the environment variable is found and value is set, false otherwise.
  */
-bool getEnv(const char *envName, char **value, size_t *size)
+bool getXdgRuntimeDir(char **value, size_t *size)
 {
-    if (envName == NULL || value == NULL || size == NULL) {
+    if (value == NULL || size == NULL) {
         hal_err("Invalid parameters\n");
         return false;
     }
 
-    const char *env = getenv(envName);
-    if (env == NULL) {
-        hal_err("Environment variable '%s' not found\n", envName);
+    if (access(WESTEROS_ENV_FILE, F_OK) == -1) {
+        hal_err("File '%s' not found\n", WESTEROS_ENV_FILE);
         return false;
     }
 
-    *size = strlen(env) + 1;
-    *value = (char *)malloc(*size);
-    if (*value == NULL) {
-        hal_err("Memory allocation failed\n");
-        *size = 0;
+    FILE *file = fopen(WESTEROS_ENV_FILE, "r");
+    if (file == NULL) {
+        hal_err("Failed to open file '%s'\n", WESTEROS_ENV_FILE);
         return false;
     }
 
-    strncpy(*value, env, *size - 1);
-    (*value)[*size - 1] = '\0';
+    char line[PATH_MAX] = {0};
+    while (fgets(line, sizeof(line), file) != NULL) {
+        if (strncmp(line, "XDG_RUNTIME_DIR=", 16) == 0) {
+            const char *envValue = line + 16;
+            size_t len = strcspn(envValue, "\r\n");
+            envValue[len] = '\0';
 
-    hal_dbg("Environment variable '%s': '%s'\n", envName, *value);
-    return true;
+            *size = len + 1;
+            *value = (char *)malloc(*size);
+            if (*value == NULL) {
+                hal_err("Memory allocation failed\n");
+                fclose(file);
+                return false;
+            }
+
+            strncpy(*value, envValue, *size);
+            (*value)[*size - 1] = '\0';
+
+            hal_dbg("XDG_RUNTIME_DIR from '%s': '%s'\n", WESTEROS_ENV_FILE, *value);
+            fclose(file);
+            return true;
+        }
+    }
+
+    hal_err("XDG_RUNTIME_DIR not found in '%s'\n", WESTEROS_ENV_FILE);
+    fclose(file);
+    return false;
 }
 
 bool westerosRWWrapper(const char *cmd, char *resp, size_t respSize)

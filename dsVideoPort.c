@@ -377,7 +377,7 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
             size_t xdgRuntimeDirSize = 0;
             char cmd[256] = {0};
             char resp[256] = {0};
-            if (!getEnv("XDG_RUNTIME_DIR", &xdgRuntimeDir, &xdgRuntimeDirSize)) {
+            if (!getXdgRuntimeDir(&xdgRuntimeDir, &xdgRuntimeDirSize)) {
                 hal_err("Failed to get XDG_RUNTIME_DIR\n");
                 return dsERR_GENERAL;
             }
@@ -386,6 +386,7 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
                 return dsERR_GENERAL;
             }
             snprintf(cmd, sizeof(cmd), "export XDG_RUNTIME_DIR=%s; westeros-gl-console set display enable %d", xdgRuntimeDir, enabled);
+            // FIXME: westeros-gl-console cannot connect to RDKShell's westeros instance immediately; delay as a workaround.
             sleep(2);
             if (!westerosRWWrapper(cmd, resp, sizeof(resp))) {
                 hal_err("Failed to run '%s', got response '%s'\n", cmd, resp);

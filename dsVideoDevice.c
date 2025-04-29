@@ -414,7 +414,7 @@ dsError_t dsGetCurrentDisplayframerate(intptr_t handle, char *framerate)
         hal_err("Invalid parameter, handle: %p or framerate: %p\n", handle, framerate);
         return dsERR_INVALID_PARAM;
     }
-    if (!getEnv("XDG_RUNTIME_DIR", &xdgRuntimeDir, &xdgRuntimeDirSize)) {
+    if (!getXdgRuntimeDir(&xdgRuntimeDir, &xdgRuntimeDirSize)) {
         hal_err("Failed to get XDG_RUNTIME_DIR\n");
         return dsERR_GENERAL;
     }
