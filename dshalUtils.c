@@ -412,15 +412,15 @@ const char *getXDGRuntimeDir()
 
     char line[PATH_MAX] = {0};
     while (fgets(line, sizeof(line), file) != NULL) {
-        if (strncmp(line, "XDG_RUNTIME_DIR=", 16) == 0) {
-            size_t len = strcspn(line + 16, "\r\n");
+        if (strncmp(line, "XDG_RUNTIME_DIR=", strlen("XDG_RUNTIME_DIR=")) == 0) {
+            size_t len = strcspn(line + strlen("XDG_RUNTIME_DIR="), "\r\n");
             if (len >= sizeof(cachedValue)) {
                 hal_err("XDG_RUNTIME_DIR value is too long\n");
                 fclose(file);
                 return NULL;
             }
 
-            strncpy(cachedValue, line + 16, len);
+            strncpy(cachedValue, line + strlen("XDG_RUNTIME_DIR="), len);
             cachedValue[len] = '\0';
             isCached = true;
 

@@ -373,7 +373,7 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
             hal_err("Failed to get XDG_RUNTIME_DIR\n");
             return dsERR_GENERAL;
         }
-        if ((strlen(xdgRuntimeDir) + 65) > (sizeof(cmd) - 1)) {
+        if ((strlen("export XDG_RUNTIME_DIR=") + strlen(xdgRuntimeDir) + strlen("; westeros-gl-console set display enable ") + 3) > (sizeof(cmd) - 1)) {
             hal_err("Command buffer is too small\n");
             return dsERR_GENERAL;
         }

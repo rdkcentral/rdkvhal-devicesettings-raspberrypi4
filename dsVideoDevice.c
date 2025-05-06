@@ -417,7 +417,7 @@ dsError_t dsGetCurrentDisplayframerate(intptr_t handle, char *framerate)
         hal_err("Failed to get XDG_RUNTIME_DIR\n");
         return dsERR_GENERAL;
     }
-    if ((strlen(xdgRuntimeDir) + 56) > (sizeof(cmd) - 1)) {
+    if ((strlen("export XDG_RUNTIME_DIR=") + strlen(xdgRuntimeDir) + strlen("; westeros-gl-console get display")) > (sizeof(cmd) - 1)) {
         hal_err("Command buffer is too small\n");
         return dsERR_GENERAL;
     }
