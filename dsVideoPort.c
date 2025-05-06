@@ -364,39 +364,36 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
             }
         }
     } else if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
-        if (enabled) {
-            res = vc_tv_hdmi_power_on_preferred();
-            if (res != 0) {
-                hal_err("Failed to power on HDMI with preferred settings\n");
-                return dsERR_GENERAL;
-            }
+        // Try westeros-gl-console first, if it fails, then use vc_tv_hdmi_power_on_preferred.
+        // Until RPI stack is fully aligned to DRM/KMS, we need to use this workaround.
+        char cmd[256] = {0};
+        char resp[256] = {0};
+        const char *xdgRuntimeDir = getXDGRuntimeDir();
+        if (xdgRuntimeDir == NULL) {
+            hal_err("Failed to get XDG_RUNTIME_DIR\n");
+            return dsERR_GENERAL;
         }
-
-        if (access("/opt/add_wstglconsole_based_disable_display", F_OK) != 0) {
-            char cmd[256] = {0};
-            char resp[256] = {0};
-            const char *xdgRuntimeDir = getXDGRuntimeDir();
-            if (xdgRuntimeDir == NULL) {
-                hal_err("Failed to get XDG_RUNTIME_DIR\n");
-                return dsERR_GENERAL;
-            }
-            if ((strlen(xdgRuntimeDir) + 65) > (sizeof(cmd) - 1)) {
-                hal_err("Command buffer is too small\n");
-                return dsERR_GENERAL;
-            }
-            snprintf(cmd, sizeof(cmd), "export XDG_RUNTIME_DIR=%s; westeros-gl-console set display enable %d", xdgRuntimeDir, enabled);
-            if (!westerosRWWrapper(cmd, resp, sizeof(resp))) {
-                hal_err("Failed to run '%s', got response '%s'\n", cmd, resp);
-                return dsERR_GENERAL;
-            }
+        if ((strlen(xdgRuntimeDir) + 65) > (sizeof(cmd) - 1)) {
+            hal_err("Command buffer is too small\n");
+            return dsERR_GENERAL;
         }
-
-        if (!enabled) {
-            sleep(1);
-            res = vc_tv_power_off();
-            if (res != 0) {
-                hal_err("Failed to disable HDMI video port\n");
-                return dsERR_GENERAL;
+        snprintf(cmd, sizeof(cmd), "export XDG_RUNTIME_DIR=%s; westeros-gl-console set display enable %d", xdgRuntimeDir, enabled);
+        if (!westerosRWWrapper(cmd, resp, sizeof(resp))) {
+            hal_err("Failed to run '%s', got response '%s'\n", cmd, resp);
+            // RDKShell might not have started westeros.
+            if (enabled) {
+                res = vc_tv_hdmi_power_on_preferred();
+                if (res != 0) {
+                    hal_err("Failed to power on HDMI with preferred settings\n");
+                    return dsERR_GENERAL;
+                }
+            } else {
+                sleep(1);
+                res = vc_tv_power_off();
+                if (res != 0) {
+                    hal_err("Failed to disable HDMI video port\n");
+                    return dsERR_GENERAL;
+                }
             }
         }
     } else {
