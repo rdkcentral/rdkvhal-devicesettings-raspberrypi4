@@ -25,6 +25,8 @@
 #include "dsTypes.h"
 #include "dsAVDTypes.h"
 
+#define WESTEROS_ENV_FILE "/etc/default/westeros-env"
+
 typedef struct {
     int vic;
     dsTVResolution_t tvresolution;
@@ -65,5 +67,6 @@ void print_edid(const EDID_t *parsed_edid);
 bool westerosRWWrapper(const char *cmd, char *resp, size_t respSize);
 const dsTVResolution_t *getResolutionFromVic(int vic);
 const int *getVicFromResolution(dsTVResolution_t resolution);
+const char *getXDGRuntimeDir();
 
 #endif

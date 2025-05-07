@@ -24,6 +24,7 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <limits.h>
 
 #include "dshalUtils.h"
 #include "dshalLogger.h"
@@ -383,6 +384,55 @@ void print_edid(const EDID_t *parsed_edid)
 
     printf("Extension Flag: %02x\n", parsed_edid->extension_flag);
     printf("Checksum: %02x\n", parsed_edid->checksum);
+}
+
+/**
+ * @brief Get the value of XDG_RUNTIME_DIR from the westeros environment file
+ * @return A pointer to the cached value of XDG_RUNTIME_DIR, or NULL if not found.
+ */
+const char *getXDGRuntimeDir()
+{
+    static char cachedValue[PATH_MAX] = {0};
+    static bool isCached = false;
+
+    if (isCached) {
+        return cachedValue;
+    }
+
+    if (access(WESTEROS_ENV_FILE, F_OK) == -1) {
+        hal_err("File '%s' not found\n", WESTEROS_ENV_FILE);
+        return NULL;
+    }
+
+    FILE *file = fopen(WESTEROS_ENV_FILE, "r");
+    if (file == NULL) {
+        hal_err("Failed to open file '%s'\n", WESTEROS_ENV_FILE);
+        return NULL;
+    }
+
+    char line[PATH_MAX] = {0};
+    while (fgets(line, sizeof(line), file) != NULL) {
+        if (strncmp(line, "XDG_RUNTIME_DIR=", strlen("XDG_RUNTIME_DIR=")) == 0) {
+            size_t len = strcspn(line + strlen("XDG_RUNTIME_DIR="), "\r\n");
+            if (len >= sizeof(cachedValue)) {
+                hal_err("XDG_RUNTIME_DIR value is too long\n");
+                fclose(file);
+                return NULL;
+            }
+
+            strncpy(cachedValue, line + strlen("XDG_RUNTIME_DIR="), len);
+            cachedValue[len] = '\0';
+            isCached = true;
+
+            hal_dbg("XDG_RUNTIME_DIR from '%s': '%s'\n", WESTEROS_ENV_FILE, cachedValue);
+            fclose(file);
+            return cachedValue;
+        }
+    }
+
+    hal_err("XDG_RUNTIME_DIR not found in '%s'\n", WESTEROS_ENV_FILE);
+    fclose(file);
+    return NULL;
 }
 
 bool westerosRWWrapper(const char *cmd, char *resp, size_t respSize)
