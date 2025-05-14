@@ -660,9 +660,9 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         return dsERR_INVALID_PARAM;
     }
     hal_info("Using westeros for resolution\n");
-	char cmd[256] = {0};
+    char cmd[256] = {0};
     char data[256] = {0};
-	const char *xdgRuntimeDir = getXDGRuntimeDir();
+    const char *xdgRuntimeDir = getXDGRuntimeDir();
     if (xdgRuntimeDir == NULL) {
         hal_err("Failed to get XDG_RUNTIME_DIR\n");
         return dsERR_GENERAL;
@@ -671,41 +671,41 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         hal_err("Command buffer is too small\n");
         return dsERR_GENERAL;
     }
-	snprintf(cmd, sizeof(cmd), "export XDG_RUNTIME_DIR=%s; westeros-gl-console get mode", xdgRuntimeDir);
-	if (westerosRWWrapper(cmd, data, sizeof(data))) {
-		char wstresolution[64] = {0};
-		hal_info("data:'%s'\n", data);
-		// Response: [0: mode 1280x720px60]
-		// Extract string between 'mode ' and ']' and store in resolution
-		char *start = strstr(data, "mode ");
-		if (start) {
-			start += strlen("mode ");
-			char *end = strstr(start, "]");
-			if (end) {
-				*end = '\0';
-				strncpy(wstresolution, start, sizeof(wstresolution));
-				hal_info("Resolution string: '%s'\n", wstresolution);
-				if (convertWesterosResolutionTokResolution(wstresolution, resolution)) {
-					hal_dbg("Leena name: '%s'\n", resolution->name);
-					hal_dbg("Leena pixelResolution: '0x%x'\n", resolution->pixelResolution);
-					hal_dbg("Leena aspectRatio: '0x%x'\n", resolution->aspectRatio);
-					hal_dbg("Leena frameRate: '%s'\n", getdsVideoFrameRateString(resolution->frameRate));
-					hal_dbg("Leena interlaced: '%d'\n", resolution->interlaced);
-					return dsERR_NONE;
-				} else {
-					hal_err("Failed to convert westeros resolution '%s' to dsVideoPortResolution_t\n", wstresolution);
-					return dsERR_GENERAL;
-				}
-			} else {
-				hal_err("Failed to parse westerosRWWrapper response; ']' not found.\n");
-				return dsERR_GENERAL;
-			}
-		} else {
-			hal_err("Failed to parse westerosRWWrapper response; 'mode ' not found.\n");
-			return dsERR_GENERAL;
-		}
-	}
-	return dsERR_GENERAL;
+    snprintf(cmd, sizeof(cmd), "export XDG_RUNTIME_DIR=%s; westeros-gl-console get mode", xdgRuntimeDir);
+    if (westerosRWWrapper(cmd, data, sizeof(data))) {
+        char wstresolution[64] = {0};
+        hal_info("data:'%s'\n", data);
+        // Response: [0: mode 1280x720px60]
+        // Extract string between 'mode ' and ']' and store in resolution
+        char *start = strstr(data, "mode ");
+        if (start) {
+            start += strlen("mode ");
+            char *end = strstr(start, "]");
+            if (end) {
+                *end = '\0';
+                strncpy(wstresolution, start, sizeof(wstresolution));
+                hal_info("Resolution string: '%s'\n", wstresolution);
+                if (convertWesterosResolutionTokResolution(wstresolution, resolution)) {
+                    hal_dbg("Leena name: '%s'\n", resolution->name);
+                    hal_dbg("Leena pixelResolution: '0x%x'\n", resolution->pixelResolution);
+                    hal_dbg("Leena aspectRatio: '0x%x'\n", resolution->aspectRatio);
+                    hal_dbg("Leena frameRate: '%s'\n", getdsVideoFrameRateString(resolution->frameRate));
+                    hal_dbg("Leena interlaced: '%d'\n", resolution->interlaced);
+                    return dsERR_NONE;
+                } else {
+                    hal_err("Failed to convert westeros resolution '%s' to dsVideoPortResolution_t\n", wstresolution);
+                    return dsERR_GENERAL;
+                }
+            } else {
+                hal_err("Failed to parse westerosRWWrapper response; ']' not found.\n");
+                return dsERR_GENERAL;
+            }
+        } else {
+            hal_err("Failed to parse westerosRWWrapper response; 'mode ' not found.\n");
+            return dsERR_GENERAL;
+        }
+    }
+    return dsERR_GENERAL;
 }
 
 static const char* dsVideoGetResolution(uint32_t hdmiMode)
@@ -776,62 +776,62 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         return dsERR_INVALID_PARAM;
     }
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
-                hal_dbg("Setting HDMI resolution name'%s'\n", resolution->name);
-		hal_dbg("Setting HDMI resolution pixelResolution '0x%x'\n", resolution->pixelResolution);
-		hal_dbg("Setting HDMI resolution aspectRatio '0x%x'\n", resolution->aspectRatio);
-		hal_dbg("Setting HDMI resolution frameRate '%s'\n", getdsVideoFrameRateString(resolution->frameRate));
-		hal_dbg("Setting HDMI resolution interlaced '%d'\n", resolution->interlaced);
-		if (!dsVideoPortFrameRate_isValid(resolution->frameRate) ||
-			!dsVideoPortPixelResolution_isValid(resolution->pixelResolution)) {
-			hal_err("Invalid param; framerate 0x%x or pixelResolution 0x%x\n", resolution->frameRate, resolution->pixelResolution);
-			return dsERR_INVALID_PARAM;
-		}
-		char cmd[256] = {0};
-		char data[256] = {0};
-		const char *xdgRuntimeDir = getXDGRuntimeDir();
-		if (xdgRuntimeDir == NULL) {
-			hal_err("Failed to get XDG_RUNTIME_DIR\n");
-			return dsERR_GENERAL;
-		}
-		char westerosRes[64] = {0};
-		if (convertkResolutionToWesterosResolution(resolution, westerosRes, sizeof(westerosRes)) == false) {
-			hal_err("Failed to convert resolution '%s' to westeros format\n", resolution->name);
-			return dsERR_GENERAL;
-		}
-		if ((strlen("export XDG_RUNTIME_DIR=") + strlen(xdgRuntimeDir) + strlen("; westeros-gl-console set mode ") + strlen(westerosRes)) > (sizeof(cmd) - 1)) {
-			hal_err("Command buffer is too small\n");
-			return dsERR_GENERAL;
-		}
-		snprintf(cmd, sizeof(cmd), "export XDG_RUNTIME_DIR=%s; westeros-gl-console set mode %s", westerosRes);
-		hal_info("Westeros Resolution CMD: '%s'\n", cmd);
-		if (westerosRWWrapper(cmd, data, sizeof(data))) {
-			hal_info("westerosRWWrapper response:'%s'\n", data);
-			// Response: [0: mode 1280x720px60]
-			// extract string between 'mode ' and ']' and compare against westerosRes
-			char *start = strstr(data, "mode ");
-			if (start) {
-				start += strlen("mode ");
-				char *end = strstr(start, "]");
-				if (end) {
-					*end = '\0';
-					if (strcmp(start, westerosRes) == 0) {
-						hal_info("Resolution set successfully\n");
-					} else {
-						hal_err("Failed to set resolution\n");
-						return dsERR_GENERAL;
-					}
-				} else {
-					hal_err("Failed to parse response\n");
-					return dsERR_GENERAL;
-				}
-			} else {
-				hal_err("Failed to parse response\n");
-				return dsERR_GENERAL;
-			}
-		} else {
-			hal_err("Failed to run '%s', got response '%s'\n", cmd, data);
-			return dsERR_GENERAL;
-		}
+        hal_dbg("Setting HDMI resolution name'%s'\n", resolution->name);
+        hal_dbg("Setting HDMI resolution pixelResolution '0x%x'\n", resolution->pixelResolution);
+        hal_dbg("Setting HDMI resolution aspectRatio '0x%x'\n", resolution->aspectRatio);
+        hal_dbg("Setting HDMI resolution frameRate '%s'\n", getdsVideoFrameRateString(resolution->frameRate));
+        hal_dbg("Setting HDMI resolution interlaced '%d'\n", resolution->interlaced);
+        if (!dsVideoPortFrameRate_isValid(resolution->frameRate) ||
+                !dsVideoPortPixelResolution_isValid(resolution->pixelResolution)) {
+            hal_err("Invalid param; framerate 0x%x or pixelResolution 0x%x\n", resolution->frameRate, resolution->pixelResolution);
+            return dsERR_INVALID_PARAM;
+        }
+        char cmd[256] = {0};
+        char data[256] = {0};
+        const char *xdgRuntimeDir = getXDGRuntimeDir();
+        if (xdgRuntimeDir == NULL) {
+            hal_err("Failed to get XDG_RUNTIME_DIR\n");
+            return dsERR_GENERAL;
+        }
+        char westerosRes[64] = {0};
+        if (convertkResolutionToWesterosResolution(resolution, westerosRes, sizeof(westerosRes)) == false) {
+            hal_err("Failed to convert resolution '%s' to westeros format\n", resolution->name);
+            return dsERR_GENERAL;
+        }
+        if ((strlen("export XDG_RUNTIME_DIR=") + strlen(xdgRuntimeDir) + strlen("; westeros-gl-console set mode ") + strlen(westerosRes)) > (sizeof(cmd) - 1)) {
+            hal_err("Command buffer is too small\n");
+            return dsERR_GENERAL;
+        }
+        snprintf(cmd, sizeof(cmd), "export XDG_RUNTIME_DIR=%s; westeros-gl-console set mode %s", westerosRes);
+        hal_info("Westeros Resolution CMD: '%s'\n", cmd);
+        if (westerosRWWrapper(cmd, data, sizeof(data))) {
+            hal_info("westerosRWWrapper response:'%s'\n", data);
+            // Response: [0: mode 1280x720px60]
+            // extract string between 'mode ' and ']' and compare against westerosRes
+            char *start = strstr(data, "mode ");
+            if (start) {
+                start += strlen("mode ");
+                char *end = strstr(start, "]");
+                if (end) {
+                    *end = '\0';
+                    if (strcmp(start, westerosRes) == 0) {
+                        hal_info("Resolution set successfully\n");
+                    } else {
+                        hal_err("Failed to set resolution\n");
+                        return dsERR_GENERAL;
+                    }
+                } else {
+                    hal_err("Failed to parse response\n");
+                    return dsERR_GENERAL;
+                }
+            } else {
+                hal_err("Failed to parse response\n");
+                return dsERR_GENERAL;
+            }
+        } else {
+            hal_err("Failed to run '%s', got response '%s'\n", cmd, data);
+            return dsERR_GENERAL;
+        }
     } else {
         hal_err("Video port type not supported\n");
         return dsERR_OPERATION_NOT_SUPPORTED;

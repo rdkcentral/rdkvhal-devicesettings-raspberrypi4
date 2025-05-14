@@ -42,7 +42,7 @@ const hdmiSupportedRes_t resolutionMap[] = {
     {"720p", 4},       // 1280x720p @ 59.94/60Hz
     {"720p50", 19},    // 1280x720p @ 50Hz
     {"1080i", 5},      // 1920x1080i @ 59.94/60Hz
-	{"1080i60", 5},    // 1920x1080i @ 59.94/60Hz
+    {"1080i60", 5},    // 1920x1080i @ 59.94/60Hz
     {"1080i50", 20},   // 1920x1080i @ 50Hz
     {"1080p24", 32},   // 1920x1080p @ 24Hz
     {"1080p25", 33},   // 1920x1080p @ 25Hz
@@ -85,72 +85,72 @@ const WesterosReskResMap_t westerosReskResMap[] = {
 
 dsVideoPortResolution_t *dsGetkResolutionByName(const char *name)
 {
-	for (size_t i = 0; i < noOfItemsInkResolutions; i++) {
-		if (strcmp(kResolutions[i].name, name) == 0) {
-			return &kResolutions[i];
-		}
-	}
-	return NULL;
+    for (size_t i = 0; i < noOfItemsInkResolutions; i++) {
+        if (strcmp(kResolutions[i].name, name) == 0) {
+            return &kResolutions[i];
+        }
+    }
+    return NULL;
 }
 
 dsVideoPortResolution_t *dsGetkResolutionByPixelResolutionAndFrameRate(dsVideoResolution_t pixelResolution, dsVideoFrameRate_t frameRate, bool scanMode)
 {
-	for (size_t i = 0; i < noOfItemsInkResolutions; i++) {
-		if ((kResolutions[i].pixelResolution == pixelResolution) && (kResolutions[i].frameRate == frameRate)
-			&& (kResolutions[i].interlaced == scanMode)) {
-			hal_dbg("Found matching resolution: %s\n", kResolutions[i].name);
-			return &kResolutions[i];
-		}
-	}
-	return NULL;
+    for (size_t i = 0; i < noOfItemsInkResolutions; i++) {
+        if ((kResolutions[i].pixelResolution == pixelResolution) && (kResolutions[i].frameRate == frameRate)
+                && (kResolutions[i].interlaced == scanMode)) {
+            hal_dbg("Found matching resolution: %s\n", kResolutions[i].name);
+            return &kResolutions[i];
+        }
+    }
+    return NULL;
 }
 
 bool convertWesterosResolutionTokResolution(const char *westerosRes, dsVideoPortResolution_t *kResolution)
 {
-	dsVideoPortResolution_t localkResolution, *kResolutionTemp = NULL;
-	if (westerosRes == NULL || kResolution == NULL) {
-		return false;
-	}
-	int Width = 0;
-	int Height = 0;
-	int FrameRate = 0;
-	char ilaced = 0;
-	memset(&localkResolution, 0, sizeof(dsVideoPortResolution_t));
-	if (sscanf(westerosRes, "%dx%d%cx%d", &Width, &Height, &ilaced, &FrameRate) == 4) {
-		hal_dbg("Width: %d, Height: %d, FrameRate: %d, ilaced = %c\n", Width, Height, FrameRate, ilaced);
-		localkResolution.pixelResolution = getdsVideoResolution(Width, Height);
-		hal_dbg("PixelResolution: %d\n", localkResolution.pixelResolution);
-		if (localkResolution.pixelResolution != dsVIDEO_PIXELRES_MAX) {
-			localkResolution.frameRate = getdsVideoFrameRate(FrameRate);
-			hal_dbg("FrameRate: %d\n", localkResolution.frameRate);
-			kResolutionTemp = dsGetkResolutionByPixelResolutionAndFrameRate(localkResolution.pixelResolution, localkResolution.frameRate, (ilaced == 'p' ? false : true));
-			if (kResolutionTemp != NULL) {
-				strncpy(kResolution->name, kResolutionTemp->name, sizeof(kResolution->name) - 1);
-				kResolution->name[sizeof(kResolution->name) - 1] = '\0';
-				kResolution->pixelResolution = kResolutionTemp->pixelResolution;
-				kResolution->aspectRatio = kResolutionTemp->aspectRatio;
-				kResolution->frameRate = kResolutionTemp->frameRate;
-				kResolution->interlaced = kResolutionTemp->interlaced;
-				return true;
-			}
-		}
-	}
-	return false;
+    dsVideoPortResolution_t localkResolution, *kResolutionTemp = NULL;
+    if (westerosRes == NULL || kResolution == NULL) {
+        return false;
+    }
+    int Width = 0;
+    int Height = 0;
+    int FrameRate = 0;
+    char ilaced = 0;
+    memset(&localkResolution, 0, sizeof(dsVideoPortResolution_t));
+    if (sscanf(westerosRes, "%dx%d%cx%d", &Width, &Height, &ilaced, &FrameRate) == 4) {
+        hal_dbg("Width: %d, Height: %d, FrameRate: %d, ilaced = %c\n", Width, Height, FrameRate, ilaced);
+        localkResolution.pixelResolution = getdsVideoResolution(Width, Height);
+        hal_dbg("PixelResolution: %d\n", localkResolution.pixelResolution);
+        if (localkResolution.pixelResolution != dsVIDEO_PIXELRES_MAX) {
+            localkResolution.frameRate = getdsVideoFrameRate(FrameRate);
+            hal_dbg("FrameRate: %d\n", localkResolution.frameRate);
+            kResolutionTemp = dsGetkResolutionByPixelResolutionAndFrameRate(localkResolution.pixelResolution, localkResolution.frameRate, (ilaced == 'p' ? false : true));
+            if (kResolutionTemp != NULL) {
+                strncpy(kResolution->name, kResolutionTemp->name, sizeof(kResolution->name) - 1);
+                kResolution->name[sizeof(kResolution->name) - 1] = '\0';
+                kResolution->pixelResolution = kResolutionTemp->pixelResolution;
+                kResolution->aspectRatio = kResolutionTemp->aspectRatio;
+                kResolution->frameRate = kResolutionTemp->frameRate;
+                kResolution->interlaced = kResolutionTemp->interlaced;
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 bool convertkResolutionToWesterosResolution(const dsVideoPortResolution_t *kResolution, char *westerosRes, size_t size)
 {
-	if (kResolution == NULL || westerosRes == NULL) {
-		return false;
-	}
-	// get from westerosReskResMap
-	for (size_t i = 0; i < sizeof(westerosReskResMap) / sizeof(WesterosReskResMap_t); i++) {
-		if (strcmp(kResolution->name, westerosReskResMap[i].dsVideoPortResolutionName) == 0) {
-			snprintf(westerosRes, size, "%s", westerosReskResMap[i].westerosResolution);
-			return true;
-		}
-	}
-	return false;
+    if (kResolution == NULL || westerosRes == NULL) {
+        return false;
+    }
+    // get from westerosReskResMap
+    for (size_t i = 0; i < sizeof(westerosReskResMap) / sizeof(WesterosReskResMap_t); i++) {
+        if (strcmp(kResolution->name, westerosReskResMap[i].dsVideoPortResolutionName) == 0) {
+            snprintf(westerosRes, size, "%s", westerosReskResMap[i].westerosResolution);
+            return true;
+        }
+    }
+    return false;
 }
 
 const VicMapEntry vicMapTable[] = {
@@ -259,32 +259,32 @@ const VicMapEntry vicMapTable[] = {
 
 char *getdsVideoFrameRateString(dsVideoFrameRate_t framerate)
 {
-	switch (framerate) {
-		case dsVIDEO_FRAMERATE_24: return "24";
-		case dsVIDEO_FRAMERATE_25: return "25";
-		case dsVIDEO_FRAMERATE_30: return "30";
-		case dsVIDEO_FRAMERATE_60: return "60";
-		case dsVIDEO_FRAMERATE_23dot98: return "23.98";
-		case dsVIDEO_FRAMERATE_29dot97: return "29.97";
-		case dsVIDEO_FRAMERATE_50: return "50";
-		case dsVIDEO_FRAMERATE_59dot94: return "59.94";
-		default: return NULL;
-	}
+    switch (framerate) {
+        case dsVIDEO_FRAMERATE_24: return "24";
+        case dsVIDEO_FRAMERATE_25: return "25";
+        case dsVIDEO_FRAMERATE_30: return "30";
+        case dsVIDEO_FRAMERATE_60: return "60";
+        case dsVIDEO_FRAMERATE_23dot98: return "23.98";
+        case dsVIDEO_FRAMERATE_29dot97: return "29.97";
+        case dsVIDEO_FRAMERATE_50: return "50";
+        case dsVIDEO_FRAMERATE_59dot94: return "59.94";
+        default: return NULL;
+    }
 }
 
 dsVideoFrameRate_t getdsVideoFrameRate(uint16_t frameRate)
 {
-	switch (frameRate) {
-		case 24: return dsVIDEO_FRAMERATE_24;
-		case 25: return dsVIDEO_FRAMERATE_25;
-		case 30: return dsVIDEO_FRAMERATE_30;
-		case 60: return dsVIDEO_FRAMERATE_60;
-		case 23: return dsVIDEO_FRAMERATE_23dot98;
-		case 29: return dsVIDEO_FRAMERATE_29dot97;
-		case 50: return dsVIDEO_FRAMERATE_50;
-		case 59: return dsVIDEO_FRAMERATE_59dot94;
-		default: return dsVIDEO_FRAMERATE_MAX;
-	}
+    switch (frameRate) {
+        case 24: return dsVIDEO_FRAMERATE_24;
+        case 25: return dsVIDEO_FRAMERATE_25;
+        case 30: return dsVIDEO_FRAMERATE_30;
+        case 60: return dsVIDEO_FRAMERATE_60;
+        case 23: return dsVIDEO_FRAMERATE_23dot98;
+        case 29: return dsVIDEO_FRAMERATE_29dot97;
+        case 50: return dsVIDEO_FRAMERATE_50;
+        case 59: return dsVIDEO_FRAMERATE_59dot94;
+        default: return dsVIDEO_FRAMERATE_MAX;
+    }
 }
 
 int gcd(int a, int b) {
@@ -316,34 +316,34 @@ dsVideoAspectRatio_t getAspectRatioFromWidthHeight(int width, int height)
 
 dsVideoAspectRatio_t getdsVideoAspectRatio(uint16_t aspectRatio)
 {
-	//Ref: https://github.com/raspberrypi/userland/blob/master/interface/vmcs_host/vc_hdmi.h#L73
-	// rdk only supports 4:3 and 16:9 aspect ratios
-	switch (aspectRatio) {
-		case 1:	return dsVIDEO_ASPECT_RATIO_4x3;
-		case 3: return dsVIDEO_ASPECT_RATIO_16x9;
-		default:
-			return dsVIDEO_ASPECT_RATIO_MAX;
-	}
+    //Ref: https://github.com/raspberrypi/userland/blob/master/interface/vmcs_host/vc_hdmi.h#L73
+    // rdk only supports 4:3 and 16:9 aspect ratios
+    switch (aspectRatio) {
+        case 1:	return dsVIDEO_ASPECT_RATIO_4x3;
+        case 3: return dsVIDEO_ASPECT_RATIO_16x9;
+        default:
+                return dsVIDEO_ASPECT_RATIO_MAX;
+    }
 }
 
 dsVideoResolution_t getdsVideoResolution(uint32_t width, uint32_t height)
 {
-	if (width == 720 && height == 480)
-		return dsVIDEO_PIXELRES_720x480;
-	else if (width == 720 && height == 576)
-		return dsVIDEO_PIXELRES_720x576;
-	else if (width == 1280 && height == 720)
-		return dsVIDEO_PIXELRES_1280x720;
-	else if (width == 1366 && height == 768)
-		return dsVIDEO_PIXELRES_1366x768;
-	else if (width == 1920 && height == 1080)
-		return dsVIDEO_PIXELRES_1920x1080;
-	else if (width == 3840 && height == 2160)
-		return dsVIDEO_PIXELRES_3840x2160;
-	else if (width == 4096 && height == 2160)
-		return dsVIDEO_PIXELRES_4096x2160;
-	else
-		return dsVIDEO_PIXELRES_MAX;
+    if (width == 720 && height == 480)
+        return dsVIDEO_PIXELRES_720x480;
+    else if (width == 720 && height == 576)
+        return dsVIDEO_PIXELRES_720x576;
+    else if (width == 1280 && height == 720)
+        return dsVIDEO_PIXELRES_1280x720;
+    else if (width == 1366 && height == 768)
+        return dsVIDEO_PIXELRES_1366x768;
+    else if (width == 1920 && height == 1080)
+        return dsVIDEO_PIXELRES_1920x1080;
+    else if (width == 3840 && height == 2160)
+        return dsVIDEO_PIXELRES_3840x2160;
+    else if (width == 4096 && height == 2160)
+        return dsVIDEO_PIXELRES_4096x2160;
+    else
+        return dsVIDEO_PIXELRES_MAX;
 }
 
 static uint16_t initialised = 0;
@@ -373,9 +373,9 @@ int vchi_tv_init()
 
         // Initialize the tvservice
         if (vc_vchi_tv_init(vchi_instance, &vchi_connection, 1) < 0) {
-			hal_err("Failed to initialize vc_vchi_tv_init()\n");
-			return -1;
-		}
+            hal_err("Failed to initialize vc_vchi_tv_init()\n");
+            return -1;
+        }
         // Initialize the gencmd
         vc_vchi_gencmd_init(vchi_instance, &vchi_connection, 1);
         initialised = 1;
