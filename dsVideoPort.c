@@ -648,9 +648,6 @@ dsError_t dsIsHDCPEnabled(intptr_t handle, bool *pContentProtected)
 dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 {
     hal_info("invoked.\n");
-    const char *resolution_name = NULL;
-    TV_DISPLAY_STATE_T tvstate;
-    uint32_t hdmi_mode;
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
@@ -706,36 +703,6 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         }
     }
     return dsERR_GENERAL;
-}
-
-static const char* dsVideoGetResolution(uint32_t hdmiMode)
-{
-    hal_info("invoked.\n");
-    const char *res_name = NULL;
-    for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
-        if (resolutionMap[i].mode == (int)hdmiMode)
-            res_name = resolutionMap[i].rdkRes;
-    }
-    return res_name;
-}
-
-static uint32_t dsGetHdmiMode(dsVideoPortResolution_t *resolution)
-{
-    hal_info("invoked.\n");
-    uint32_t hdmi_mode = 0;
-    for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
-        size_t length = strlen(resolution->name) > strlen(resolutionMap[i].rdkRes) ? strlen(resolution->name) : strlen(resolutionMap[i].rdkRes);
-        if (!strncmp(resolution->name, resolutionMap[i].rdkRes, length))
-        {
-            hdmi_mode = resolutionMap[i].mode;
-            break;
-        }
-    }
-    if (!hdmi_mode) {
-        hal_dbg("Given resolution not found, setting default Resolution HDMI_CEA_720p60\n");
-        hdmi_mode = HDMI_CEA_720p60;
-    }
-    return hdmi_mode;
 }
 
 /**
@@ -802,7 +769,7 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
             hal_err("Command buffer is too small\n");
             return dsERR_GENERAL;
         }
-        snprintf(cmd, sizeof(cmd), "export XDG_RUNTIME_DIR=%s; westeros-gl-console set mode %s", westerosRes);
+        snprintf(cmd, sizeof(cmd), "export XDG_RUNTIME_DIR=%s; westeros-gl-console set mode %s", xdgRuntimeDir, westerosRes);
         hal_info("Westeros Resolution CMD: '%s'\n", cmd);
         if (westerosRWWrapper(cmd, data, sizeof(data))) {
             hal_info("westerosRWWrapper response:'%s'\n", data);
