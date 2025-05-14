@@ -123,10 +123,11 @@ dsError_t dsDisplayInit()
     _VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_vType  = dsVIDEOPORT_TYPE_HDMI;
     _VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle = dsVIDEOPORT_TYPE_HDMI;
     _VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index = 0;
+    hal_info("&_VDispHandles = %p\n", &_VDispHandles);
+    hal_info("&_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_vType = %p\n", &_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_vType);
+    hal_info("&_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle = %p\n", &_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle);
+    hal_info("&_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index = %p\n", &_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index);
 
-    _VDispHandles[dsVIDEOPORT_TYPE_COMPONENT][0].m_vType  = dsVIDEOPORT_TYPE_BB;
-    _VDispHandles[dsVIDEOPORT_TYPE_COMPONENT][0].m_nativeHandle = dsVIDEOPORT_TYPE_BB;
-    _VDispHandles[dsVIDEOPORT_TYPE_COMPONENT][0].m_index = 0;
     int32_t res = vchi_tv_init();
     if (res != 0) {
         hal_err("vchi_tv_init failed.\n");
@@ -137,6 +138,15 @@ dsError_t dsDisplayInit()
     /*Query the HDMI Resolution */
     dsQueryHdmiResolution();
     _bDisplayInited = true;
+
+	TV_ATTACHED_DEVICES_T devices;
+	if ((vc_tv_get_attached_devices(&devices) != -1) && (devices.num_attached > 0)) {
+		hal_info("vc_tv_get_attached_devices: %d\n", devices.num_attached);
+		for (int i = 0; i < devices.num_attached; i++) {
+			hal_info("Device %d: %d\n", i, devices.display_number[i]);
+		}
+	}
+
     return dsERR_NONE;
 }
 
@@ -162,6 +172,7 @@ dsError_t dsGetDisplay(dsVideoPortType_t m_vType, int index, intptr_t *handle)
     }
 
     *handle = (intptr_t)&_VDispHandles[m_vType][index];
+	hal_dbg("handle = %p\n", *handle);
 
     return dsERR_NONE;
 }
@@ -204,18 +215,8 @@ dsError_t dsGetDisplayAspectRatio(intptr_t handle, dsVideoAspectRatio_t *aspect)
                     break;
             }
         } else if (vDispHandle->m_vType == dsVIDEOPORT_TYPE_BB) {
-            hal_info("PortType:BB, aspect ratio is %d\n", tvstate.display.sdtv.display_options.aspect);
-            switch (tvstate.display.sdtv.display_options.aspect) {
-                case SDTV_ASPECT_4_3:
-                    *aspect = dsVIDEO_ASPECT_RATIO_4x3;
-                    break;
-                case SDTV_ASPECT_16_9:
-                    *aspect = dsVIDEO_ASPECT_RATIO_16x9;
-                    break;
-                default:
-                    *aspect = dsVIDEO_ASPECT_RATIO_4x3;
-                    break;
-            }
+            hal_warn("Handle is dsVIDEOPORT_TYPE_BB, return not supported\n");
+			return dsERR_OPERATION_NOT_SUPPORTED;
         }
     } else {
         hal_err("Error getting current display state\n");
@@ -436,9 +437,11 @@ static dsError_t dsQueryHdmiResolution()
             for (int j = 0; j < num_of_modes; j++) {
                 if (modeSupported[j].code == resolutionMap[i].mode) {
                     dsVideoPortResolution_t *resolution = dsgetResolutionInfo(resolutionMap[i].rdkRes);
-                    memcpy(&HdmiSupportedResolution[numSupportedResn], resolution, sizeof(dsVideoPortResolution_t));
-                    hal_dbg("Supported Resolution '%s'\n", HdmiSupportedResolution[numSupportedResn].name);
-                    numSupportedResn++;
+                    if (resolution != NULL) {
+                    	memcpy(&HdmiSupportedResolution[numSupportedResn], resolution, sizeof(dsVideoPortResolution_t));
+                    	hal_dbg("Supported Resolution '%s'\n", HdmiSupportedResolution[numSupportedResn].name);
+                    	numSupportedResn++;
+					}
                 }
             }
         }

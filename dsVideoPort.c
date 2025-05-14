@@ -37,8 +37,8 @@
 static bool isBootup = true;
 static bool _bIsVideoPortInitialized = false;
 static bool isValidVopHandle(intptr_t handle);
-static const char *dsVideoGetResolution(uint32_t mode);
-static uint32_t dsGetHdmiMode(dsVideoPortResolution_t *resolution);
+//static const char *dsVideoGetResolution(uint32_t mode);
+//static uint32_t dsGetHdmiMode(dsVideoPortResolution_t *resolution);
 #define MAX_HDMI_MODE_ID (127)
 
 dsHDCPStatusCallback_t _halhdcpcallback = NULL;
@@ -155,20 +155,11 @@ dsError_t  dsVideoPortInit()
     _vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index = 0;
     _vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_isEnabled = true;
 
-    _vopHandles[dsVIDEOPORT_TYPE_BB][0].m_vType  = dsVIDEOPORT_TYPE_BB;
-    _vopHandles[dsVIDEOPORT_TYPE_BB][0].m_nativeHandle = dsVIDEOPORT_TYPE_BB;
-    _vopHandles[dsVIDEOPORT_TYPE_BB][0].m_index = 0;
-    _vopHandles[dsVIDEOPORT_TYPE_BB][0].m_isEnabled = false;
-
     hal_info("&_vopHandles = %p\n", &_vopHandles);
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_vType = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_vType);
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle);
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index);
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_isEnabled = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_isEnabled);
-    hal_info("&_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_vType = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_vType);
-    hal_info("&_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_nativeHandle = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_nativeHandle);
-    hal_info("&_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_index = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_index);
-    hal_info("&_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_isEnabled = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_isEnabled);
     _resolution = kResolutions[kDefaultResIndex];
     int rc = vchi_tv_init();
     if (rc != 0) {
@@ -348,22 +339,7 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
     VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
     int res = 0;
 
-    if (vopHandle->m_vType == dsVIDEOPORT_TYPE_BB) {
-        SDTV_OPTIONS_T options = { .aspect = SDTV_ASPECT_16_9 };
-        if (enabled) {
-            res = vc_tv_sdtv_power_on(SDTV_MODE_NTSC, &options);
-            if (res != 0) {
-                hal_err("Failed to enable composite video port\n");
-                return dsERR_GENERAL;
-            }
-        } else {
-            res = vc_tv_power_off();
-            if (res != 0) {
-                hal_err("Failed to disable composite video port\n");
-                return dsERR_GENERAL;
-            }
-        }
-    } else if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
+    if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
         // Try westeros-gl-console first, if it fails, then use vc_tv_hdmi_power_on_preferred.
         // Until RPI stack is fully aligned to DRM/KMS, we need to use this workaround.
         char cmd[256] = {0};
@@ -441,14 +417,6 @@ dsError_t dsIsDisplayConnected(intptr_t handle, bool *connected)
     if (!isValidVopHandle(handle) || NULL == connected) {
         hal_err("handle(%p) is invalid or connected(%p) is null.\n", handle, connected);
         return dsERR_INVALID_PARAM;
-    }
-    /*Default is false*/
-    *connected = false;
-
-    if (vopHandle->m_vType == dsVIDEOPORT_TYPE_BB) {
-        hal_dbg("Port is BB, returning connected as TRUE\n");
-        *connected = true;
-        return dsERR_NONE;
     }
 
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
@@ -691,34 +659,53 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         hal_err("handle(%p) is invalid or resolution(%p) is NULL.\n", handle, resolution);
         return dsERR_INVALID_PARAM;
     }
-    if (vc_tv_get_display_state(&tvstate) == 0) {
-        hal_dbg("vc_tv_get_display_state: 0x%X\n", tvstate.state);
-        if (tvstate.state & VC_HDMI_ATTACHED) {
-            hal_dbg("  Width: %d\n", tvstate.display.hdmi.width);
-            hal_dbg("  Height: %d\n", tvstate.display.hdmi.height);
-            hal_dbg("  Frame Rate: %d\n",
-                    tvstate.display.hdmi.frame_rate);
-            hal_dbg("  Scan Mode: %s\n",
-                    tvstate.display.hdmi.scan_mode ? "Interlaced"
-                    : "Progressive");
-            hal_dbg("  Aspect Ratio: %d\n",
-                    tvstate.display.hdmi.aspect_ratio);
-            hal_dbg("  Pixel Repetition: %d\n",
-                    tvstate.display.hdmi.pixel_rep);
-            hal_dbg("  Group: %d\n", tvstate.display.hdmi.group);
-            hal_dbg("  Mode: %d\n", tvstate.display.hdmi.mode);
-        } else {
-            hal_err("HDMI not connected.\n");
-        }
-        resolution_name = dsVideoGetResolution(tvstate.display.hdmi.mode);
+    hal_info("Using westeros for resolution\n");
+	char cmd[256] = {0};
+    char data[256] = {0};
+	const char *xdgRuntimeDir = getXDGRuntimeDir();
+    if (xdgRuntimeDir == NULL) {
+        hal_err("Failed to get XDG_RUNTIME_DIR\n");
+        return dsERR_GENERAL;
     }
-    if (resolution_name == NULL) {
-        hdmi_mode = dsGetHdmiMode(resolution);
-        resolution_name = dsVideoGetResolution(hdmi_mode);
+    if ((strlen("export XDG_RUNTIME_DIR=") + strlen(xdgRuntimeDir) + strlen("; westeros-gl-console get mode")) > (sizeof(cmd) - 1)) {
+        hal_err("Command buffer is too small\n");
+        return dsERR_GENERAL;
     }
-    if (resolution_name)
-        strncpy(resolution->name, resolution_name, strlen(resolution_name));
-    return dsERR_NONE;
+	snprintf(cmd, sizeof(cmd), "export XDG_RUNTIME_DIR=%s; westeros-gl-console get mode", xdgRuntimeDir);
+	if (westerosRWWrapper(cmd, data, sizeof(data))) {
+		char wstresolution[64] = {0};
+		hal_info("data:'%s'\n", data);
+		// Response: [0: mode 1280x720px60]
+		// Extract string between 'mode ' and ']' and store in resolution
+		char *start = strstr(data, "mode ");
+		if (start) {
+			start += strlen("mode ");
+			char *end = strstr(start, "]");
+			if (end) {
+				*end = '\0';
+				strncpy(wstresolution, start, sizeof(wstresolution));
+				hal_info("Resolution string: '%s'\n", wstresolution);
+				if (convertWesterosResolutionTokResolution(wstresolution, resolution)) {
+					hal_dbg("Leena name: '%s'\n", resolution->name);
+					hal_dbg("Leena pixelResolution: '0x%x'\n", resolution->pixelResolution);
+					hal_dbg("Leena aspectRatio: '0x%x'\n", resolution->aspectRatio);
+					hal_dbg("Leena frameRate: '%s'\n", getdsVideoFrameRateString(resolution->frameRate));
+					hal_dbg("Leena interlaced: '%d'\n", resolution->interlaced);
+					return dsERR_NONE;
+				} else {
+					hal_err("Failed to convert westeros resolution '%s' to dsVideoPortResolution_t\n", wstresolution);
+					return dsERR_GENERAL;
+				}
+			} else {
+				hal_err("Failed to parse westerosRWWrapper response; ']' not found.\n");
+				return dsERR_GENERAL;
+			}
+		} else {
+			hal_err("Failed to parse westerosRWWrapper response; 'mode ' not found.\n");
+			return dsERR_GENERAL;
+		}
+	}
+	return dsERR_GENERAL;
 }
 
 static const char* dsVideoGetResolution(uint32_t hdmiMode)
@@ -779,10 +766,8 @@ static uint32_t dsGetHdmiMode(dsVideoPortResolution_t *resolution)
  */
 dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 {
-    /* Auto Select uses 720p. Should be converted to dsVideoPortResolution_t = 720p in DS-VOPConfig, not here */
     hal_info("invoked.\n");
     VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
-    int res = 0;
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
@@ -791,30 +776,62 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         return dsERR_INVALID_PARAM;
     }
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
-        hal_dbg("Setting HDMI resolution '%s'\n", resolution->name);
-        uint32_t hdmi_mode;
-        hdmi_mode = dsGetHdmiMode(resolution);
-        res = vc_tv_hdmi_power_on_explicit_new(HDMI_MODE_HDMI, HDMI_RES_GROUP_CEA, hdmi_mode);
-        if (res != 0) {
-            hal_err("Failed to set resolution\n");
-            return dsERR_GENERAL;
-        }
-        sleep(1);
-        // TODO: use westeros-gl-console to set this property as DRM/KMS won't be using FB.
-        if (system("fbset -depth 16") == -1)
-            hal_err("Failed to set fbset depth to 16\n");
-        if (system("fbset -depth 32") == -1)
-            hal_err("Failed to set fbset depth to 32\n");
-    } else if (vopHandle->m_vType == dsVIDEOPORT_TYPE_BB) {
-        SDTV_OPTIONS_T options;
-        options.aspect = SDTV_ASPECT_16_9;
-        if (!strncmp(resolution->name, "480i", strlen("480i"))) {
-            hal_dbg("Setting SDTV default resolution SDTV_MODE_NTSC\n");
-            res = vc_tv_sdtv_power_on(SDTV_MODE_NTSC, &options);
-        } else {
-            hal_dbg("Setting SDTV resolution SDTV_MODE_PAL\n");
-            res = vc_tv_sdtv_power_on(SDTV_MODE_PAL, &options);
-        }
+                hal_dbg("Setting HDMI resolution name'%s'\n", resolution->name);
+		hal_dbg("Setting HDMI resolution pixelResolution '0x%x'\n", resolution->pixelResolution);
+		hal_dbg("Setting HDMI resolution aspectRatio '0x%x'\n", resolution->aspectRatio);
+		hal_dbg("Setting HDMI resolution frameRate '%s'\n", getdsVideoFrameRateString(resolution->frameRate));
+		hal_dbg("Setting HDMI resolution interlaced '%d'\n", resolution->interlaced);
+		if (!dsVideoPortFrameRate_isValid(resolution->frameRate) ||
+			!dsVideoPortPixelResolution_isValid(resolution->pixelResolution)) {
+			hal_err("Invalid param; framerate 0x%x or pixelResolution 0x%x\n", resolution->frameRate, resolution->pixelResolution);
+			return dsERR_INVALID_PARAM;
+		}
+		char cmd[256] = {0};
+		char data[256] = {0};
+		const char *xdgRuntimeDir = getXDGRuntimeDir();
+		if (xdgRuntimeDir == NULL) {
+			hal_err("Failed to get XDG_RUNTIME_DIR\n");
+			return dsERR_GENERAL;
+		}
+		char westerosRes[64] = {0};
+		if (convertkResolutionToWesterosResolution(resolution, westerosRes, sizeof(westerosRes)) == false) {
+			hal_err("Failed to convert resolution '%s' to westeros format\n", resolution->name);
+			return dsERR_GENERAL;
+		}
+		if ((strlen("export XDG_RUNTIME_DIR=") + strlen(xdgRuntimeDir) + strlen("; westeros-gl-console set mode ") + strlen(westerosRes)) > (sizeof(cmd) - 1)) {
+			hal_err("Command buffer is too small\n");
+			return dsERR_GENERAL;
+		}
+		snprintf(cmd, sizeof(cmd), "export XDG_RUNTIME_DIR=%s; westeros-gl-console set mode %s", westerosRes);
+		hal_info("Westeros Resolution CMD: '%s'\n", cmd);
+		if (westerosRWWrapper(cmd, data, sizeof(data))) {
+			hal_info("westerosRWWrapper response:'%s'\n", data);
+			// Response: [0: mode 1280x720px60]
+			// extract string between 'mode ' and ']' and compare against westerosRes
+			char *start = strstr(data, "mode ");
+			if (start) {
+				start += strlen("mode ");
+				char *end = strstr(start, "]");
+				if (end) {
+					*end = '\0';
+					if (strcmp(start, westerosRes) == 0) {
+						hal_info("Resolution set successfully\n");
+					} else {
+						hal_err("Failed to set resolution\n");
+						return dsERR_GENERAL;
+					}
+				} else {
+					hal_err("Failed to parse response\n");
+					return dsERR_GENERAL;
+				}
+			} else {
+				hal_err("Failed to parse response\n");
+				return dsERR_GENERAL;
+			}
+		} else {
+			hal_err("Failed to run '%s', got response '%s'\n", cmd, data);
+			return dsERR_GENERAL;
+		}
     } else {
         hal_err("Video port type not supported\n");
         return dsERR_OPERATION_NOT_SUPPORTED;
@@ -1074,75 +1091,13 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
         for (i = 0; i < num_of_modes; i++) {
             hal_info("[%d] mode %u: %ux%u%s%uHz\n", i, modeSupported[i].code, modeSupported[i].width,
                     modeSupported[i].height, (modeSupported[i].scan_mode?"i":"p"), modeSupported[i].frame_rate);
-#if 0
-            switch (modeSupported[i].code) {
-                case HDMI_CEA_480p60:
-                case HDMI_CEA_480p60H:
-                case HDMI_CEA_480p60_2x:
-                case HDMI_CEA_480p60_2xH:
-                case HDMI_CEA_480p60_4x:
-                case HDMI_CEA_480p60_4xH:
-                    *resolutions |= dsTV_RESOLUTION_480p;
-                    break;
-                case HDMI_CEA_480i60:
-                case HDMI_CEA_480i60H:
-                case HDMI_CEA_480i60_4x:
-                case HDMI_CEA_480i60_4xH:
-                    *resolutions |= dsTV_RESOLUTION_480i;
-                    break;
-                case HDMI_CEA_576i50:
-                case HDMI_CEA_576i50H:
-                case HDMI_CEA_576i50_4x:
-                case HDMI_CEA_576i50_4xH:
-                    *resolutions |= dsTV_RESOLUTION_576i;
-                    break;
-                case HDMI_CEA_576p50:
-                case HDMI_CEA_576p50H:
-                case HDMI_CEA_576p50_2x:
-                case HDMI_CEA_576p50_2xH:
-                case HDMI_CEA_576p50_4x:
-                case HDMI_CEA_576p50_4xH:
-                    *resolutions |= dsTV_RESOLUTION_576p50;
-                    break;
-                case HDMI_CEA_720p50:
-                    *resolutions |= dsTV_RESOLUTION_720p50;
-                    break;
-                case HDMI_CEA_720p60:
-                    *resolutions |= dsTV_RESOLUTION_720p;
-                    break;
-                case HDMI_CEA_1080p50:
-                    *resolutions |= dsTV_RESOLUTION_1080p50;
-                    break;
-                case HDMI_CEA_1080p24:
-                    *resolutions |= dsTV_RESOLUTION_1080p24;
-                    break;
-                case HDMI_CEA_1080p25:
-                    *resolutions |= dsTV_RESOLUTION_1080p25;
-                    break;
-                case HDMI_CEA_1080p30:
-                    *resolutions |= dsTV_RESOLUTION_1080p30;
-                    break;
-                case HDMI_CEA_1080p60:
-                    *resolutions |= dsTV_RESOLUTION_1080p60;
-                    break;
-                case HDMI_CEA_1080i50:
-                    *resolutions |= dsTV_RESOLUTION_1080i50;
-                    break;
-                case HDMI_CEA_1080i60:
-                    *resolutions |= dsTV_RESOLUTION_1080i;
-                    break;
-                default:
-                    *resolutions |= dsTV_RESOLUTION_480p;
-                    break;
-            }
-#else
+
             // modeSupported[i].code is VIC
             TVVideoResolution = getResolutionFromVic(modeSupported[i].code);
             if (TVVideoResolution != NULL) {
                 hal_info("VIC %u TVVideoResolution = 0x%x\n", getVicFromResolution(*TVVideoResolution), *TVVideoResolution);
                 *resolutions |= *TVVideoResolution;
             }
-#endif  // Use Mode/VIC Map
         }
     } else {
         hal_err("Get supported resolution for TV on Non HDMI Port\n");
