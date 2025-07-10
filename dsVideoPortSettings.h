@@ -45,7 +45,7 @@ static const dsVideoPortPortConfig_t kPorts[] = {
 	{
 		/*.typeId = */ 					{dsVIDEOPORT_TYPE_HDMI, 0},
 		/*.connectedAOP */              {dsAUDIOPORT_TYPE_HDMI, 0},
-		/*.defaultResolution = */		"720p"
+		/*.defaultResolution = */		"1080p60"
 	},
 };
 
