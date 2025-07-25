@@ -50,6 +50,7 @@
 #include "dsHdmiInTypes.h"
 #include "dsVideoDeviceTypes.h"
 #include "dshalLogger.h"
+#include "halif-versions.h"
 
 /**
  * @brief Initializes the underlying HDMI input sub-system
@@ -838,6 +839,7 @@ dsError_t dsSetEdid2AllmSupport(dsHdmiInPort_t iHdmiPort, bool allmSupport)
  * @warning  This API is Not thread safe
  *
  */
+#if RDK_HALIF_DEVICE_SETTINGS_VERSION <= 0x04010200
 dsError_t dsGetEdid2AllmSupport(dsHdmiInPort_t iHdmiPort, bool *allmSupport)
 {
     hal_info("invoked.\n");
@@ -848,3 +850,40 @@ dsError_t dsGetEdid2AllmSupport(dsHdmiInPort_t iHdmiPort, bool *allmSupport)
     // No HDMI-IN support.
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
+#endif
+
+#if RDK_HALIF_DEVICE_SETTINGS_VERSION >= 0x05010000
+dsError_t dsHdmiInSetVRRSupport(dsHdmiInPort_t port, bool vrrSupport)
+{
+        //Currently feature is not supported in hal so returning error from none to not supported , After feature implementation need to handle the return code properly
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+dsError_t dsHdmiInGetVRRSupport(dsHdmiInPort_t port, bool *vrrSupport)
+{
+    //Currently feature is not supported in hal so returning error from none to not supported , After feature implementation need to handle the return code properly
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+dsError_t dsHdmiInRegisterVRRChangeCB(dsHdmiInVRRChangeCB_t cb)
+{
+        //Currently feature is not supported in hal so returning error from none to not supported , After feature implementation need to handle the return code properly
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+#endif
+
+#if RDK_HALIF_DEVICE_SETTINGS_VERSION == 0x05010000
+dsError_t dsHdmiInGetVRRStatus(dsHdmiInPort_t port, dsVRRType_t *vrrType)
+{
+        //Currently feature is not supported in hal so returning error from none to not supported , After feature implementation need to handle the return code properly
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+#endif
+
+#if RDK_HALIF_DEVICE_SETTINGS_VERSION >= 0x06000000
+dsError_t dsHdmiInGetVRRStatus(dsHdmiInPort_t port, dsHdmiInVrrStatus_t *vrrStatus)
+{
+        //Currently feature is not supported in hal so returning error from none to not supported , After feature implementation need to handle the return code properly
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+#endif

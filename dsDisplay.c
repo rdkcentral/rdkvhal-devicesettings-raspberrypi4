@@ -30,6 +30,7 @@
 #include "dsVideoResolutionSettings.h"
 #include "dshalLogger.h"
 #include "dshalUtils.h"
+#include "halif-versions.h"
 
 #define MAX_HDMI_CODE_ID (127)
 dsDisplayEventCallback_t _halcallback = NULL;
@@ -224,6 +225,44 @@ dsError_t dsGetDisplayAspectRatio(intptr_t handle, dsVideoAspectRatio_t *aspect)
     hal_dbg("Aspect ratio is %d\n", *aspect);
     return dsERR_NONE;
 }
+
+#if RDK_HALIF_DEVICE_SETTINGS_VERSION >= 0x05010000
+dsError_t dsSetAllmEnabled (intptr_t  handle, bool enabled)
+{
+        //Currently feature is not supported in hal so returning error from none to not supported , After feature implementation need to handle the return code properly
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+dsError_t dsGetAllmEnabled (intptr_t  handle, bool *enabled)
+{
+        //Currently feature is not supported in hal so returning error from none to not supported , After feature implementation need to handle the return code properly
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+dsError_t dsSetAVIContentType(intptr_t handle, dsAviContentType_t contentType)
+{
+        //Currently feature is not supported in hal so returning error from none to not supported , After feature implementation need to handle the return code properly
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+dsError_t dsGetAVIContentType(intptr_t handle, dsAviContentType_t* contentType)
+{
+        //Currently feature is not supported in hal so returning error from none to not supported , After feature implementation need to handle the return code properly
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+dsError_t dsSetAVIScanInformation(intptr_t handle, dsAVIScanInformation_t scanInfo)
+{
+        //Currently feature is not supported in hal so returning error from none to not supported , After feature implementation need to handle the return code properly
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+dsError_t dsGetAVIScanInformation(intptr_t handle, dsAVIScanInformation_t* scanInfo)
+{
+        //Currently feature is not supported in hal so returning error from none to not supported , After feature implementation need to handle the return code properly
+        return dsERR_OPERATION_NOT_SUPPORTED;
+}
+#endif
 
 /**
  * @brief Callback registration for display related events.
