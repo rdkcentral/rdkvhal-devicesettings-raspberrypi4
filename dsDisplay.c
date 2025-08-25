@@ -30,6 +30,7 @@
 #include "dsVideoResolutionSettings.h"
 #include "dshalLogger.h"
 #include "dshalUtils.h"
+#include "halif-versions.h"
 
 #define MAX_HDMI_CODE_ID (127)
 dsDisplayEventCallback_t _halcallback = NULL;
@@ -224,6 +225,201 @@ dsError_t dsGetDisplayAspectRatio(intptr_t handle, dsVideoAspectRatio_t *aspect)
     hal_dbg("Aspect ratio is %d\n", *aspect);
     return dsERR_NONE;
 }
+
+#if RDK_HALIF_DEVICE_SETTINGS_VERSION >= 0x05010000
+/**
+ * @brief Enables/Disables ALLM mode for HDMI output port connected to display.
+ *
+ * This function enables or disables the ALLM mode for specified HDMI output port.
+ *
+ * @param[in] handle    - Handle of the display device returned from dsGetDisplay()
+ * @param[in] enabled   - Flag to enable/disable the ALLM mode for the HDMI output port
+ *                         ( @a true to enable, @a false to disable)
+ * @return dsError_t Error code.
+ */
+dsError_t dsSetAllmEnabled (intptr_t  handle, bool enabled)
+{
+    hal_info("invoked.\n");
+    VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
+
+    if (!dsIsValidVDispHandle((intptr_t)vDispHandle) ) {
+        hal_err("Invalid params, handle %p \n", vDispHandle );
+        return dsERR_INVALID_PARAM;
+    }
+    
+    /*
+     * ALLM (Auto Low Latency Mode) is a feature defined in HDMI 2.1.
+     * It allows a source device to signal a connected display to automatically switch to a low-latency, low-lag mode — often called "Game Mode".
+     * Raspberry Pi firmware and drivers support basic HDMI 2.0a features (like 4K@60 ) but do not implement ALLM signaling.
+     */
+    hal_info("Allm operations is not supported\n" );
+
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Checks whether ALLM mode of HDMI output port connected to display is enabled or not.
+ *
+ * This function indicates whether ALLM mode for specified HDMI output port is enabled or not.
+ * By default ALLM mode is disabled on bootup.
+ *
+ * @param[in]  handle   - Handle of the display device returned from dsGetDisplay()
+ * @param[out] enabled  - Flag to hold the enabled status of ALLM mode for given HDMI output port.
+ *                          ( @a true when ALLM mode is enabled or @a false otherwise)
+ *
+ * @return dsError_t Error code.
+ */
+dsError_t dsGetAllmEnabled (intptr_t  handle, bool *enabled)
+{
+    hal_info("invoked.\n");
+    VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
+    
+    if (!dsIsValidVDispHandle((intptr_t)vDispHandle) || NULL == enabled ) {
+        hal_err("Invalid params, handle %p enabled %p\n", vDispHandle, enabled );
+        return dsERR_INVALID_PARAM;
+    }
+
+    /*
+     * ALLM (Auto Low Latency Mode) is a feature defined in HDMI 2.1.
+     * It allows a source device to signal a connected display to automatically switch to a low-latency, low-lag mode — often called "Game Mode".
+     * Raspberry Pi firmware and drivers support basic HDMI 2.0a features (like 4K@60 ) but do not implement ALLM signaling.
+     */
+    hal_info("Allm operations is not supported\n" );
+
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Configures the AVI InfoFrame content type signalling for HDMI output port connected to display.
+ *
+ * For source devices, this function configures the AVI InfoFrame ITC, CN1 and CN0 bits.
+ * AVI InfoFrame set remains until the power mode change or device reboot
+ *
+ * @param[in] handle      - Handle of the display device from dsGetDisplay()
+ * @param[in] contentType - The content type (or none) to signal in the AVI InfoFrame.  Please refer ::dsAviContentType_t
+ *
+ * @return dsError_t Error code.
+ */
+dsError_t dsSetAVIContentType(intptr_t handle, dsAviContentType_t contentType)
+{
+    hal_info("invoked.\n");
+    VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
+
+    if (!dsIsValidVDispHandle((intptr_t)vDispHandle) ) {
+        hal_err("Invalid params, handle %p \n", vDispHandle );
+        return dsERR_INVALID_PARAM;
+    }
+
+    /*
+     * Raspberry Pi 4 is using the vc4 DRM driver with Firmware KMS (FKMS) backend.
+     * vc4_fkms_ops refers to the "Firmware KMS" (FKMS) display pipeline used in the vc4 DRM (Direct Rendering Manager) driver on Raspberry Pi devices.
+     * HDMI AVI InfoFrame fields are not exposed by vc4_fkms_ops or its underlying firmware.
+     * So, We have defined HAL-level stubs that follow the expected structure and provide compatibility for higher layer.
+     */
+    hal_info("AVI ContentType operations is not supported\n" );
+
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Gets the configured AVI InfoFrame content type signalling for HDMI output port connected to display.
+ *
+ * For source devices, this function gets the configuration of the AVI InfoFrame ITC, CN1 and CN0 bits.
+ * By default, IT content is dsAVICONTENT_TYPE_NOT_SIGNALLED on bootup and after wakeup/resume.
+ *
+ * @param[in] handle       - Handle of the display device from dsGetDisplay()
+ * @param[out] contentType - Pointer that receives the content type configuration set for AVI InfoFrames.
+ * Please refer ::dsAviContentType_t
+ *
+ * @return dsError_t Error code.
+ */
+dsError_t dsGetAVIContentType(intptr_t handle, dsAviContentType_t* contentType)
+{
+    hal_info("invoked.\n");
+    VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
+    
+    if (!dsIsValidVDispHandle((intptr_t)vDispHandle) || NULL == contentType ) {
+        hal_err("Invalid params, handle %p contentType %p\n", vDispHandle, contentType );
+        return dsERR_INVALID_PARAM;
+    }
+
+    /*
+     * Raspberry Pi 4 is using the vc4 DRM driver with Firmware KMS (FKMS) backend.
+     * vc4_fkms_ops refers to the "Firmware KMS" (FKMS) display pipeline used in the vc4 DRM (Direct Rendering Manager) driver on Raspberry Pi devices.
+     * HDMI AVI InfoFrame fields are not exposed by vc4_fkms_ops or its underlying firmware.
+     * So, We have defined HAL-level stubs that follow the expected structure and provide compatibility for higher layer.
+     */
+    hal_info("AVI ContentType operations is not supported\n" );
+
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Configures the AVI InfoFrame scan information signalling for HDMI output port connected to display.
+ *
+ * For source devices, this function configures the AVI InfoFrame S1 and S0 bits.
+ * Source scan info (on AVI) is set only if Sink scan bit is set (on HF-VSDB) as per HDMI 2.1 Specification
+ * AVI InfoFrame set remains until the power mode change or device reboot
+ * This function return dsERR_OPERATION_NOT_SUPPORTED when when Sink doesn't support scan or HDMI disconnected
+ *
+ * @param[in] handle      - Handle of the display device from dsGetDisplay()
+ * @param[in] scanInfo    - The scan information to signal in the AVI InfoFrame.  Please refer ::dsAVIScanInformation_t
+ *
+ * @return dsError_t Error code.
+ */
+dsError_t dsSetAVIScanInformation(intptr_t handle, dsAVIScanInformation_t scanInfo)
+{
+    hal_info("invoked.\n");
+    VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
+
+    if (!dsIsValidVDispHandle((intptr_t)vDispHandle) ) {
+        hal_err("Invalid params, handle %p \n", vDispHandle );
+        return dsERR_INVALID_PARAM;
+    }
+
+    /*
+     * Raspberry Pi 4 is using the vc4 DRM driver with Firmware KMS (FKMS) backend.
+     * vc4_fkms_ops refers to the "Firmware KMS" (FKMS) display pipeline used in the vc4 DRM (Direct Rendering Manager) driver on Raspberry Pi devices.
+     * HDMI AVI InfoFrame fields are not exposed by vc4_fkms_ops or its underlying firmware.
+     * So, We have defined HAL-level stubs that follow the expected structure and provide compatibility for higher layer.
+     */
+    hal_info("AVI Scan Information operations is not supported\n" );
+
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Gets the configured AVI InfoFrame scan information signalling for HDMI output port connected to display.
+ *
+ * For source devices, this function gets the configuration of the AVI InfoFrame S1 and S0 bits.
+ * By default, scan info is dsAVI_SCAN_TYPE_NO_DATA on bootup and after wakeup/resume.
+ * For sink devices, this function returns dsERR_OPERATION_NOT_SUPPORTED always.
+ *
+ * @param[in] handle    - Handle of the display device from dsGetDisplay()
+ * @param[out] scanInfo - Pointer that receives the scan information configuration set for AVI InfoFrames.  Please refer ::dsAVIScanInformation_t
+ *
+ */
+dsError_t dsGetAVIScanInformation(intptr_t handle, dsAVIScanInformation_t* scanInfo)
+{
+    hal_info("invoked.\n");
+    VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
+
+    if (!dsIsValidVDispHandle((intptr_t)vDispHandle) || NULL == scanInfo ) {
+        hal_err("Invalid params, handle %p scanInfo %p\n", vDispHandle, scanInfo );
+        return dsERR_INVALID_PARAM;
+    }
+
+    /*
+     * Raspberry Pi 4 is using the vc4 DRM driver with Firmware KMS (FKMS) backend.
+     * vc4_fkms_ops refers to the "Firmware KMS" (FKMS) display pipeline used in the vc4 DRM (Direct Rendering Manager) driver on Raspberry Pi devices.
+     * HDMI AVI InfoFrame fields are not exposed by vc4_fkms_ops or its underlying firmware.
+     * So, We have defined HAL-level stubs that follow the expected structure and provide compatibility for higher layer.
+     */
+    hal_info("AVI Scan Information operations is not supported\n" );
+
+    return dsERR_OPERATION_NOT_SUPPORTED;
+}
+#endif
 
 /**
  * @brief Callback registration for display related events.

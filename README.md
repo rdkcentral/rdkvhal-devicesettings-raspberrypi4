@@ -10,5 +10,5 @@ LOG.RDK.DSMGR = LOG DEBUG INFO ERROR
 ```
 ### Related Repositories
 
-- **HAL Header Repository**: [rdk-halif-device_settings](https://github.com/rdkcentral/rdk-halif-device_settings) [v2.0.0](https://github.com/rdkcentral/rdk-halif-device_settings/releases/tag/2.0.0)
-- **HAL Test Suite Repository**: [rdk-halif-test-device_settings](https://github.com/rdkcentral/rdk-halif-test-device_settings)
+- **HAL Header Repository**: [rdk-halif-device_settings](https://github.com/rdkcentral/rdk-halif-device_settings) [v6.0.0](https://github.com/rdkcentral/rdk-halif-device_settings/releases/tag/6.0.0)
+- **HAL Test Suite Repository**: [rdk-halif-test-device_settings](https://github.com/rdkcentral/rdk-halif-test-device_settings) [v6.0.0](https://github.com/rdkcentral/rdk-halif-test-device_settings/releases/tag/6.0.0)
