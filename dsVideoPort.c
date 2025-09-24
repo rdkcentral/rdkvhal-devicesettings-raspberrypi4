@@ -786,8 +786,13 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (!isValidVopHandle(handle) || NULL == resolution) {
-        hal_err("handle(%p) is invalid or resolution(%p) is null.\n", handle, resolution);
+    if (!isValidVopHandle(handle) || NULL == resolution || resolution->name[0] == '\0' ||
+        !dsVideoPortPixelResolution_isValid(resolution->pixelResolution) ||
+        !dsVideoPortAspectRatio_isValid(resolution->aspectRatio) ||
+        !dsVideoPortStereoScopicMode_isValid(resolution->stereoScopicMode) ||
+        !dsVideoPortFrameRate_isValid(resolution->frameRate) ||
+        !dsVideoPortScanMode_isValid(resolution->interlaced)) {
+        hal_err("dsSetResolution dsERR_INVALID_PARAM - Invalid handle or resolution parameters\n");
         return dsERR_INVALID_PARAM;
     }
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
