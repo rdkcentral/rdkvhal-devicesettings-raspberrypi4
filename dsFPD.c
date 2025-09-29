@@ -22,12 +22,28 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <errno.h>
+#include <time.h>
 
 #include "dsFPD.h"
 #include "dsFPDTypes.h"
 #include "dshalLogger.h"
+#include <pthread.h>
+
+#define LED_ON  1
+#define LED_OFF  0
+
+#define LED_TIME_INTERVAL  500
+
+static pthread_mutex_t dsHalLock = PTHREAD_MUTEX_INITIALIZER;
+#define DS_HAL_Lock() pthread_mutex_lock(&dsHalLock)
+#define DS_HAL_Unlock() pthread_mutex_unlock(&dsHalLock)
+#define DS_HAL_FP_HUNDREDMS 100
 
 void setValue (int pin, int value);
+dsError_t GreenLedOnAndOff( int value );
+void stop_led_blink( void );
+int start_led_blink ( void );
+void* led_blink_thread(void *arg);
 
 char fName[128] = {0};
 FILE *fd;
@@ -35,6 +51,11 @@ FILE *fd;
 int LED_RED = 9;
 int LED_YELLOW = 10;
 int LED_GREEN = 11;
+
+
+static dsFPDLedState_t enCurrentLedState = dsFPD_LED_DEVICE_NONE;
+static pthread_t ledBlinkThreadId;
+static bool isledBlinkThreadEnabled = true;
 
 void exportPins(int pin)
 {
@@ -68,6 +89,44 @@ void setValue(int pin, int value)
     fclose(fd);
 }
 
+dsError_t GreenLedOnAndOff( int value )
+{
+    dsError_t   enErrorCode = dsERR_NONE;
+    int i32ReturnValue = 0;
+
+    if( LED_ON == value )
+    {
+        /*  Writing "none" disables any automatic behavior, giving manual control over the LED.
+            So we need to set "none" for keeping the led ON continuous glow. Other wise LED will be automatically OFF.*/
+        i32ReturnValue = system( "echo none > /sys/class/leds/led0/trigger" );
+
+        if( !i32ReturnValue )
+        {
+            i32ReturnValue = system( "echo 1 > /sys/class/leds/led0/brightness" );
+
+            if( i32ReturnValue )
+            {
+                enErrorCode = dsERR_OPERATION_FAILED;
+            }
+        }
+        else
+        {
+            enErrorCode = dsERR_OPERATION_FAILED;
+        }
+    }
+    else if( LED_OFF == value )
+    {
+        i32ReturnValue = system( "echo 0 > /sys/class/leds/led0/brightness" );
+
+        if( i32ReturnValue )
+        {
+            enErrorCode = dsERR_OPERATION_FAILED;
+        }
+    }
+
+    return enErrorCode;
+}
+
 /**
  * @brief Initializes the Front Panel Display (FPD) sub-module of Device Settings HAL
  *
@@ -88,6 +147,8 @@ void setValue(int pin, int value)
 dsError_t dsFPInit(void)
 {
     hal_info("invoked.\n");
+
+    pthread_mutex_init(&dsHalLock, NULL);
     // These changes were added for Traffic light LED support in RPI3. Not relevant otherwise.
 #if 0
     exportPins (LED_RED);
@@ -124,6 +185,11 @@ dsError_t dsFPInit(void)
 dsError_t dsFPTerm(void)
 {
     hal_info("invoked.\n");
+
+    stop_led_blink( );
+
+    pthread_mutex_destroy(&dsHalLock);
+
     return dsERR_NONE;
 }
 
@@ -797,12 +863,25 @@ dsError_t dsSetFPDMode(dsFPDMode_t eMode)
  */
 dsError_t dsFPGetLEDState(dsFPDLedState_t* state)
 {
+    dsError_t   enErrorCode = dsERR_NONE;
+
     hal_info("invoked.\n");
-    if (state == NULL) {
-        hal_err("Invalid parameter, state: %p.\n", state);
-        return dsERR_INVALID_PARAM;
+
+    if ( state != NULL )
+    {
+        DS_HAL_Lock();
+
+        *state = enCurrentLedState;
+
+        DS_HAL_Unlock();
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    else
+    {
+        hal_err("Invalid parameter, state: %p.\n", state);
+        enErrorCode = dsERR_INVALID_PARAM;
+    }
+
+    return enErrorCode;
 }
 
 /**
@@ -825,14 +904,55 @@ dsError_t dsFPGetLEDState(dsFPDLedState_t* state)
  *
  * @see dsFPGetLEDState()
  */
-dsError_t dsFPSetLEDState(dsFPDLedState_t state)
+dsError_t dsFPSetLEDState( dsFPDLedState_t state )
 {
+    dsError_t   enErrorCode = dsERR_NONE;
+
     hal_info("invoked.\n");
-    if (state < dsFPD_LED_DEVICE_NONE || state >= dsFPD_LED_DEVICE_MAX) {
-        hal_err("Invalid parameter, state: %d.\n", state);
-        return dsERR_INVALID_PARAM;
+
+    DS_HAL_Lock();
+
+    stop_led_blink ();
+
+    switch( ( int )state )
+    {
+        case dsFPD_LED_DEVICE_ACTIVE:
+        {
+            enErrorCode = GreenLedOnAndOff( LED_OFF );
+        }
+            break;  /* dsFPD_LED_DEVICE_ACTIVE */
+
+        case dsFPD_LED_DEVICE_STANDBY:
+        {
+            enErrorCode = GreenLedOnAndOff( LED_ON );
+        }
+            break; /* dsFPD_LED_DEVICE_STANDBY */
+
+        case dsFPD_LED_DEVICE_WPS_CONNECTING:
+		case dsFPD_LED_DEVICE_WPS_CONNECTED:
+		case dsFPD_LED_DEVICE_WPS_ERROR:
+		case dsFPD_LED_DEVICE_FACTORY_RESET:
+		case dsFPD_LED_DEVICE_USB_UPGRADE:
+		case dsFPD_LED_DEVICE_SOFTWARE_DOWNLOAD_ERROR:
+        {
+            start_led_blink( );
+        }
+            break;
+
+        default:
+        {
+            enErrorCode = dsERR_INVALID_PARAM;
+        }
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+
+    if( enErrorCode != dsERR_INVALID_PARAM )
+    {
+        enCurrentLedState = state;
+    }
+
+    DS_HAL_Unlock();
+
+    return enErrorCode;
 }
 
 /**
@@ -856,10 +976,108 @@ dsError_t dsFPSetLEDState(dsFPDLedState_t state)
  */
 dsError_t dsFPGetSupportedLEDStates(unsigned int* states)
 {
+    dsError_t   enErrorCode = dsERR_NONE;
+
     hal_info("invoked.\n");
-    if (states == NULL) {
-        hal_err("Invalid parameter, states: %p.\n", states);
-        return dsERR_INVALID_PARAM;
+
+    if (states != NULL)
+    {
+        *states = ((1<<dsFPD_LED_DEVICE_ACTIVE)|\
+				(1<<dsFPD_LED_DEVICE_STANDBY)|\
+				(1<<dsFPD_LED_DEVICE_WPS_CONNECTING)|\
+				(1<<dsFPD_LED_DEVICE_WPS_CONNECTED)|\
+				(1<<dsFPD_LED_DEVICE_WPS_ERROR)|\
+				(1<<dsFPD_LED_DEVICE_FACTORY_RESET)|\
+				(1<<dsFPD_LED_DEVICE_USB_UPGRADE)|\
+				(1<<dsFPD_LED_DEVICE_SOFTWARE_DOWNLOAD_ERROR));
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    else 
+    {
+        hal_err("Invalid parameter, states: %p.\n", states);
+        enErrorCode = dsERR_INVALID_PARAM;
+	}
+
+	return enErrorCode;
+}
+
+void* led_blink_thread( void *arg )
+{
+    struct timespec ts = { 0 };
+    dsError_t   enErrorCode = dsERR_NONE;
+    int index = 0;
+
+    while( isledBlinkThreadEnabled )
+    {
+        enErrorCode = GreenLedOnAndOff( LED_ON );
+
+        if( !enErrorCode )
+        {
+            index = LED_TIME_INTERVAL;
+
+            while ( index && isledBlinkThreadEnabled )
+            {
+                if ( index > DS_HAL_FP_HUNDREDMS )
+                {
+                    ts.tv_sec = 0;
+                    ts.tv_nsec = DS_HAL_FP_HUNDREDMS * 1000 * 1000;
+                    nanosleep(&ts, NULL);
+                    index -= DS_HAL_FP_HUNDREDMS;
+                }
+                else
+                {
+                    ts.tv_sec = 0;
+                    ts.tv_nsec = index * 1000 * 1000;
+                    nanosleep(&ts, NULL);
+                    index = 0;
+                }
+            }
+        }
+		enErrorCode = GreenLedOnAndOff( LED_OFF );
+
+        if( !enErrorCode )
+        {
+            int index = LED_TIME_INTERVAL;
+
+            while ( index && isledBlinkThreadEnabled )
+            {
+                if ( index > DS_HAL_FP_HUNDREDMS )
+                {
+                    ts.tv_sec = 0;
+                    ts.tv_nsec = DS_HAL_FP_HUNDREDMS * 1000 * 1000;
+                    nanosleep(&ts, NULL);
+                    index -= DS_HAL_FP_HUNDREDMS;
+                } else
+                {
+                    ts.tv_sec = 0;
+                    ts.tv_nsec = index * 1000 * 1000;
+                    index = 0;
+                }
+            }
+        }
+	}
+
+    pthread_exit(NULL);
+
+    return NULL;
+}
+
+int start_led_blink ( void )
+{
+	isledBlinkThreadEnabled = true;
+
+	int err = pthread_create ( &ledBlinkThreadId, NULL, led_blink_thread, NULL );
+	if(err) {
+		printf("DSHAL :%s, Failed to Ceate led_blink_thread thread....\r\n",  __func__);
+	}
+	return err;
+}
+
+void stop_led_blink( void )
+{
+	//stop the existing blink pattern
+	isledBlinkThreadEnabled = false;
+	if (ledBlinkThreadId){
+	    pthread_join(ledBlinkThreadId, NULL);
+	}
+	ledBlinkThreadId = 0;
 }
