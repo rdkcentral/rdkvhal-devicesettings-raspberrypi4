@@ -1247,10 +1247,16 @@ dsError_t  dsGetSurroundMode(intptr_t handle, int *surround)
 dsError_t dsVideoFormatUpdateRegisterCB(dsVideoFormatUpdateCB_t cb)
 {
     hal_info("invoked.\n");
+
+    if (false == _bIsVideoPortInitialized) {
+        return dsERR_NOT_INITIALIZED;
+    }
+
     if (cb == NULL) {
         hal_err("Invalid param, cb(%p).\n", cb);
         return dsERR_INVALID_PARAM;
     }
+
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
