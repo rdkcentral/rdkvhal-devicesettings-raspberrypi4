@@ -502,7 +502,6 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
         hal_err("Invalid params, handle %p, edid %p\n", vDispHandle, edid);
         return dsERR_INVALID_PARAM;
     }
-    memset(edid, 0, sizeof(dsDisplayEDID_t));
 
     if (vc_tv_get_display_state(&tvstate) != 0) {
 	    return dsERR_NONE;
