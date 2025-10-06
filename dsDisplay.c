@@ -491,8 +491,8 @@ dsError_t dsRegisterDisplayEventCallback(intptr_t handle, dsDisplayEventCallback
 dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
 {
     hal_info("Invoked\n");
-    VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
     TV_DISPLAY_STATE_T tvstate;
+    VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
 
     if (false == _bDisplayInited) {
         return dsERR_NOT_INITIALIZED;
