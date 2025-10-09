@@ -491,7 +491,9 @@ dsError_t dsRegisterDisplayEventCallback(intptr_t handle, dsDisplayEventCallback
 dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
 {
     hal_info("Invoked\n");
+    TV_DISPLAY_STATE_T tvstate;
     VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
+
     if (false == _bDisplayInited) {
         return dsERR_NOT_INITIALIZED;
     }
@@ -500,6 +502,11 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
         hal_err("Invalid params, handle %p, edid %p\n", vDispHandle, edid);
         return dsERR_INVALID_PARAM;
     }
+
+    if (vc_tv_get_display_state(&tvstate) != 0) {
+	    return dsERR_NONE;
+    }
+
     unsigned char *raw = (unsigned char *)calloc(MAX_EDID_BYTES_LEN, sizeof(unsigned char));
     int length = 0;
     edid->numOfSupportedResolution = 0;
@@ -758,6 +765,7 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
     uint8_t buffer[128] = {0};
     size_t offset = 0;
     int i, extensions = 0;
+    TV_DISPLAY_STATE_T tvstate;
     VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
 
     if (false == _bDisplayInited) {
@@ -769,6 +777,10 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
     } else if (!dsIsValidVDispHandle((intptr_t)vDispHandle) || vDispHandle != &_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0]) {
         hal_err("invalid handle\n");
         return dsERR_INVALID_PARAM;
+    }
+
+    if (vc_tv_get_display_state(&tvstate) != 0) {
+            return dsERR_NONE;
     }
 
     *length = 0;
