@@ -53,6 +53,7 @@ typedef struct _VOPHandle_t {
 static VOPHandle_t _vopHandles[dsVIDEOPORT_TYPE_MAX][2] = {};
 
 static dsVideoPortResolution_t _resolution;
+static int hdcp_defaultVersion = 0;
 
 static void tvservice_hdcp_callback(void *callback_data,
         uint32_t reason, uint32_t param1, uint32_t param2)
@@ -1458,14 +1459,40 @@ dsError_t dsResetOutputToSDR()
 dsError_t dsSetHdmiPreference(intptr_t handle, dsHdcpProtocolVersion_t *hdcpCurrentProtocol)
 {
     hal_info("invoked.\n");
-    if (false == _bIsVideoPortInitialized) {
+
+    if (!_bIsVideoPortInitialized) {
+        hal_err("Video port not initialized.\n");
         return dsERR_NOT_INITIALIZED;
     }
-    if (hdcpCurrentProtocol == NULL ||!isValidVopHandle(handle)) {
-        hal_err("handle(%p) is invalid or hdcpCurrentProtocol(%p) is null.\n", handle, hdcpCurrentProtocol);
+
+    if (hdcpCurrentProtocol == NULL || !isValidVopHandle(handle)) {
+        hal_err("Invalid handle (%p) or NULL hdcpCurrentProtocol (%p).\n",
+                (void *)handle, (void *)hdcpCurrentProtocol);
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+
+    if (*hdcpCurrentProtocol >= dsHDCP_VERSION_MAX) {
+        hal_err("%s: hdcpCurrentProtocol(%d) is out of range\n",
+                __FUNCTION__, *hdcpCurrentProtocol);
+        return dsERR_INVALID_PARAM;
+    }
+
+    switch (*hdcpCurrentProtocol) {
+        case dsHDCP_VERSION_1X:
+            hdcp_defaultVersion = 1;   // HDCP 1.x
+            break;
+        case dsHDCP_VERSION_2X:
+            hdcp_defaultVersion = 2;   // HDCP 2.x
+            break;
+        default:
+            hal_err("%s: Unknown HDCP protocol version: %d\n",
+                    __FUNCTION__, *hdcpCurrentProtocol);
+            return dsERR_INVALID_PARAM;
+    }
+
+    hal_info("%s: hdcp_defaultVersion set to %d\n", __FUNCTION__, hdcp_defaultVersion);
+
+    return dsERR_NONE;
 }
 
 dsError_t dsGetHdmiPreference(intptr_t handle, dsHdcpProtocolVersion_t *hdcpCurrentProtocol)
