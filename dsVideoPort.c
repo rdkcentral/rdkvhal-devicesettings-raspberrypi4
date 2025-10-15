@@ -792,7 +792,7 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         !dsVideoPortAspectRatio_isValid(resolution->aspectRatio) ||
         !dsVideoPortStereoScopicMode_isValid(resolution->stereoScopicMode) ||
         !dsVideoPortFrameRate_isValid(resolution->frameRate) ||
-        !dsVideoPortScanMode_isValid(resolution->interlaced)) {
+        !dsVideoPortScanMode_isValid((int)resolution->interlaced)) {
         hal_err("dsSetResolution dsERR_INVALID_PARAM - Invalid handle or resolution parameters\n");
         return dsERR_INVALID_PARAM;
     }
