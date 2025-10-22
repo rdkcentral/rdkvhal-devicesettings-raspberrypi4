@@ -1367,7 +1367,9 @@ dsError_t dsGetVideoEOTF(intptr_t handle, dsHDRStandard_t *video_eotf)
         hal_err("handle(%p) is invalid or video_eotf(%p) is null.\n", handle, video_eotf);
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    *video_eotf = (dsHDRStandard_t)dsHDRSTANDARD_SDR;
+
+    return dsERR_NONE;
 }
 dsError_t dsGetMatrixCoefficients(intptr_t handle, dsDisplayMatrixCoefficients_t *matrix_coefficients)
 {
