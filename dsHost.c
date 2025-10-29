@@ -35,6 +35,7 @@ static bool host_initialized = false;
 
 #define SYS_CPU_TEMP "/sys/class/thermal/thermal_zone0/temp"
 #define PROC_CPUINFO "/proc/cpuinfo"
+#define SYS_SERIAL_NUMBER "/sys/firmware/devicetree/base/serial-number"
 
 /**
  * @brief Initializes the Host HAL sub-system
@@ -179,33 +180,23 @@ dsError_t dsGetSocIDFromSDK(char *socID)
         return dsERR_INVALID_PARAM;
     }
 
-    FILE *fp = fopen(PROC_CPUINFO, "r");
+    FILE *fp = fopen(SYS_SERIAL_NUMBER, "r");
     if (fp == NULL) {
-        hal_err("Error opening cpuinfo file '%s'\n", PROC_CPUINFO);
+        hal_err("Error opening cpuinfo file '%s'\n", SYS_SERIAL_NUMBER);
         return dsERR_GENERAL;
     }
 
-    char line[BUFFER_SIZE] = {0};
-    while (fgets(line, sizeof(line), fp) != NULL) {
-        if (strstr(line, "Hardware") != NULL) {
-            char *value = strchr(line, ':');
-            if (value != NULL) {
-                value++;
-                while (*value == ' ') {
-                    value++;
-                }
-                strncpy(socID, value, 7);
-                socID[7] = '\0';
-                break;
-            }
-        }
-    }
+    char cbuf[BUFFER_SIZE] = {0};
+    int len = fread(cbuf, 1, BUFFER_SIZE - 1, fp);
     fclose(fp);
 
-    if (strlen(socID) == 0) {
-        hal_err("Error reading socID from '%s'\n", PROC_CPUINFO);
+    if (len == 0) {
+        hal_err("Error reading socID from '%s'\n", SYS_SERIAL_NUMBER);
         return dsERR_GENERAL;
     }
+
+    strncpy(socID, cbuf, len);
+    socID[len+1] = '\0';
 
     hal_dbg("SOC ID is %s\n", socID);
     return dsERR_NONE;
