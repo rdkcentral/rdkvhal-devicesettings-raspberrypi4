@@ -28,7 +28,7 @@
 #include "dshalLogger.h"
 
 #define ALSA_CARD_NAME "hw:0"
-#if (SND_LIB_MAJOR >= 1) && (SND_LIB_MINOR >= 2)
+#if (SND_LIB_MAJOR >= 1) && (SND_LIB_MINOR >= 2) && (KERNEL_ARPI_VERSION_MAJOR < 6)
 #define ALSA_ELEMENT_NAME "HDMI"
 #else
 #define ALSA_ELEMENT_NAME "PCM"
