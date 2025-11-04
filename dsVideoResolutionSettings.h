@@ -200,7 +200,7 @@ static dsVideoPortResolution_t kResolutions[] = {
     },
 };
 
-/* Pick one resolution from kResolutions[] as default - 720p */
-static const int kDefaultResIndex = 4;
+/* Pick one resolution from kResolutions[] as default - 1080p60 */
+static const int kDefaultResIndex = 11;
 
 #endif /* VIDEORESOLUTIONSETTINGS_H_ */

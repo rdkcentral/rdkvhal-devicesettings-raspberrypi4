@@ -24,12 +24,19 @@
 #include "interface/vmcs_host/vc_vchi_gencmd.h"
 #include "dsTypes.h"
 #include "dsAVDTypes.h"
+#include "dsVideoPortSettings.h"
 
 #define WESTEROS_ENV_FILE "/etc/default/westeros-env"
 
 typedef struct {
+	const char *dsVideoPortResolutionName;
+	const char *westerosResolution;
+} WesterosReskResMap_t;
+
+typedef struct {
     int vic;
     dsTVResolution_t tvresolution;
+	const char *westerosResolution;
 } VicMapEntry;
 
 typedef struct {
@@ -68,5 +75,18 @@ bool westerosRWWrapper(const char *cmd, char *resp, size_t respSize);
 const dsTVResolution_t *getResolutionFromVic(int vic);
 const int *getVicFromResolution(dsTVResolution_t resolution);
 const char *getXDGRuntimeDir();
+
+dsVideoResolution_t getdsVideoResolution(uint32_t width, uint32_t height);
+dsVideoAspectRatio_t getdsVideoAspectRatio(uint16_t aspectRatio);
+dsVideoAspectRatio_t getAspectRatioFromWidthHeight(int width, int height);
+dsVideoFrameRate_t getdsVideoFrameRate(uint16_t frameRate);
+dsVideoPortResolution_t *dsGetkResolutionByName(const char *name);
+char *getdsVideoFrameRateString(dsVideoFrameRate_t framerate);
+dsVideoPortResolution_t *dsGetkResolutionByPixelResolutionAndFrameRate(
+    dsVideoResolution_t pixelResolution, dsVideoFrameRate_t frameRate,
+    bool scanMode);
+bool convertWesterosResolutionTokResolution(
+    const char *westerosRes, dsVideoPortResolution_t *kResolution);
+bool convertkResolutionToWesterosResolution(const dsVideoPortResolution_t *kResolution, char *westerosRes, size_t size);
 
 #endif
