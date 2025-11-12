@@ -121,7 +121,7 @@ dsError_t dsSetDFC(intptr_t handle, dsVideoZoom_t dfc)
 		hal_err("Invalid parameter, handle: %p or dfc: %d\n", handle, dfc);
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    return dsERR_NONE;
 }
 
 /**
@@ -152,7 +152,7 @@ dsError_t dsGetDFC(intptr_t handle, dsVideoZoom_t *dfc)
     if (NULL == dfc || !dsIsValidVDHandle(handle)) {
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    return dsERR_NONE;
 }
 
 /**
