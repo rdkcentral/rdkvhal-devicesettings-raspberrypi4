@@ -1203,7 +1203,7 @@ dsError_t  dsIsDisplaySurround(intptr_t handle, bool *surround)
      * Check the current audion output: amixer cget numid=3
      * Set the audio output to HDMI: amixer cset numid=3 2
      */
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    return dsERR_NONE;
 }
 
 /**
@@ -1241,7 +1241,7 @@ dsError_t  dsGetSurroundMode(intptr_t handle, int *surround)
         hal_err("handle(%p) is invalid or surround(%p) is null.\n", handle, surround);
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    return dsERR_NONE;
 }
 
 dsError_t dsVideoFormatUpdateRegisterCB(dsVideoFormatUpdateCB_t cb)
@@ -1424,7 +1424,7 @@ dsError_t dsGetCurrentOutputSettings(intptr_t handle, dsHDRStandard_t *video_eot
         hal_err("handle(%p) is invalid or one of the params is NULL.\n", handle);
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    return dsERR_NONE;
 }
 
 dsError_t dsIsOutputHDR(intptr_t handle, bool *hdr)
