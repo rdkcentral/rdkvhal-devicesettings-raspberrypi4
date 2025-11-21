@@ -20,6 +20,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <ctype.h>
 #include <unistd.h>
 #include <string.h>
 #include <pthread.h>
@@ -768,12 +769,27 @@ static const char* dsVideoGetResolution(uint32_t hdmiMode)
 
     hal_info("resName %s\n", resName);
 
-    for (size_t i=0; i<noOfItemsInResolutionMap; i++) {
-                if (strcmp(resolutionMap[i].rdkRes, resName) == 0) {
-		    resolution_name = resolutionMap[i].rdkRes;
-                    break;
-                }
-            }
+for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
+    const char *mapRes = resolutionMap[i].rdkRes;
+
+    size_t len = strlen(mapRes);
+    int hasRate = (len > 0 && isdigit((unsigned char)mapRes[len-1]));
+
+    if (hasRate) {
+        if (strcmp(mapRes, resName) == 0) {
+            resolution_name = mapRes;
+            break;
+        }
+    } else {
+        char temp[32];
+        snprintf(temp,sizeof(temp), "%s60", mapRes);
+
+        if (strcmp(temp, resName) == 0) {
+            resolution_name = mapRes;
+            break;
+        }
+    }
+}
 
  hal_info("resolution_name %s\n", resolution_name);
 
