@@ -211,7 +211,10 @@ dsError_t dsGetHDRCapabilities(intptr_t handle, int *capabilities)
     if (capabilities == NULL || !dsIsValidVDHandle(handle)) {
         return dsERR_INVALID_PARAM;
     }
+
     *capabilities = ((int)dsHDRSTANDARD_SDR | (int)dsHDRSTANDARD_HDR10 |(int)dsHDRSTANDARD_HLG);
+
+    hal_info("HDR capabilities set: %d\n", *capabilities);
 
     return dsERR_NONE;
 }
