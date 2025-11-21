@@ -211,7 +211,7 @@ dsError_t dsGetHDRCapabilities(intptr_t handle, int *capabilities)
     if (capabilities == NULL || !dsIsValidVDHandle(handle)) {
         return dsERR_INVALID_PARAM;
     }
-    *capabilities = ((int)dsHDRSTANDARD_NONE | (int)dsHDRSTANDARD_HDR10 |(int)dsHDRSTANDARD_HLG |(int)dsHDRSTANDARD_DolbyVision |(int)dsHDRSTANDARD_TechnicolorPrime |(int)dsHDRSTANDARD_HDR10PLUS |(int)dsHDRSTANDARD_SDR);
+    *capabilities = ((int)dsHDRSTANDARD_SDR | (int)dsHDRSTANDARD_HDR10 |(int)dsHDRSTANDARD_HLG);
 
     return dsERR_NONE;
 }
