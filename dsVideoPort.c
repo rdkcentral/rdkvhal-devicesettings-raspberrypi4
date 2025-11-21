@@ -41,6 +41,10 @@ static const char *dsVideoGetResolution(uint32_t mode);
 static uint32_t dsGetHdmiMode(dsVideoPortResolution_t *resolution);
 #define MAX_HDMI_MODE_ID (127)
 
+#ifndef XDG_RUNTIME_DIR
+#define XDG_RUNTIME_DIR     "/tmp"
+#endif
+
 dsHDCPStatusCallback_t _halhdcpcallback = NULL;
 
 typedef struct _VOPHandle_t {
@@ -53,6 +57,7 @@ typedef struct _VOPHandle_t {
 static VOPHandle_t _vopHandles[dsVIDEOPORT_TYPE_MAX][2] = {};
 
 static dsVideoPortResolution_t _resolution;
+static int hdcp_defaultVersion = 0;
 
 static void tvservice_hdcp_callback(void *callback_data,
         uint32_t reason, uint32_t param1, uint32_t param2)
@@ -724,12 +729,55 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 static const char* dsVideoGetResolution(uint32_t hdmiMode)
 {
     hal_info("invoked.\n");
-    const char *res_name = NULL;
-    for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
-        if (resolutionMap[i].mode == (int)hdmiMode)
-            res_name = resolutionMap[i].rdkRes;
+    char resName[32] = {'\0'};
+    const char *resolution_name = NULL;
+    char cmdBuf[256] = {'\0'};
+    snprintf(cmdBuf, sizeof(cmdBuf)-1,
+             "export XDG_RUNTIME_DIR=%s; westeros-gl-console get mode",
+             XDG_RUNTIME_DIR);
+
+    FILE *fp = popen(cmdBuf, "r");
+    if (fp == NULL) {
+        printf("DS_HAL: popen failed\n");
+        return NULL;
     }
-    return res_name;
+
+    char output[128] = {'\0'};
+    while (fgets(output, sizeof(output)-1, fp)) {
+	    int width=-1, height=-1, rate=60;
+
+        if (strstr(output, "Response: [0:")) {
+
+            if (sscanf(output, "Response: [0: mode %dx%dp%d]", &width, &height, &rate) == 3) {
+				snprintf(resName, sizeof(resName), "%dp%d", height, rate);
+                break;
+            }
+            else if (sscanf(output, "Response: [0: mode %dx%di%d]", &width, &height, &rate) == 3) {
+				snprintf(resName, sizeof(resName), "%di%d", height, rate);
+                break;
+            }
+            else if (sscanf(output, "Response: [0: mode %dx%d]", &width, &height) == 2) {
+                rate = 60; // default
+				snprintf(resName, sizeof(resName), "%dp%d", height, rate);
+                break;
+            }
+        }
+    }
+
+    pclose(fp);
+
+    hal_info("resName %s\n", resName);
+
+    for (size_t i=0; i<noOfItemsInResolutionMap; i++) {
+                if (strcmp(resolutionMap[i].rdkRes, resName) == 0) {
+		    resolution_name = resolutionMap[i].rdkRes;
+                    break;
+                }
+            }
+
+ hal_info("resolution_name %s\n", resolution_name);
+
+   return resolution_name;
 }
 
 static uint32_t dsGetHdmiMode(dsVideoPortResolution_t *resolution)
@@ -782,7 +830,7 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
     /* Auto Select uses 720p. Should be converted to dsVideoPortResolution_t = 720p in DS-VOPConfig, not here */
     hal_info("invoked.\n");
     VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
-    int res = 0;
+
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
@@ -791,27 +839,97 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         !dsVideoPortAspectRatio_isValid(resolution->aspectRatio) ||
         !dsVideoPortStereoScopicMode_isValid(resolution->stereoScopicMode) ||
         !dsVideoPortFrameRate_isValid(resolution->frameRate) ||
-        !dsVideoPortScanMode_isValid(resolution->interlaced)) {
+        !dsVideoPortScanMode_isValid((int)resolution->interlaced)) {
         hal_err("dsSetResolution dsERR_INVALID_PARAM - Invalid handle or resolution parameters\n");
         return dsERR_INVALID_PARAM;
     }
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
         hal_dbg("Setting HDMI resolution '%s'\n", resolution->name);
-        uint32_t hdmi_mode;
-        hdmi_mode = dsGetHdmiMode(resolution);
-        res = vc_tv_hdmi_power_on_explicit_new(HDMI_MODE_HDMI, HDMI_RES_GROUP_CEA, hdmi_mode);
-        if (res != 0) {
-            hal_err("Failed to set resolution\n");
+	char cmdBuf[512] = {'\0'};
+	int width = -1, height = -1;
+	int rate = 60;
+	char interlaced = 'n';
+	if (sscanf (resolution->name, "%dx%dp%d", &width, &height, &rate) == 3) {
+		interlaced = 'p';
+	}
+	else if (sscanf(resolution->name, "%dx%di%d", &width, &height, &rate ) == 3) {
+		interlaced = 'i';
+	}
+	else if (sscanf(resolution->name, "%dx%dx%d", &width, &height, &rate ) == 3) {
+		interlaced = 'p';
+	}
+	else if (sscanf(resolution->name, "%dx%d", &width, &height ) == 2) {
+		interlaced = 'p';
+	}
+	else if (sscanf(resolution->name, "%dp%d", &height, &rate ) == 2) {
+		interlaced = 'p';
+		width= -1;
+        }
+	else if (sscanf(resolution->name, "%di%d", &height, &rate ) == 2) {
+		interlaced = 'i';
+		width= -1;
+	}
+	else if (sscanf(resolution->name, "%d%c", &height, &interlaced ) == 2) {
+		width= -1;
+		rate = 60;
+	}
+
+	//if width is missing, set it manualy
+	if ( height > 0 ) {
+		if ( width < 0 ) {
+			switch ( height )
+			{
+			case 480:
+			case 576:
+				width= 720;
+				break;
+			case 720:
+				width= 1280;
+				break;
+			case 1080:
+				width= 1920;
+				break;
+			case 1440:
+				width= 2560;
+				break;
+			case 2160:
+				width= 3840;
+				break;
+			case 2880:
+				width= 5120;
+				break;
+			case 4320:
+				width= 7680;
+				break;
+			default:
+				break;
+			}
+                     }
+                 }
+        //extended command to make resolution setting more synchronous
+        snprintf(cmdBuf, sizeof(cmdBuf)-1, "export XDG_RUNTIME_DIR=%s;westeros-gl-console set mode %dx%d%c%d && westeros-gl-console get mode | grep \"Response\"",
+                XDG_RUNTIME_DIR,width,height,interlaced,rate);
+        hal_dbg("Executing '%s'\n", cmdBuf);
+
+        FILE* fp = popen(cmdBuf, "r");
+	bool success = false;
+        if (NULL != fp) {
+            char output[64] = {'\0'};
+            while (fgets(output, sizeof(output)-1, fp)) {
+                if (strlen(output) && strstr(output, "[0: set")) {
+		     success = true;
+                     break;
+		}
+            }
+            pclose(fp);
+            return success ? dsERR_NONE : dsERR_GENERAL;
+        } else {
+            printf("DS_HAL: popen failed\n");
             return dsERR_GENERAL;
         }
-        sleep(1);
-        // TODO: use westeros-gl-console to set this property as DRM/KMS won't be using FB.
-        if (system("fbset -depth 16") == -1)
-            hal_err("Failed to set fbset depth to 16\n");
-        if (system("fbset -depth 32") == -1)
-            hal_err("Failed to set fbset depth to 32\n");
     } else if (vopHandle->m_vType == dsVIDEOPORT_TYPE_BB) {
         SDTV_OPTIONS_T options;
+	int res = 0;
         options.aspect = SDTV_ASPECT_16_9;
         if (!strncmp(resolution->name, "480i", strlen("480i"))) {
             hal_dbg("Setting SDTV default resolution SDTV_MODE_NTSC\n");
@@ -819,6 +937,11 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         } else {
             hal_dbg("Setting SDTV resolution SDTV_MODE_PAL\n");
             res = vc_tv_sdtv_power_on(SDTV_MODE_PAL, &options);
+        }
+
+	if (res != 0) {
+            hal_err("Failed to set SDTV resolution! Error code: %d\n", res);
+	    return dsERR_GENERAL;
         }
     } else {
         hal_err("Video port type not supported\n");
@@ -1247,10 +1370,16 @@ dsError_t  dsGetSurroundMode(intptr_t handle, int *surround)
 dsError_t dsVideoFormatUpdateRegisterCB(dsVideoFormatUpdateCB_t cb)
 {
     hal_info("invoked.\n");
+
+    if (false == _bIsVideoPortInitialized) {
+        return dsERR_NOT_INITIALIZED;
+    }
+
     if (cb == NULL) {
         hal_err("Invalid param, cb(%p).\n", cb);
         return dsERR_INVALID_PARAM;
     }
+
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -1360,7 +1489,9 @@ dsError_t dsGetVideoEOTF(intptr_t handle, dsHDRStandard_t *video_eotf)
         hal_err("handle(%p) is invalid or video_eotf(%p) is null.\n", handle, video_eotf);
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    *video_eotf = (dsHDRStandard_t)dsHDRSTANDARD_SDR;
+
+    return dsERR_NONE;
 }
 dsError_t dsGetMatrixCoefficients(intptr_t handle, dsDisplayMatrixCoefficients_t *matrix_coefficients)
 {
@@ -1452,14 +1583,40 @@ dsError_t dsResetOutputToSDR()
 dsError_t dsSetHdmiPreference(intptr_t handle, dsHdcpProtocolVersion_t *hdcpCurrentProtocol)
 {
     hal_info("invoked.\n");
-    if (false == _bIsVideoPortInitialized) {
+
+    if (!_bIsVideoPortInitialized) {
+        hal_err("Video port not initialized.\n");
         return dsERR_NOT_INITIALIZED;
     }
-    if (hdcpCurrentProtocol == NULL ||!isValidVopHandle(handle)) {
-        hal_err("handle(%p) is invalid or hdcpCurrentProtocol(%p) is null.\n", handle, hdcpCurrentProtocol);
+
+    if (hdcpCurrentProtocol == NULL || !isValidVopHandle(handle)) {
+        hal_err("Invalid handle (%p) or NULL hdcpCurrentProtocol (%p).\n",
+                (void *)handle, (void *)hdcpCurrentProtocol);
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+
+    if (*hdcpCurrentProtocol >= dsHDCP_VERSION_MAX) {
+        hal_err("%s: hdcpCurrentProtocol(%d) is out of range\n",
+                __FUNCTION__, *hdcpCurrentProtocol);
+        return dsERR_INVALID_PARAM;
+    }
+
+    switch (*hdcpCurrentProtocol) {
+        case dsHDCP_VERSION_1X:
+            hdcp_defaultVersion = 1;   // HDCP 1.x
+            break;
+        case dsHDCP_VERSION_2X:
+            hdcp_defaultVersion = 2;   // HDCP 2.x
+            break;
+        default:
+            hal_err("%s: Unknown HDCP protocol version: %d\n",
+                    __FUNCTION__, *hdcpCurrentProtocol);
+            return dsERR_INVALID_PARAM;
+    }
+
+    hal_info("%s: hdcp_defaultVersion set to %d\n", __FUNCTION__, hdcp_defaultVersion);
+
+    return dsERR_NONE;
 }
 
 dsError_t dsGetHdmiPreference(intptr_t handle, dsHdcpProtocolVersion_t *hdcpCurrentProtocol)

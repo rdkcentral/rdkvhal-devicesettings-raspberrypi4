@@ -406,8 +406,6 @@ dsError_t dsGetFRFMode(intptr_t handle, int *frfmode)
 dsError_t dsGetCurrentDisplayframerate(intptr_t handle, char *framerate)
 {
     hal_info("invoked.\n");
-    char cmd[256] = {0};
-    char data[256] = {0};
 
     if (false == _bVideoDeviceInited) {
         return dsERR_NOT_INITIALIZED;
@@ -416,37 +414,7 @@ dsError_t dsGetCurrentDisplayframerate(intptr_t handle, char *framerate)
         hal_err("Invalid parameter, handle: %p or framerate: %p\n", handle, framerate);
         return dsERR_INVALID_PARAM;
     }
-    const char *xdgRuntimeDir = getXDGRuntimeDir();
-    if (xdgRuntimeDir == NULL) {
-        hal_err("Failed to get XDG_RUNTIME_DIR\n");
-        return dsERR_GENERAL;
-    }
-    if ((strlen("export XDG_RUNTIME_DIR=") + strlen(xdgRuntimeDir) + strlen("; westeros-gl-console get display")) > (sizeof(cmd) - 1)) {
-        hal_err("Command buffer is too small\n");
-        return dsERR_GENERAL;
-    }
-    snprintf(cmd, sizeof(cmd), "export XDG_RUNTIME_DIR=%s; westeros-gl-console get display", xdgRuntimeDir);
-    if (westerosRWWrapper(cmd, data, sizeof(data))) {
-        hal_info("data:'%s'\n", data);
-        // Response: [0: mode 1280x720px60]
-        char *start = strstr(data, "px");
-        if (start) {
-            start += 2;
-            char *end = strchr(start, ']');
-            if (end) {
-                size_t length = end - start;
-                strncpy(framerate, start, length);
-                framerate[length] = '\0';
-                hal_dbg("framerate: '%s'\n", framerate);
-                return dsERR_NONE;
-            } else {
-                return dsERR_GENERAL;
-            }
-        } else {
-            return dsERR_GENERAL;
-        }
-    }
-    return dsERR_GENERAL;
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
