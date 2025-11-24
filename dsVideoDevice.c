@@ -211,7 +211,8 @@ dsError_t dsGetHDRCapabilities(intptr_t handle, int *capabilities)
     if (capabilities == NULL || !dsIsValidVDHandle(handle)) {
         return dsERR_INVALID_PARAM;
     }
-    *capabilities = dsHDRSTANDARD_SDR;
+
+    *capabilities = ((int)dsHDRSTANDARD_SDR | (int)dsHDRSTANDARD_HDR10 |(int)dsHDRSTANDARD_HLG);
 
     hal_info("HDR capabilities set: %d\n", *capabilities);
 
@@ -246,7 +247,10 @@ dsError_t dsGetSupportedVideoCodingFormats(intptr_t handle, unsigned int *suppor
     if (supported_formats == NULL || !dsIsValidVDHandle(handle)) {
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+
+    *supported_formats = ((unsigned int) dsVIDEO_CODEC_MPEGHPART2 | (unsigned int) dsVIDEO_CODEC_MPEG4PART10 | (unsigned int) dsVIDEO_CODEC_MPEG2);
+
+    return dsERR_NONE;
 }
 
 /**
