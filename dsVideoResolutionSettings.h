@@ -70,16 +70,16 @@ static dsVideoPortResolution_t kResolutions[] = {
         /*.frameRate = */				dsVIDEO_FRAMERATE_60,
         /*.interlaced = */				_INTERLACED,
     },
-    {   /*576i*/
-        /*.name = */					"576i",
+    {   /*576i50*/
+        /*.name = */					"576i50",
         /*.pixelResolution = */			dsVIDEO_PIXELRES_720x576,
         /*.aspectRatio = */				dsVIDEO_ASPECT_RATIO_16x9,
         /*.stereoscopicMode = */		dsVIDEO_SSMODE_2D,
         /*.frameRate = */				dsVIDEO_FRAMERATE_50,
         /*.interlaced = */				_INTERLACED,
     },
-    {   /*576p*/
-        /*.name = */					"576p",
+    {   /*576p50*/
+        /*.name = */					"576p50",
         /*.pixelResolution = */			dsVIDEO_PIXELRES_720x576,
         /*.aspectRatio = */				dsVIDEO_ASPECT_RATIO_16x9,
         /*.stereoscopicMode = */		dsVIDEO_SSMODE_2D,
