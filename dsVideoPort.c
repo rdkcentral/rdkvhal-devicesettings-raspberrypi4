@@ -42,6 +42,39 @@ static const char *dsVideoGetResolution(uint32_t mode);
 static uint32_t dsGetHdmiMode(dsVideoPortResolution_t *resolution);
 #define MAX_HDMI_MODE_ID (127)
 
+/* EDID and CTA-861 related constants */
+
+#define EDID_BLOCK_SIZE                        128
+#define EDID_MAX_BLOCKS                        4
+#define EDID_BUFFER_SIZE                        (EDID_BLOCK_SIZE * EDID_MAX_BLOCKS)
+
+#define EDID_NUM_EXTENSIONS_OFFSET             126
+
+#define EDID_CTA_DTD_OFFSET_INDEX              2
+#define EDID_CTA_DATA_BLOCK_COLLECTION_START   4
+#define EDID_CTA_MAX_OFFSET                    127
+
+#define EDID_CTA_DATA_BLOCK_TAG_MASK           0xE0
+#define EDID_CTA_DATA_BLOCK_TAG_SHIFT          5
+#define EDID_CTA_DATA_BLOCK_LEN_MASK           0x1F
+
+/* CTA extension tags */
+#define EDID_CTA_EXTENSION_TAG                 0x02
+#define EDID_CTA_EXTENDED_TAG                  0x07
+#define EDID_CTA_VENDOR_SPECIFIC_TAG           0x03
+
+/* CTA extended data block tag */
+#define EDID_EXT_TAG_HDR_STATIC_METADATA       0x06
+
+/* HDR EOTF flags */
+#define EDID_EOTF_HDR10_BIT                    0x04
+#define EDID_EOTF_HLG_BIT                      0x08
+
+/* Dolby Vision VSIF IEEE Registration Identifier (OUI) */
+#define EDID_DOLBY_VSIF_OUI_BYTE0              0x46
+#define EDID_DOLBY_VSIF_OUI_BYTE1              0xD0
+#define EDID_DOLBY_VSIF_OUI_BYTE2              0x00
+
 #ifndef XDG_RUNTIME_DIR
 #define XDG_RUNTIME_DIR     "/tmp"
 #endif
@@ -459,18 +492,25 @@ dsError_t dsIsDisplayConnected(intptr_t handle, bool *connected)
 
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
         hal_dbg("Isdisplayconnected HDMI port\n");
-        if (vc_tv_get_display_state(&tvstate) == 0) {
+        int ret = vc_tv_get_display_state(&tvstate);
+        if (ret == 0) {
             hal_dbg("vc_tv_get_display_state: 0x%x\n", tvstate.state);
-            if (tvstate.state & VC_HDMI_ATTACHED) {
-                hal_dbg("HDMI is connected\n");
-                *connected = true;
-            } else if (tvstate.state & VC_HDMI_UNPLUGGED) {
+            if (tvstate.state & VC_HDMI_UNPLUGGED) {
                 hal_dbg("HDMI is not connected\n");
                 *connected = false;
-            } else {
-                hal_err("Cannot find HDMI state\n");
-                return dsERR_GENERAL;
+            } else if (tvstate.state & VC_HDMI_ATTACHED) {
+                uint8_t edid[EDID_BLOCK_SIZE] = {0};
+                int readLen = vc_tv_hdmi_ddc_read(0, sizeof(edid), edid);
+                if (readLen == (int)sizeof(edid)) {
+                    hal_dbg("HDMI is connected\n");
+                    *connected = true;
+                } else {
+                    hal_dbg("HDMI is not connected\n");
+                }
             }
+        } else {
+            hal_err("vc_tv_get_display_state failed, ret=%d\n", ret);
+            return dsERR_GENERAL;
         }
     } else {
         return dsERR_OPERATION_NOT_SUPPORTED;
@@ -1158,7 +1198,97 @@ dsError_t dsGetTVHDRCapabilities(intptr_t handle, int *capabilities)
         hal_err("handle(%p) is invalid or capabilities(%p) is null.\n", handle, capabilities);
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+
+    VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
+    if (vopHandle->m_vType != dsVIDEOPORT_TYPE_HDMI) {
+        return dsERR_OPERATION_NOT_SUPPORTED;
+    }
+
+    *capabilities = dsHDRSTANDARD_SDR;
+
+    bool isConnected = false;
+    dsError_t connRet = dsIsDisplayConnected(handle, &isConnected);
+    if (connRet != dsERR_NONE || !isConnected) {
+        return dsERR_NONE;
+    }
+
+    uint8_t edid[EDID_BUFFER_SIZE]={0};
+
+    int readLen = vc_tv_hdmi_ddc_read(0, EDID_BLOCK_SIZE, edid);
+    if (readLen != EDID_BLOCK_SIZE) {
+        hal_warn("Failed to read EDID base block, len=%d; reporting default SDR capability.\n", readLen);
+        return dsERR_NONE;
+    }
+
+    uint8_t numExtensions = edid[EDID_NUM_EXTENSIONS_OFFSET];
+    size_t maxExtensions = (sizeof(edid) / EDID_BLOCK_SIZE) - 1;
+    size_t blocksRead = 1;
+
+    for (size_t ext = 1; ext <= numExtensions && ext <= maxExtensions; ++ext) {
+        readLen = vc_tv_hdmi_ddc_read((uint32_t)(ext * EDID_BLOCK_SIZE), EDID_BLOCK_SIZE, edid + (ext * EDID_BLOCK_SIZE));
+        if (readLen != EDID_BLOCK_SIZE) {
+            hal_warn("Failed to read EDID extension block %zu, len=%d\n", ext, readLen);
+            break;
+        }
+        blocksRead++;
+    }
+
+    bool hdrBlockFound = false;
+    for (size_t block = 1; block < blocksRead; ++block) {
+        uint8_t *ext = edid + (block * EDID_BLOCK_SIZE);
+
+        if (ext[0] != EDID_CTA_EXTENSION_TAG) {
+            continue;
+        }
+
+        uint8_t dtdOffset = ext[EDID_CTA_DTD_OFFSET_INDEX];
+        uint8_t dataBlockEnd = (dtdOffset == 0 || dtdOffset > EDID_CTA_MAX_OFFSET) ? EDID_CTA_MAX_OFFSET : dtdOffset;
+        if (dataBlockEnd <= EDID_CTA_DATA_BLOCK_COLLECTION_START) {
+            continue;
+        }
+
+        uint8_t pos = EDID_CTA_DATA_BLOCK_COLLECTION_START;
+        while (pos < dataBlockEnd) {
+            uint8_t header = ext[pos];
+            uint8_t tagCode = (header & EDID_CTA_DATA_BLOCK_TAG_MASK) >> 5;
+            uint8_t blockLen = header & EDID_CTA_DATA_BLOCK_LEN_MASK;
+            uint8_t nextPos = (uint8_t)(pos + 1 + blockLen);
+
+            if (nextPos <= pos || nextPos > dataBlockEnd || nextPos > EDID_CTA_MAX_OFFSET) {
+                hal_err("Malformed CTA data block at pos %u\n", pos);
+                break;
+            }
+
+            if (tagCode == EDID_CTA_EXTENDED_TAG && blockLen >= 3) {
+                uint8_t extTag = ext[pos + 1];
+                if (extTag == EDID_EXT_TAG_HDR_STATIC_METADATA) {
+                    uint8_t eotf = ext[pos + 2];
+                    if (eotf & EDID_EOTF_HDR10_BIT) {
+                        *capabilities |= dsHDRSTANDARD_HDR10;
+                    }
+                    if (eotf & EDID_EOTF_HLG_BIT) {
+                        *capabilities |= dsHDRSTANDARD_HLG;
+                    }
+                    hdrBlockFound = true;
+                }
+            } else if (tagCode == EDID_CTA_VENDOR_SPECIFIC_TAG && blockLen >= 3) {
+                if (ext[pos + 1] == EDID_DOLBY_VSIF_OUI_BYTE0 &&
+                    ext[pos + 2] == EDID_DOLBY_VSIF_OUI_BYTE1 &&
+                    ext[pos + 3] == EDID_DOLBY_VSIF_OUI_BYTE2) {
+                    *capabilities |= dsHDRSTANDARD_DolbyVision;
+                }
+            }
+
+            pos = nextPos;
+        }
+    }
+
+    if (!hdrBlockFound) {
+        hal_info("No CTA HDR Static Metadata block found; reporting default SDR capability.\n");
+    }
+
+    hal_info("TV HDR capabilities=0x%x\n", *capabilities);
+    return dsERR_NONE;
 }
 
 /**
