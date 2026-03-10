@@ -498,15 +498,17 @@ dsError_t dsIsDisplayConnected(intptr_t handle, bool *connected)
             if (tvstate.state & VC_HDMI_UNPLUGGED) {
                 hal_dbg("HDMI is not connected\n");
                 *connected = false;
-            } else if (tvstate.state & VC_HDMI_ATTACHED) {
+            } else if (tvstate.state & (VC_HDMI_ATTACHED | VC_HDMI_DVI | VC_HDMI_HDMI)) {
                 uint8_t edid[EDID_BLOCK_SIZE] = {0};
                 int readLen = vc_tv_hdmi_ddc_read(0, sizeof(edid), edid);
                 if (readLen == (int)sizeof(edid)) {
                     hal_dbg("HDMI is connected\n");
                     *connected = true;
                 } else {
-                    hal_dbg("HDMI is not connected\n");
+                    hal_err("EDID DDC read failed, len=%d\n", readLen);
                 }
+            } else {
+                hal_err("Unrecognized HDMI state: 0x%x\n", tvstate.state);
             }
         } else {
             hal_err("vc_tv_get_display_state failed, ret=%d\n", ret);
@@ -1242,7 +1244,11 @@ dsError_t dsGetTVHDRCapabilities(intptr_t handle, int *capabilities)
         }
 
         uint8_t dtdOffset = ext[EDID_CTA_DTD_OFFSET_INDEX];
-        uint8_t dataBlockEnd = (dtdOffset == 0 || dtdOffset > EDID_CTA_MAX_OFFSET) ? EDID_CTA_MAX_OFFSET : dtdOffset;
+        if (dtdOffset == 0) {
+            /* Per CTA-861, dtdOffset == 0 means no Data Block Collection/DTDs in this extension. */
+            continue;
+        }
+        uint8_t dataBlockEnd = (dtdOffset > EDID_CTA_MAX_OFFSET) ? EDID_CTA_MAX_OFFSET : dtdOffset;
         if (dataBlockEnd <= EDID_CTA_DATA_BLOCK_COLLECTION_START) {
             continue;
         }
@@ -1283,8 +1289,8 @@ dsError_t dsGetTVHDRCapabilities(intptr_t handle, int *capabilities)
         }
     }
 
-    if (!hdrBlockFound) {
-        hal_info("No CTA HDR Static Metadata block found; reporting default SDR capability.\n");
+    if (!hdrBlockFound && !(*capabilities & dsHDRSTANDARD_DolbyVision)) {
+        hal_info("No CTA HDR Static Metadata block or known HDR capabilities found; reporting default SDR capability.\n");
     }
 
     hal_info("TV HDR capabilities=0x%x\n", *capabilities);
