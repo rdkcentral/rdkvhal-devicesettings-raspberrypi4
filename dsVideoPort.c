@@ -52,7 +52,7 @@ static uint32_t dsGetHdmiMode(dsVideoPortResolution_t *resolution);
 
 #define EDID_CTA_DTD_OFFSET_INDEX              2
 #define EDID_CTA_DATA_BLOCK_COLLECTION_START   4
-#define EDID_CTA_MAX_OFFSET                    127
+#define EDID_CTA_MAX_OFFSET                    (EDID_BLOCK_SIZE - 1)
 
 #define EDID_CTA_DATA_BLOCK_TAG_MASK           0xE0
 #define EDID_CTA_DATA_BLOCK_LEN_MASK           0x1F
