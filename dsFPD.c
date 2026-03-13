@@ -17,6 +17,9 @@
  * limitations under the License.
  */
 
+/* Enable POSIX/GNU extensions for O_NOFOLLOW and pthread_condattr_setclock */
+#define _GNU_SOURCE
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
