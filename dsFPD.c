@@ -60,6 +60,9 @@ static bool gIsFPDInitialized = false;
 static bool gLEDPatternThreadRunning = false;
 static bool gLEDPatternThreadStop = false;
 static bool gExitCleanupRegistered = false;
+#ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
+static int gProcessLockFd = -1;
+#endif
 static char gLedSysfsPath[128] = {0};
 static char gPreviousTrigger[64] = {0};
 static unsigned int gLedMaxBrightness = 1;
@@ -68,6 +71,7 @@ static unsigned int gLedMaxBrightness = 1;
 #define SYSFS_LED_MAX_BRIGHTNESS_FILE "max_brightness"
 #define SYSFS_LED_TRIGGER_FILE "trigger"
 #define SYSFS_LED_TRIGGER_BACKUP_FILE "/tmp/rpi_act_led_trigger.backup"
+#define SYSFS_LED_PROCESS_LOCK_FILE "/tmp/rpi_act_led_control.lock"
 
 #define FPD_MUTEX_LOCK()   do { \
 	pthread_mutex_lock(&gLEDStateMutex); \
@@ -501,6 +505,67 @@ static dsError_t applyLedStateLocked(dsFPDLedState_t state)
 	return dsERR_NONE;
 }
 
+#ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
+/**
+ * @brief Acquires exclusive inter-process ownership of LED control.
+ *
+ * @return dsERR_NONE on success, otherwise error code.
+ */
+static dsError_t acquireProcessLock(void)
+{
+	int fd;
+	struct flock lock = {0};
+	char pidText[32];
+	int len;
+
+	if (gProcessLockFd >= 0) {
+		return dsERR_NONE;
+	}
+
+	fd = open(SYSFS_LED_PROCESS_LOCK_FILE, O_CREAT | O_RDWR | O_CLOEXEC, 0644);
+	if (fd < 0) {
+		hal_err("Unable to open process lock file: %s\n", SYSFS_LED_PROCESS_LOCK_FILE);
+		return dsERR_GENERAL;
+	}
+
+	lock.l_type = F_WRLCK;
+	lock.l_whence = SEEK_SET;
+	if (fcntl(fd, F_SETLK, &lock) != 0) {
+		if (errno == EACCES || errno == EAGAIN) {
+			hal_err("ACT LED control is already owned by another process.\n");
+		} else {
+			hal_err("Unable to acquire process lock: errno=%d\n", errno);
+		}
+		(void)close(fd);
+		return dsERR_OPERATION_NOT_SUPPORTED;
+	}
+
+	(void)ftruncate(fd, 0);
+	len = snprintf(pidText, sizeof(pidText), "%ld\n", (long)getpid());
+	if (len > 0) {
+		(void)write(fd, pidText, (size_t)len);
+	}
+
+	gProcessLockFd = fd;
+	return dsERR_NONE;
+}
+
+/**
+ * @brief Releases inter-process ownership lock of LED control.
+ */
+static void releaseProcessLock(void)
+{
+	if (gProcessLockFd >= 0) {
+		struct flock lock = {0};
+		lock.l_type = F_UNLCK;
+		lock.l_whence = SEEK_SET;
+		(void)fcntl(gProcessLockFd, F_SETLK, &lock);
+		(void)close(gProcessLockFd);
+		gProcessLockFd = -1;
+	}
+}
+#endif
+
 /**
  * @brief Best-effort process-exit cleanup for normal termination paths.
  *
@@ -509,6 +574,7 @@ static dsError_t applyLedStateLocked(dsFPDLedState_t state)
  */
 static void dsFPExitCleanup(void)
 {
+	hal_info("invoked.\n");
 	if (gIsFPDInitialized) {
 		(void)dsFPTerm();
 	}
@@ -523,6 +589,7 @@ static void dsFPExitCleanup(void)
  */
 static void *ledPatternWorker(void *arg)
 {
+	hal_info("LED pattern worker thread started.\n");
 	dsFPDLedState_t activeState = dsFPD_LED_DEVICE_NONE;
 	size_t phaseIndex = 0;
 
@@ -593,6 +660,8 @@ static void *ledPatternWorker(void *arg)
 		}
 	}
 
+	hal_info("LED pattern worker thread exiting.\n");
+
 	return NULL;
 }
 
@@ -639,6 +708,13 @@ dsError_t dsFPInit(void)
 		return dsERR_OPERATION_NOT_SUPPORTED;
 	}
 
+#ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
+	if (acquireProcessLock() != dsERR_NONE) {
+		FPD_MUTEX_UNLOCK();
+		return dsERR_OPERATION_NOT_SUPPORTED;
+	}
+#endif
+
 	if (loadTriggerBackup(gPreviousTrigger, sizeof(gPreviousTrigger)) == dsERR_NONE) {
 		hal_info("Loaded previous trigger from backup: %s\n", gPreviousTrigger);
 	} else if (cacheCurrentTrigger() != dsERR_NONE) {
@@ -651,6 +727,9 @@ dsError_t dsFPInit(void)
 	}
 
 	if (setLedTrigger("none") != dsERR_NONE) {
+#ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
+		releaseProcessLock();
+#endif
 		FPD_MUTEX_UNLOCK();
 		hal_err("Unable to set LED trigger to none.\n");
 		return dsERR_GENERAL;
@@ -680,6 +759,9 @@ dsError_t dsFPInit(void)
 		}
 		gLedSysfsPath[0] = '\0';
 		gPreviousTrigger[0] = '\0';
+#ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
+		releaseProcessLock();
+#endif
 		FPD_MUTEX_UNLOCK();
 		hal_err("Unable to create LED pattern worker thread.\n");
 		return dsERR_GENERAL;
@@ -727,8 +809,7 @@ dsError_t dsSetFPBlink(dsFPDIndicator_t eIndicator, unsigned int uBlinkDuration,
 		return dsERR_NOT_INITIALIZED;
 	}
 
-	if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX
-			|| uBlinkDuration == 0 || uBlinkIterations == 0) {
+	if (!dsFPDIndicator_isValid(eIndicator) || uBlinkDuration == 0 || uBlinkIterations == 0) {
 		hal_err("Invalid parameter, eIndicator: %d, uBlinkDuration: %d, uBlinkIterations: %d.\n",
 				eIndicator, uBlinkDuration, uBlinkIterations);
 		return dsERR_INVALID_PARAM;
@@ -766,29 +847,17 @@ dsError_t dsSetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t eBrig
 {
 	hal_info("invoked.\n");
 
-	if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX || eBrightness > dsFPD_BRIGHTNESS_MAX) {
-		hal_err("Invalid parameter, eIndicator: %d, eBrightness: %d.\n", eIndicator, eBrightness);
-		return dsERR_INVALID_PARAM;
-	}
-
-	FPD_MUTEX_LOCK();
-	if (!gIsFPDInitialized) {
-		FPD_MUTEX_UNLOCK();
+	if (!isInitialized()) {
 		hal_err("Module not initialized.\n");
 		return dsERR_NOT_INITIALIZED;
 	}
 
-	if (gLedMaxBrightness <= 1 && eBrightness != 0 && eBrightness != dsFPD_BRIGHTNESS_MAX) {
-		FPD_MUTEX_UNLOCK();
-		hal_err("ACT LED supports only ON/OFF brightness levels on this platform.\n");
-		return dsERR_OPERATION_NOT_SUPPORTED;
+	if (!dsFPDIndicator_isValid(eIndicator) || eBrightness > dsFPD_BRIGHTNESS_MAX) {
+		hal_err("Invalid parameter, eIndicator: %d, eBrightness: %d.\n", eIndicator, eBrightness);
+		return dsERR_INVALID_PARAM;
 	}
 
-	gCurrentBrightness = eBrightness;
-	pthread_cond_signal(&gLEDPatternCond);
-	FPD_MUTEX_UNLOCK();
-
-	return dsERR_NONE;
+	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
@@ -818,8 +887,16 @@ dsError_t dsSetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t eBrig
 dsError_t dsGetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t *pBrightness)
 {
 	hal_info("invoked.\n");
+	unsigned int raw = 0;
+	dsFPDBrightness_t cachedBrightness = dsFPD_BRIGHTNESS_MAX;
+	bool readFromSysfs = false;
 
-	if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX || pBrightness == NULL) {
+	if (!isInitialized()) {
+		hal_err("Module not initialized.\n");
+		return dsERR_NOT_INITIALIZED;
+	}
+
+	if (!dsFPDIndicator_isValid(eIndicator) || pBrightness == NULL) {
 		hal_err("Invalid parameter, eIndicator: %d, pBrightness: %p.\n", eIndicator, pBrightness);
 		return dsERR_INVALID_PARAM;
 	}
@@ -830,18 +907,18 @@ dsError_t dsGetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t *pBri
 		hal_err("Module not initialized.\n");
 		return dsERR_NOT_INITIALIZED;
 	}
+	readFromSysfs = (gLedMaxBrightness <= 1);
+	cachedBrightness = gCurrentBrightness;
+	FPD_MUTEX_UNLOCK();
 
-	if (gLedMaxBrightness <= 1) {
-		unsigned int raw = 0;
+	if (readFromSysfs) {
 		if (readLedBrightnessRaw(&raw) != dsERR_NONE) {
-			FPD_MUTEX_UNLOCK();
 			return dsERR_GENERAL;
 		}
 		*pBrightness = (raw == 0) ? 0 : dsFPD_BRIGHTNESS_MAX;
 	} else {
-		*pBrightness = gCurrentBrightness;
+		*pBrightness = cachedBrightness;
 	}
-	FPD_MUTEX_UNLOCK();
 
 	return dsERR_NONE;
 }
@@ -876,8 +953,7 @@ dsError_t dsSetFPState(dsFPDIndicator_t eIndicator, dsFPDState_t state)
 		return dsERR_NOT_INITIALIZED;
 	}
 
-	if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX
-			|| state < dsFPD_STATE_OFF || state >= dsFPD_STATE_MAX) {
+	if (!dsFPDIndicator_isValid(eIndicator) || state < dsFPD_STATE_OFF || state >= dsFPD_STATE_MAX) {
 		hal_err("Invalid parameter, eIndicator: %d, state: %d.\n", eIndicator, state);
 		return dsERR_INVALID_PARAM;
 	}
@@ -915,7 +991,7 @@ dsError_t dsGetFPState(dsFPDIndicator_t eIndicator, dsFPDState_t* state)
 		return dsERR_NOT_INITIALIZED;
 	}
 
-	if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX || state == NULL) {
+	if (!dsFPDIndicator_isValid(eIndicator) || state == NULL) {
 		hal_err("Invalid parameter, eIndicator: %d, state: %p.\n", eIndicator, state);
 		return dsERR_INVALID_PARAM;
 	}
@@ -956,7 +1032,7 @@ dsError_t dsSetFPColor(dsFPDIndicator_t eIndicator, dsFPDColor_t eColor)
 		return dsERR_NOT_INITIALIZED;
 	}
 
-	if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX || eColor >= dsFPD_COLOR_MAX) {
+	if (!dsFPDIndicator_isValid(eIndicator) || eColor >= dsFPD_COLOR_MAX) {
 		hal_err("Invalid parameter, eIndicator: %d, eColor: %d.\n", eIndicator, eColor);
 		return dsERR_INVALID_PARAM;
 	}
@@ -997,7 +1073,7 @@ dsError_t dsGetFPColor(dsFPDIndicator_t eIndicator, dsFPDColor_t *pColor)
 		return dsERR_NOT_INITIALIZED;
 	}
 
-	if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX || pColor == NULL) {
+	if (!dsFPDIndicator_isValid(eIndicator) || pColor == NULL) {
 		hal_err("Invalid parameter, eIndicator: %d, pColor: %p.\n", eIndicator, pColor);
 		return dsERR_INVALID_PARAM;
 	}
@@ -1051,6 +1127,7 @@ dsError_t dsSetFPTime(dsFPDTimeFormat_t eTimeFormat, const unsigned int uHour, c
 		return dsERR_INVALID_PARAM;
 	}
 
+
 	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -1095,6 +1172,7 @@ dsError_t dsSetFPText(const char* pText)
 		hal_err("Invalid parameter, pText: %p or length %d.\n", pText, (pText == NULL) ? 0 : strlen(pText));
 		return dsERR_INVALID_PARAM;
 	}
+
 
 	return dsERR_OPERATION_NOT_SUPPORTED;
 }
@@ -1343,6 +1421,10 @@ dsError_t dsFPTerm(void)
 	gPreviousTrigger[0] = '\0';
 	gLEDPatternThreadStop = false;
 	gIsFPDInitialized = false;
+
+#ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
+	releaseProcessLock();
+#endif
 	FPD_MUTEX_UNLOCK();
 
 	return dsERR_NONE;
@@ -1391,6 +1473,7 @@ dsError_t dsSetFPTimeFormat(dsFPDTimeFormat_t eTimeFormat)
 		hal_err("Invalid parameter, eTimeFormat: %d.\n", eTimeFormat);
 		return dsERR_INVALID_PARAM;
 	}
+
 
 	return dsERR_OPERATION_NOT_SUPPORTED;
 }
