@@ -740,10 +740,26 @@ dsError_t dsFPInit(void)
 
 	if (!gCondVarReady) {
 		pthread_condattr_t condattr;
-		(void)pthread_condattr_init(&condattr);
-		(void)pthread_condattr_setclock(&condattr, CLOCK_MONOTONIC);
-		(void)pthread_cond_init(&gLEDPatternCond, &condattr);
+		int rc = pthread_condattr_init(&condattr);
+		if (rc != 0) {
+			FPD_MUTEX_UNLOCK();
+			hal_err("pthread_condattr_init failed: %s\n", strerror(rc));
+			return dsERR_GENERAL;
+		}
+		rc = pthread_condattr_setclock(&condattr, CLOCK_MONOTONIC);
+		if (rc != 0) {
+			(void)pthread_condattr_destroy(&condattr);
+			FPD_MUTEX_UNLOCK();
+			hal_err("pthread_condattr_setclock(CLOCK_MONOTONIC) failed: %s\n", strerror(rc));
+			return dsERR_GENERAL;
+		}
+		rc = pthread_cond_init(&gLEDPatternCond, &condattr);
 		(void)pthread_condattr_destroy(&condattr);
+		if (rc != 0) {
+			FPD_MUTEX_UNLOCK();
+			hal_err("pthread_cond_init failed: %s\n", strerror(rc));
+			return dsERR_GENERAL;
+		}
 		gCondVarReady = true;
 	}
 
@@ -763,7 +779,12 @@ dsError_t dsFPInit(void)
 	if (loadTriggerBackup(gPreviousTrigger, sizeof(gPreviousTrigger)) == dsERR_NONE) {
 		hal_info("Loaded previous trigger from backup: %s\n", gPreviousTrigger);
 	} else if (cacheCurrentTrigger() != dsERR_NONE) {
-		gPreviousTrigger[0] = '\0';
+#ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
+		releaseProcessLock();
+#endif
+		FPD_MUTEX_UNLOCK();
+		hal_err("Unable to determine current LED trigger; aborting initialization.\n");
+		return dsERR_GENERAL;
 	} else {
 		hal_info("Current LED trigger before init: %s\n", gPreviousTrigger);
 		if (saveTriggerBackup(gPreviousTrigger) != dsERR_NONE) {
@@ -943,7 +964,7 @@ dsError_t dsGetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t *pBri
 		return dsERR_INVALID_PARAM;
 	}
 
-	hal_err("Get brightness is not supported.\n");
+	hal_info("Get brightness is not supported.\n");
 	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
