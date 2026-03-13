@@ -54,7 +54,7 @@ Legend:
 - Each waveform uses a fixed width of 50 units (5 groups of 10) for side-by-side comparison.
 - Bars are proportional for readability (exact timing remains in the timing column).
 
-| State | Waveform (one cycle) | Exact Timing |
+| State | Waveform (one cycle) | Exact Timing (ms) |
 |---|---|---|
 | `ACTIVE` | <nobr><code>██████████&#8288;██████████&#8288;██████████&#8288;██████████&#8288;██████████</code></nobr> | steady ON<br> |
 | `STANDBY` | <nobr><code>░░░░░░░░░░&#8288;░░░░░░░░░░&#8288;░░░░░░░░░░&#8288;░░░░░░░░░░&#8288;░░░░░░░░░░</code></nobr> | steady OFF<br> |
