@@ -491,25 +491,6 @@ static dsError_t writeLedBrightnessRaw(unsigned int raw)
 }
 
 /**
- * @brief Reads raw LED brightness value from sysfs.
- *
- * @param[out] raw Output raw brightness value.
- *
- * @return dsERR_NONE on success, otherwise error code.
- */
-static dsError_t readLedBrightnessRaw(unsigned int *raw)
-{
-	char brightnessPath[160];
-
-	if (raw == NULL) {
-		return dsERR_INVALID_PARAM;
-	}
-
-	composeLedFilePath(brightnessPath, sizeof(brightnessPath), SYSFS_LED_BRIGHTNESS_FILE);
-	return readUintFromFile(brightnessPath, raw);
-}
-
-/**
  * @brief Converts percentage brightness to platform raw brightness.
  *
  * @param[in] percent Brightness in 0-100 range.
@@ -948,9 +929,6 @@ dsError_t dsSetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t eBrig
 dsError_t dsGetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t *pBrightness)
 {
 	hal_info("invoked.\n");
-	unsigned int raw = 0;
-	dsFPDBrightness_t cachedBrightness = dsFPD_BRIGHTNESS_MAX;
-	bool readFromSysfs = false;
 
 	if (!isInitialized()) {
 		hal_err("Module not initialized.\n");
