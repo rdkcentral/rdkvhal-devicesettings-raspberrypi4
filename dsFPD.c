@@ -26,6 +26,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 
 #include "dsFPD.h"
 #include "dsFPDTypes.h"
@@ -40,21 +41,22 @@
 
 // RPi4 has only one ACT LED which is used as the status LED.
 // See README.md for details on supported states and patterns for this LED.
-const dsFPDLedState_t gSupportedLEDStates = (
-	((dsFPDLedState_t)(1u << dsFPD_LED_DEVICE_ACTIVE)) |
-	((dsFPDLedState_t)(1u << dsFPD_LED_DEVICE_STANDBY)) |
-	((dsFPDLedState_t)(1u << dsFPD_LED_DEVICE_WPS_CONNECTING)) |
-	((dsFPDLedState_t)(1u << dsFPD_LED_DEVICE_WPS_CONNECTED)) |
-	((dsFPDLedState_t)(1u << dsFPD_LED_DEVICE_WPS_ERROR)) |
-	((dsFPDLedState_t)(1u << dsFPD_LED_DEVICE_FACTORY_RESET)) |
-	((dsFPDLedState_t)(1u << dsFPD_LED_DEVICE_USB_UPGRADE)) |
-	((dsFPDLedState_t)(1u << dsFPD_LED_DEVICE_SOFTWARE_DOWNLOAD_ERROR))
+static const dsFPDLedState_t gSupportedLEDStates = (dsFPDLedState_t)(
+	(1u << dsFPD_LED_DEVICE_ACTIVE) |
+	(1u << dsFPD_LED_DEVICE_STANDBY) |
+	(1u << dsFPD_LED_DEVICE_WPS_CONNECTING) |
+	(1u << dsFPD_LED_DEVICE_WPS_CONNECTED) |
+	(1u << dsFPD_LED_DEVICE_WPS_ERROR) |
+	(1u << dsFPD_LED_DEVICE_FACTORY_RESET) |
+	(1u << dsFPD_LED_DEVICE_USB_UPGRADE) |
+	(1u << dsFPD_LED_DEVICE_SOFTWARE_DOWNLOAD_ERROR)
 );
 
 static dsFPDLedState_t gCurrentLEDState = dsFPD_LED_DEVICE_NONE;
 static dsFPDBrightness_t gCurrentBrightness = dsFPD_BRIGHTNESS_MAX;
 static pthread_mutex_t gLEDStateMutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t gLEDPatternCond = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t gLEDPatternCond;
+static bool gCondVarReady = false;
 static pthread_t gLEDPatternThread;
 static bool gIsFPDInitialized = false;
 static bool gLEDPatternThreadRunning = false;
@@ -70,8 +72,8 @@ static unsigned int gLedMaxBrightness = 1;
 #define SYSFS_LED_BRIGHTNESS_FILE "brightness"
 #define SYSFS_LED_MAX_BRIGHTNESS_FILE "max_brightness"
 #define SYSFS_LED_TRIGGER_FILE "trigger"
-#define SYSFS_LED_TRIGGER_BACKUP_FILE "/tmp/rpi_act_led_trigger.backup"
-#define SYSFS_LED_PROCESS_LOCK_FILE "/tmp/rpi_act_led_control.lock"
+#define SYSFS_LED_TRIGGER_BACKUP_FILE "/run/lock/rpi_act_led_trigger.backup"
+#define SYSFS_LED_PROCESS_LOCK_FILE "/run/lock/rpi_act_led_control.lock"
 
 #define FPD_MUTEX_LOCK()   do { \
 	pthread_mutex_lock(&gLEDStateMutex); \
@@ -86,7 +88,7 @@ static unsigned int gLedMaxBrightness = 1;
  *
  * @return true when initialized, otherwise false.
  */
-bool isInitialized(void)
+static bool isInitialized(void)
 {
 	bool initialized;
 	FPD_MUTEX_LOCK();
@@ -247,6 +249,44 @@ static dsError_t writeTextFile(const char *path, const char *value)
 }
 
 /**
+ * @brief Creates or overwrites a regular file with the given text value.
+ *
+ * Unlike writeTextFile (which targets existing sysfs nodes), this helper is
+ * intended for non-sysfs paths where the file may not yet exist.
+ * Opens with O_CREAT|O_TRUNC|O_NOFOLLOW and restricts permissions to 0600.
+ *
+ * @param[in] path  File path.
+ * @param[in] value Null-terminated value to write.
+ *
+ * @return dsERR_NONE on success, otherwise error code.
+ */
+static dsError_t writeNewTextFile(const char *path, const char *value)
+{
+	int fd;
+	size_t len;
+	ssize_t bytesWritten;
+
+	if (path == NULL || value == NULL) {
+		return dsERR_INVALID_PARAM;
+	}
+
+	fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600);
+	if (fd < 0) {
+		return dsERR_GENERAL;
+	}
+
+	len = strlen(value);
+	bytesWritten = write(fd, value, len);
+	close(fd);
+
+	if (bytesWritten < 0 || (size_t)bytesWritten != len) {
+		return dsERR_GENERAL;
+	}
+
+	return dsERR_NONE;
+}
+
+/**
  * @brief Reads an unsigned integer from a text file.
  *
  * @param[in] path File path.
@@ -381,7 +421,12 @@ static dsError_t loadTriggerBackup(char *trigger, size_t triggerSize)
 		return dsERR_GENERAL;
 	}
 
-	snprintf(trigger, triggerSize, "%s", data);
+	if (len >= triggerSize) {
+		return dsERR_GENERAL;
+	}
+
+	memcpy(trigger, data, len);
+	trigger[len] = '\0';
 	return dsERR_NONE;
 }
 
@@ -398,7 +443,7 @@ static dsError_t saveTriggerBackup(const char *trigger)
 		return dsERR_INVALID_PARAM;
 	}
 
-	return writeTextFile(SYSFS_LED_TRIGGER_BACKUP_FILE, trigger);
+	return writeNewTextFile(SYSFS_LED_TRIGGER_BACKUP_FILE, trigger);
 }
 
 /**
@@ -515,6 +560,7 @@ static dsError_t acquireProcessLock(void)
 {
 	int fd;
 	struct flock lock = {0};
+	struct stat st;
 	char pidText[32];
 	int len;
 
@@ -522,9 +568,15 @@ static dsError_t acquireProcessLock(void)
 		return dsERR_NONE;
 	}
 
-	fd = open(SYSFS_LED_PROCESS_LOCK_FILE, O_CREAT | O_RDWR | O_CLOEXEC, 0644);
+	fd = open(SYSFS_LED_PROCESS_LOCK_FILE, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
 	if (fd < 0) {
 		hal_err("Unable to open process lock file: %s\n", SYSFS_LED_PROCESS_LOCK_FILE);
+		return dsERR_GENERAL;
+	}
+
+	if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+		hal_err("Process lock file is not a regular file: %s\n", SYSFS_LED_PROCESS_LOCK_FILE);
+		(void)close(fd);
 		return dsERR_GENERAL;
 	}
 
@@ -575,7 +627,7 @@ static void releaseProcessLock(void)
 static void dsFPExitCleanup(void)
 {
 	hal_info("invoked.\n");
-	if (gIsFPDInitialized) {
+	if (isInitialized()) {
 		(void)dsFPTerm();
 	}
 }
@@ -644,7 +696,7 @@ static void *ledPatternWorker(void *arg)
 			FPD_MUTEX_UNLOCK();
 			(void)writeLedBrightnessRaw(raw);
 
-			clock_gettime(CLOCK_REALTIME, &wakeTime);
+			clock_gettime(CLOCK_MONOTONIC, &wakeTime);
 			addMsToTimespec(&wakeTime, durationMs);
 
 			FPD_MUTEX_LOCK();
@@ -700,6 +752,15 @@ dsError_t dsFPInit(void)
 		FPD_MUTEX_UNLOCK();
 		hal_err("Already initialized.\n");
 		return dsERR_ALREADY_INITIALIZED;
+	}
+
+	if (!gCondVarReady) {
+		pthread_condattr_t condattr;
+		(void)pthread_condattr_init(&condattr);
+		(void)pthread_condattr_setclock(&condattr, CLOCK_MONOTONIC);
+		(void)pthread_cond_init(&gLEDPatternCond, &condattr);
+		(void)pthread_condattr_destroy(&condattr);
+		gCondVarReady = true;
 	}
 
 	if (detectLedPath() != dsERR_NONE) {
@@ -901,26 +962,8 @@ dsError_t dsGetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t *pBri
 		return dsERR_INVALID_PARAM;
 	}
 
-	FPD_MUTEX_LOCK();
-	if (!gIsFPDInitialized) {
-		FPD_MUTEX_UNLOCK();
-		hal_err("Module not initialized.\n");
-		return dsERR_NOT_INITIALIZED;
-	}
-	readFromSysfs = (gLedMaxBrightness <= 1);
-	cachedBrightness = gCurrentBrightness;
-	FPD_MUTEX_UNLOCK();
-
-	if (readFromSysfs) {
-		if (readLedBrightnessRaw(&raw) != dsERR_NONE) {
-			return dsERR_GENERAL;
-		}
-		*pBrightness = (raw == 0) ? 0 : dsFPD_BRIGHTNESS_MAX;
-	} else {
-		*pBrightness = cachedBrightness;
-	}
-
-	return dsERR_NONE;
+	hal_err("Get brightness is not supported.\n");
+	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**

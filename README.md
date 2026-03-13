@@ -29,9 +29,7 @@ FrontPanel LCD is not supported in this implementation.
 
 ### Brightness Behavior
 
-- Brightness APIs use Linux LED class sysfs (`brightness`, `max_brightness`).
-- Platforms with binary LED behavior are treated as ON/OFF only.
-- Intermediate brightness (for example 50%) returns `dsERR_OPERATION_NOT_SUPPORTED` on binary-only hardware.
+- Front-panel brightness control is not supported in this implementation.
 
 ### Supported LED States
 
