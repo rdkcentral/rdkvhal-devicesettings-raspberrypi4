@@ -1448,12 +1448,11 @@ dsError_t dsSetFPTime(dsFPDTimeFormat_t eTimeFormat, const unsigned int uHour, c
 	}
 
 	if (eTimeFormat < dsFPD_TIME_12_HOUR || eTimeFormat >= dsFPD_TIME_MAX || uMinutes >= 60
-			|| uHour >= ((eTimeFormat == dsFPD_TIME_12_HOUR) ? 13 : 24)) {
+			|| (eTimeFormat == dsFPD_TIME_12_HOUR ? (uHour < 1 || uHour > 12) : (uHour > 23))) {
 		hal_err("Invalid parameter, eTimeFormat: %d, uHour: %u, uMinutes: %u.\n",
 				eTimeFormat, uHour, uMinutes);
 		return dsERR_INVALID_PARAM;
 	}
-
 
 	return dsERR_OPERATION_NOT_SUPPORTED;
 }
