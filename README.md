@@ -25,7 +25,7 @@ LOG.RDK.DSMGR = LOG DEBUG INFO ERROR
 
 This implementation uses the Raspberry Pi's ACT LED as the Device Settings Status LED.
 
-FrontPanel LCD is not supported in this implementation.
+Front Panel LCD is not supported in this implementation.
 
 ### Brightness Behavior
 

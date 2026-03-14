@@ -867,7 +867,6 @@ static void *ledPatternWorker(void *arg)
 	dsFPDLedState_t activeState = dsFPD_LED_DEVICE_NONE;
 	dsFPDBrightness_t activeBrightness = dsFPD_BRIGHTNESS_MAX;
 	size_t phaseIndex = 0;
-	bool applyConfirmationPending = false;
 
 	(void)arg;
 
@@ -897,17 +896,13 @@ static void *ledPatternWorker(void *arg)
 			phaseIndex = 0;
 			activeState = state;
 			activeBrightness = brightness;
-			applyConfirmationPending = true;
 		}
 
 		if (!isBlink) {
 			unsigned int raw = (state == dsFPD_LED_DEVICE_STANDBY || state == dsFPD_LED_DEVICE_NONE) ? 0 : rawOn;
-			dsError_t writeRc;
 			FPD_MUTEX_UNLOCK();
-			writeRc = writeLedBrightnessRaw(raw);
-			if (applyConfirmationPending && writeRc == dsERR_NONE) {
-				hal_info("Changed LED to: state=%d brightness=%u\n", activeState, activeBrightness);
-				applyConfirmationPending = false;
+			if (dsERR_NONE != writeLedBrightnessRaw(raw)) {
+				hal_err("Failed to apply LED brightness for state=%d in steady mode.\n", activeState);
 			}
 
 			FPD_MUTEX_LOCK();
@@ -931,13 +926,10 @@ static void *ledPatternWorker(void *arg)
 			unsigned int raw = ledOn ? rawOn : 0;
 			unsigned int durationMs = pattern.durationsMs[phaseIndex % pattern.count];
 			struct timespec wakeTime;
-			dsError_t writeRc;
 
 			FPD_MUTEX_UNLOCK();
-			writeRc = writeLedBrightnessRaw(raw);
-			if (applyConfirmationPending && writeRc == dsERR_NONE) {
-				hal_info("Changed LED to: state=%d brightness=%u\n", activeState, activeBrightness);
-				applyConfirmationPending = false;
+			if (dsERR_NONE != writeLedBrightnessRaw(raw)) {
+				hal_err("Failed to apply LED brightness for state=%d in blink mode.\n", activeState);
 			}
 
 			clock_gettime(CLOCK_MONOTONIC, &wakeTime);
@@ -954,7 +946,6 @@ static void *ledPatternWorker(void *arg)
 					phaseIndex = 0;
 					activeState = state;
 					activeBrightness = brightness;
-					applyConfirmationPending = true;
 				} else {
 					int waitRc = pthread_cond_timedwait(&gLEDPatternCond, &gLEDStateMutex, &wakeTime);
 					if (waitRc == ETIMEDOUT) {
@@ -969,7 +960,6 @@ static void *ledPatternWorker(void *arg)
 							phaseIndex = 0;
 							activeState = state;
 							activeBrightness = brightness;
-							applyConfirmationPending = true;
 						} else {
 							phaseIndex = (phaseIndex + 1U) % pattern.count;
 						}
@@ -1995,6 +1985,7 @@ dsError_t dsFPSetLEDState(dsFPDLedState_t state)
 		return dsERR_GENERAL;
 	}
 	FPD_MUTEX_UNLOCK();
+	hal_info("[LED_REQ] queued state=%d\n", state);
 	return dsERR_NONE;
 }
 
