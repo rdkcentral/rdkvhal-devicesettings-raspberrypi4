@@ -525,6 +525,7 @@ static dsError_t saveTriggerBackup(const char *trigger)
 {
 	char tmpPath[sizeof(SYSFS_LED_TRIGGER_BACKUP_FILE) + 4];
 	int fd;
+	struct stat st;
 	size_t len;
 	size_t total = 0;
 	ssize_t n;
@@ -540,6 +541,12 @@ static dsError_t saveTriggerBackup(const char *trigger)
 
 	fd = open(tmpPath, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
 	if (fd < 0) {
+		return dsERR_GENERAL;
+	}
+
+	if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+		(void)close(fd);
+		(void)unlink(tmpPath);
 		return dsERR_GENERAL;
 	}
 
@@ -756,6 +763,9 @@ static void releaseProcessLock(void)
  */
 static void dsFPExitCleanup(void)
 {
+	bool initialized = false;
+	int lockRc;
+
 	hal_info("invoked.\n");
 	/* gIsLEDWorkerThread is set by ledPatternWorker() on entry with no
 	 * mutex required, so it is safe to read here in the atexit handler.
@@ -764,7 +774,19 @@ static void dsFPExitCleanup(void)
 		hal_info("Skipping dsFPTerm() in LED worker thread atexit handler to avoid self-join.\n");
 		return;
 	}
-	if (isInitialized()) {
+
+	/* Best-effort exit path: do not block on the state mutex during process
+	 * shutdown, otherwise atexit can hang if another thread holds the lock.
+	 */
+	lockRc = pthread_mutex_trylock(&gLEDStateMutex);
+	if (lockRc != 0) {
+		hal_info("Skipping dsFPTerm() in atexit: LED state mutex is busy.\n");
+		return;
+	}
+	initialized = gIsFPDInitialized;
+	(void)pthread_mutex_unlock(&gLEDStateMutex);
+
+	if (initialized) {
 		(void)dsFPTerm();
 	}
 }
@@ -864,21 +886,32 @@ static void *ledPatternWorker(void *arg)
 
 			FPD_MUTEX_LOCK();
 			if (!gLEDPatternThreadStop) {
-				int waitRc = pthread_cond_timedwait(&gLEDPatternCond, &gLEDStateMutex, &wakeTime);
-				if (waitRc == ETIMEDOUT) {
-					phaseIndex = (phaseIndex + 1U) % pattern.count;
+				/* Re-check under lock before timed wait so a state/brightness
+				 * update that happened while unlocked is handled immediately.
+				 */
+				state = gCurrentLEDState;
+				brightness = gCurrentBrightness;
+				if (state != activeState || brightness != activeBrightness) {
+					phaseIndex = 0;
+					activeState = state;
+					activeBrightness = brightness;
 				} else {
-					/* Non-timeout wake: check if state or brightness actually changed.
-					 * If not, treat as spurious wakeup and advance phase normally.
-					 */
-					state = gCurrentLEDState;
-					brightness = gCurrentBrightness;
-					if (state != activeState || brightness != activeBrightness) {
-						phaseIndex = 0;
-						activeState = state;
-						activeBrightness = brightness;
-					} else {
+					int waitRc = pthread_cond_timedwait(&gLEDPatternCond, &gLEDStateMutex, &wakeTime);
+					if (waitRc == ETIMEDOUT) {
 						phaseIndex = (phaseIndex + 1U) % pattern.count;
+					} else {
+						/* Non-timeout wake: check if state or brightness actually changed.
+						 * If not, treat as spurious wakeup and advance phase normally.
+						 */
+						state = gCurrentLEDState;
+						brightness = gCurrentBrightness;
+						if (state != activeState || brightness != activeBrightness) {
+							phaseIndex = 0;
+							activeState = state;
+							activeBrightness = brightness;
+						} else {
+							phaseIndex = (phaseIndex + 1U) % pattern.count;
+						}
 					}
 				}
 			}
@@ -1598,7 +1631,7 @@ dsError_t dsSetFPScroll(unsigned int uScrollHoldOnDur, unsigned int uHorzScrollI
 }
 
 /**
- * @brief Terminates the the Front Panel Display sub-module
+ * @brief Terminates the Front Panel Display sub-module
  *
  * This function resets any data structures used within Front Panel sub-module,
  * and releases all the resources allocated during the init function.
@@ -1930,6 +1963,12 @@ dsError_t dsFPGetSupportedLEDStates(unsigned int* states)
 		hal_err("Invalid parameter, states: %p.\n", states);
 		return dsERR_INVALID_PARAM;
 	}
+
+	if (!isInitialized()) {
+		hal_err("Module not initialized.\n");
+		return dsERR_NOT_INITIALIZED;
+	}
+
 	*states = gSupportedLEDStates;
 	return dsERR_NONE;
 }
