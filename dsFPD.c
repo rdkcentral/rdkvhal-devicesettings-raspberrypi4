@@ -38,6 +38,10 @@
 #include "dsFPDTypes.h"
 #include "dshalLogger.h"
 
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+
 /***
  * RaspberryPi 4 specific implementation of the Device Settings HAL for LED Indicator.
  * We shall be using the GREEN LED on the RaspberryPi 4 as the RDK Status LED for this implementation.
@@ -75,8 +79,16 @@ static _Thread_local bool gIsLEDWorkerThread = false;
 #ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
 static int gProcessLockFd = -1;
 #endif
-static char gLedSysfsPath[128] = {0};
-static char gPreviousTrigger[64] = {0};
+#define DSFPD_LED_SYSFS_PATH_SIZE PATH_MAX
+#define DSFPD_LED_FILE_PATH_SIZE PATH_MAX
+#define DSFPD_TRIGGER_TOKEN_SIZE 256
+#define DSFPD_TRIGGER_TEXT_BUFFER_SIZE 4096
+#define DSFPD_BACKUP_TEXT_BUFFER_SIZE 4096
+#define DSFPD_SMALL_TEXT_BUFFER_SIZE 64
+#define DSFPD_NUMERIC_TEXT_BUFFER_SIZE 32
+
+static char gLedSysfsPath[DSFPD_LED_SYSFS_PATH_SIZE] = {0};
+static char gPreviousTrigger[DSFPD_TRIGGER_TOKEN_SIZE] = {0};
 static unsigned int gLedMaxBrightness = 1;
 
 #define SYSFS_LED_BRIGHTNESS_FILE "brightness"
@@ -289,7 +301,7 @@ static dsError_t writeTextFile(const char *path, const char *value)
  */
 static dsError_t readUintFromFile(const char *path, unsigned int *value)
 {
-	char data[32];
+	char data[DSFPD_SMALL_TEXT_BUFFER_SIZE];
 	char *endPtr = NULL;
 	unsigned long parsed;
 
@@ -336,9 +348,34 @@ static dsError_t readUintFromFile(const char *path, unsigned int *value)
  */
 static void composeLedFilePath(char *outPath, size_t outPathSize, const char *fileName)
 {
-	if (outPath != NULL && outPathSize > 0 && fileName != NULL) {
-		snprintf(outPath, outPathSize, "%s/%s", gLedSysfsPath, fileName);
+	size_t baseLen;
+	size_t nameLen;
+	size_t needed;
+
+	if (outPath == NULL || outPathSize == 0 || fileName == NULL) {
+		return;
 	}
+
+	outPath[0] = '\0';
+	baseLen = strnlen(gLedSysfsPath, sizeof(gLedSysfsPath));
+	if (baseLen == 0 || baseLen >= sizeof(gLedSysfsPath)) {
+		return;
+	}
+
+	nameLen = strlen(fileName);
+	if (baseLen > (SIZE_MAX - nameLen - 2U)) {
+		return;
+	}
+
+	needed = baseLen + 1U + nameLen + 1U;
+	if (needed > outPathSize) {
+		return;
+	}
+
+	memcpy(outPath, gLedSysfsPath, baseLen);
+	outPath[baseLen] = '/';
+	memcpy(outPath + baseLen + 1U, fileName, nameLen);
+	outPath[baseLen + 1U + nameLen] = '\0';
 }
 
 /**
@@ -372,8 +409,11 @@ static dsError_t detectLedPath(void)
  */
 static dsError_t cacheCurrentTrigger(void)
 {
-	char triggerPath[160];
-	char triggerData[256];
+	char triggerPath[DSFPD_LED_FILE_PATH_SIZE];
+	/* Some kernels expose long trigger lists; keep enough room to include
+	 * the active token enclosed in brackets, e.g. "[mmc0]".
+	 */
+	char triggerData[DSFPD_TRIGGER_TEXT_BUFFER_SIZE] = {0};
 	char *openBracket;
 	char *closeBracket;
 	size_t tokenLen;
@@ -409,7 +449,7 @@ static dsError_t cacheCurrentTrigger(void)
  */
 static dsError_t loadTriggerBackup(char *trigger, size_t triggerSize)
 {
-	char data[128];
+	char data[DSFPD_BACKUP_TEXT_BUFFER_SIZE] = {0};
 	size_t len;
 	int fd;
 	struct stat st;
@@ -558,7 +598,7 @@ static void clearTriggerBackup(void)
  */
 static dsError_t setLedTrigger(const char *trigger)
 {
-	char triggerPath[160];
+	char triggerPath[DSFPD_LED_FILE_PATH_SIZE];
 
 	composeLedFilePath(triggerPath, sizeof(triggerPath), SYSFS_LED_TRIGGER_FILE);
 	return writeTextFile(triggerPath, trigger);
@@ -573,8 +613,8 @@ static dsError_t setLedTrigger(const char *trigger)
  */
 static dsError_t writeLedBrightnessRaw(unsigned int raw)
 {
-	char brightnessPath[160];
-	char value[16];
+	char brightnessPath[DSFPD_LED_FILE_PATH_SIZE];
+	char value[DSFPD_NUMERIC_TEXT_BUFFER_SIZE];
 
 	if (raw > gLedMaxBrightness) {
 		raw = gLedMaxBrightness;
@@ -637,7 +677,7 @@ static dsError_t acquireProcessLock(void)
 	int fd;
 	struct flock lock = {0};
 	struct stat st;
-	char pidText[32];
+	char pidText[DSFPD_NUMERIC_TEXT_BUFFER_SIZE];
 	int len;
 
 	if (gProcessLockFd >= 0) {
@@ -746,6 +786,7 @@ static void *ledPatternWorker(void *arg)
 	dsFPDLedState_t activeState = dsFPD_LED_DEVICE_NONE;
 	dsFPDBrightness_t activeBrightness = dsFPD_BRIGHTNESS_MAX;
 	size_t phaseIndex = 0;
+	bool applyConfirmationPending = false;
 
 	(void)arg;
 
@@ -775,12 +816,18 @@ static void *ledPatternWorker(void *arg)
 			phaseIndex = 0;
 			activeState = state;
 			activeBrightness = brightness;
+			applyConfirmationPending = true;
 		}
 
 		if (!isBlink) {
 			unsigned int raw = (state == dsFPD_LED_DEVICE_STANDBY || state == dsFPD_LED_DEVICE_NONE) ? 0 : rawOn;
+			dsError_t writeRc;
 			FPD_MUTEX_UNLOCK();
-			(void)writeLedBrightnessRaw(raw);
+			writeRc = writeLedBrightnessRaw(raw);
+			if (applyConfirmationPending && writeRc == dsERR_NONE) {
+				hal_info("Changed LED to: state=%d brightness=%u\n", activeState, activeBrightness);
+				applyConfirmationPending = false;
+			}
 
 			FPD_MUTEX_LOCK();
 			while (!gLEDPatternThreadStop) {
@@ -803,9 +850,14 @@ static void *ledPatternWorker(void *arg)
 			unsigned int raw = ledOn ? rawOn : 0;
 			unsigned int durationMs = pattern.durationsMs[phaseIndex % pattern.count];
 			struct timespec wakeTime;
+			dsError_t writeRc;
 
 			FPD_MUTEX_UNLOCK();
-			(void)writeLedBrightnessRaw(raw);
+			writeRc = writeLedBrightnessRaw(raw);
+			if (applyConfirmationPending && writeRc == dsERR_NONE) {
+				hal_info("Changed LED to: state=%d brightness=%u\n", activeState, activeBrightness);
+				applyConfirmationPending = false;
+			}
 
 			clock_gettime(CLOCK_MONOTONIC, &wakeTime);
 			addMsToTimespec(&wakeTime, durationMs);
@@ -940,7 +992,7 @@ dsError_t dsFPInit(void)
 	}
 
 	{
-		char maxBrightnessPath[160];
+		char maxBrightnessPath[DSFPD_LED_FILE_PATH_SIZE];
 		unsigned int maxBrightness = 1;
 		composeLedFilePath(maxBrightnessPath, sizeof(maxBrightnessPath), SYSFS_LED_MAX_BRIGHTNESS_FILE);
 		if (readUintFromFile(maxBrightnessPath, &maxBrightness) != dsERR_NONE || maxBrightness == 0) {
