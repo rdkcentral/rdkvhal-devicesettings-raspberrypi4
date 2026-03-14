@@ -408,44 +408,76 @@ static dsError_t detectLedPath(void)
 }
 
 /**
+ * @brief Reads the currently active LED trigger token from sysfs.
+ *
+ * The sysfs trigger file usually contains multiple trigger names where the
+ * active trigger is enclosed in brackets, e.g. "none [mmc0] timer". This
+ * helper extracts the active token. If brackets are not found, it falls back
+ * to the first whitespace-delimited token.
+ *
+ * @param[out] buffer Output trigger token.
+ * @param[in] bufferSize Output buffer size.
+ *
+ * @return dsERR_NONE on success, otherwise error code.
+ */
+static dsError_t readCurrentSysfsTrigger(char *buffer, size_t bufferSize)
+{
+	char triggerPath[DSFPD_LED_FILE_PATH_SIZE];
+	char triggerData[DSFPD_TRIGGER_TEXT_BUFFER_SIZE] = {0};
+	char *tokenStart;
+	char *tokenEnd;
+	size_t tokenLen;
+
+	if (buffer == NULL || bufferSize < 2) {
+		return dsERR_INVALID_PARAM;
+	}
+
+	buffer[0] = '\0';
+	composeLedFilePath(triggerPath, sizeof(triggerPath), SYSFS_LED_TRIGGER_FILE);
+	if (readTextFile(triggerPath, triggerData, sizeof(triggerData)) != dsERR_NONE) {
+		return dsERR_GENERAL;
+	}
+
+	tokenStart = strchr(triggerData, '[');
+	if (tokenStart != NULL) {
+		++tokenStart;
+		tokenEnd = strchr(tokenStart, ']');
+		if (tokenEnd == NULL || tokenEnd <= tokenStart) {
+			return dsERR_GENERAL;
+		}
+	} else {
+		/* Fallback when the active token is not bracketed. */
+		tokenStart = triggerData;
+		while (*tokenStart != '\0' && isspace((unsigned char)*tokenStart)) {
+			++tokenStart;
+		}
+		if (*tokenStart == '\0') {
+			return dsERR_GENERAL;
+		}
+		tokenEnd = tokenStart;
+		while (*tokenEnd != '\0' && !isspace((unsigned char)*tokenEnd)) {
+			++tokenEnd;
+		}
+	}
+
+	tokenLen = (size_t)(tokenEnd - tokenStart);
+	if (tokenLen == 0 || tokenLen >= bufferSize) {
+		return dsERR_GENERAL;
+	}
+
+	memcpy(buffer, tokenStart, tokenLen);
+	buffer[tokenLen] = '\0';
+	return dsERR_NONE;
+}
+
+/**
  * @brief Caches the currently active LED trigger from sysfs.
  *
  * @return dsERR_NONE on success, otherwise error code.
  */
 static dsError_t cacheCurrentTrigger(void)
 {
-	char triggerPath[DSFPD_LED_FILE_PATH_SIZE];
-	/* Some kernels expose long trigger lists; keep enough room to include
-	 * the active token enclosed in brackets, e.g. "[mmc0]".
-	 */
-	char triggerData[DSFPD_TRIGGER_TEXT_BUFFER_SIZE] = {0};
-	char *openBracket;
-	char *closeBracket;
-	size_t tokenLen;
-
-	composeLedFilePath(triggerPath, sizeof(triggerPath), SYSFS_LED_TRIGGER_FILE);
-	if (readTextFile(triggerPath, triggerData, sizeof(triggerData)) != dsERR_NONE) {
-		return dsERR_GENERAL;
-	}
-
-	openBracket = strchr(triggerData, '[');
-	if (openBracket == NULL) {
-		return dsERR_GENERAL;
-	}
-
-	closeBracket = strchr(openBracket, ']');
-	if (closeBracket == NULL || closeBracket <= openBracket + 1) {
-		return dsERR_GENERAL;
-	}
-
-	tokenLen = (size_t)(closeBracket - (openBracket + 1));
-	if (tokenLen >= sizeof(gPreviousTrigger)) {
-		tokenLen = sizeof(gPreviousTrigger) - 1;
-	}
-
-	memcpy(gPreviousTrigger, openBracket + 1, tokenLen);
-	gPreviousTrigger[tokenLen] = '\0';
-	return dsERR_NONE;
+	return readCurrentSysfsTrigger(gPreviousTrigger, sizeof(gPreviousTrigger));
 }
 
 /**
@@ -687,33 +719,34 @@ static void dsFPBestEffortRestoreOnExit(void)
 		"/sys/class/leds/led0/trigger",
 		"/sys/class/leds/act/trigger"
 	};
-	const char *brightnessCandidates[] = {
-		"/sys/class/leds/ACT/brightness",
-		"/sys/class/leds/led0/brightness",
-		"/sys/class/leds/act/brightness"
-	};
+	char restoreTrigger[sizeof(gPreviousTrigger)] = {0};
+	char triggerLine[sizeof(gPreviousTrigger) + 2];
+	size_t triggerLineLen = 0;
 	size_t i;
+
+	if (gPreviousTrigger[0] != '\0') {
+		snprintf(restoreTrigger, sizeof(restoreTrigger), "%s", gPreviousTrigger);
+	} else if (loadTriggerBackup(restoreTrigger, sizeof(restoreTrigger)) != dsERR_NONE) {
+		hal_info("Best-effort restore skipped trigger write: no persisted trigger available.\n");
+		return;
+	}
+
+	{
+		int lineLen = snprintf(triggerLine, sizeof(triggerLine), "%s\n", restoreTrigger);
+		if (lineLen <= 0 || (size_t)lineLen >= sizeof(triggerLine)) {
+			hal_err("Best-effort trigger restore skipped: trigger token is invalid.\n");
+			return;
+		}
+		triggerLineLen = (size_t)lineLen;
+	}
 
 	for (i = 0; i < (sizeof(triggerCandidates) / sizeof(triggerCandidates[0])); ++i) {
 		int fd = open(triggerCandidates[i], O_WRONLY | O_CLOEXEC | O_NOFOLLOW);
 		if (fd >= 0) {
-			ssize_t n = write(fd, "mmc0\n", 5);
-			if (n != 5) {
+			ssize_t n = write(fd, triggerLine, triggerLineLen);
+			if (n != (ssize_t)triggerLineLen) {
 				hal_err("Best-effort trigger restore write failed on '%s': %s\n",
 						triggerCandidates[i], (n < 0) ? strerror(errno) : "short write");
-			}
-			(void)close(fd);
-			break;
-		}
-	}
-
-	for (i = 0; i < (sizeof(brightnessCandidates) / sizeof(brightnessCandidates[0])); ++i) {
-		int fd = open(brightnessCandidates[i], O_WRONLY | O_CLOEXEC | O_NOFOLLOW);
-		if (fd >= 0) {
-			ssize_t n = write(fd, "0\n", 2);
-			if (n != 2) {
-				hal_err("Best-effort brightness restore write failed on '%s': %s\n",
-						brightnessCandidates[i], (n < 0) ? strerror(errno) : "short write");
 			}
 			(void)close(fd);
 			break;
@@ -1058,7 +1091,23 @@ dsError_t dsFPInit(void)
 #endif
 
 	if (loadTriggerBackup(gPreviousTrigger, sizeof(gPreviousTrigger)) == dsERR_NONE) {
+		char currentTrigger[sizeof(gPreviousTrigger)] = {0};
 		hal_info("Loaded previous trigger from backup: %s\n", gPreviousTrigger);
+		if (readCurrentSysfsTrigger(currentTrigger, sizeof(currentTrigger)) == dsERR_NONE) {
+			if (strcmp(currentTrigger, "none") != 0) {
+				hal_info("Ignoring stale trigger backup '%s'; using current trigger '%s'.\n",
+						 gPreviousTrigger, currentTrigger);
+				snprintf(gPreviousTrigger, sizeof(gPreviousTrigger), "%s", currentTrigger);
+				if (saveTriggerBackup(gPreviousTrigger) != dsERR_NONE) {
+					hal_err("Unable to update trigger backup file with current trigger.\n");
+				}
+			} else {
+				hal_info("Current trigger is 'none'; keeping backup trigger '%s'.\n", gPreviousTrigger);
+			}
+		} else {
+			hal_err("Failed to read current sysfs trigger; proceeding with backup trigger '%s'.\n",
+					gPreviousTrigger);
+		}
 	} else if (cacheCurrentTrigger() != dsERR_NONE) {
 #ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
 		releaseProcessLock();
@@ -1709,6 +1758,8 @@ dsError_t dsSetFPScroll(unsigned int uScrollHoldOnDur, unsigned int uHorzScrollI
 dsError_t dsFPTerm(void)
 {
 	hal_info("invoked.\n");
+	pthread_t threadToJoin;
+	bool shouldJoin = false;
 
 	FPD_MUTEX_LOCK();
 	if (!gIsFPDInitialized) {
@@ -1719,14 +1770,19 @@ dsError_t dsFPTerm(void)
 
 	gLEDPatternThreadStop = true;
 	pthread_cond_signal(&gLEDPatternCond);
+	if (gLEDPatternThreadRunning) {
+		threadToJoin = gLEDPatternThread;
+		gLEDPatternThreadRunning = false;
+		shouldJoin = true;
+	}
+	gIsFPDInitialized = false;
 	FPD_MUTEX_UNLOCK();
 
-	if (gLEDPatternThreadRunning) {
-		(void)pthread_join(gLEDPatternThread, NULL);
+	if (shouldJoin) {
+		(void)pthread_join(threadToJoin, NULL);
 	}
 
 	FPD_MUTEX_LOCK();
-	gLEDPatternThreadRunning = false;
 
 	(void)writeLedBrightnessRaw(0);
 	if (gPreviousTrigger[0] == '\0') {
@@ -1747,7 +1803,6 @@ dsError_t dsFPTerm(void)
 	gLedSysfsPath[0] = '\0';
 	gPreviousTrigger[0] = '\0';
 	gLEDPatternThreadStop = false;
-	gIsFPDInitialized = false;
 
 #ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
 	releaseProcessLock();
