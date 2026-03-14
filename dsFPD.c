@@ -712,7 +712,7 @@ static unsigned int percentToRawBrightness(dsFPDBrightness_t percent)
  * Used by atexit when mutex is busy so shutdown does not hang while still
  * attempting to restore kernel-controlled LED behavior.
  */
-static void dsFPBestEffortRestoreOnExit(void)
+static void dsFPBestEffortRestoreOnExit(const char *preferredTrigger, const char *preferredLedPath)
 {
 	const char *triggerCandidates[] = {
 		"/sys/class/leds/ACT/trigger",
@@ -720,12 +720,13 @@ static void dsFPBestEffortRestoreOnExit(void)
 		"/sys/class/leds/act/trigger"
 	};
 	char restoreTrigger[sizeof(gPreviousTrigger)] = {0};
+	char preferredTriggerPath[DSFPD_LED_FILE_PATH_SIZE];
 	char triggerLine[sizeof(gPreviousTrigger) + 2];
 	size_t triggerLineLen = 0;
 	size_t i;
 
-	if (gPreviousTrigger[0] != '\0') {
-		snprintf(restoreTrigger, sizeof(restoreTrigger), "%s", gPreviousTrigger);
+	if (preferredTrigger != NULL && preferredTrigger[0] != '\0') {
+		snprintf(restoreTrigger, sizeof(restoreTrigger), "%s", preferredTrigger);
 	} else if (loadTriggerBackup(restoreTrigger, sizeof(restoreTrigger)) != dsERR_NONE) {
 		hal_info("Best-effort restore skipped trigger write: no persisted trigger available.\n");
 		return;
@@ -738,6 +739,22 @@ static void dsFPBestEffortRestoreOnExit(void)
 			return;
 		}
 		triggerLineLen = (size_t)lineLen;
+	}
+
+	if (preferredLedPath != NULL && preferredLedPath[0] != '\0') {
+		if (snprintf(preferredTriggerPath, sizeof(preferredTriggerPath), "%s/%s",
+					 preferredLedPath, SYSFS_LED_TRIGGER_FILE) < (int)sizeof(preferredTriggerPath)) {
+			int fd = open(preferredTriggerPath, O_WRONLY | O_CLOEXEC | O_NOFOLLOW);
+			if (fd >= 0) {
+				ssize_t n = write(fd, triggerLine, triggerLineLen);
+				if (n != (ssize_t)triggerLineLen) {
+					hal_err("Best-effort trigger restore write failed on '%s': %s\n",
+							preferredTriggerPath, (n < 0) ? strerror(errno) : "short write");
+				}
+				(void)close(fd);
+				return;
+			}
+		}
 	}
 
 	for (i = 0; i < (sizeof(triggerCandidates) / sizeof(triggerCandidates[0])); ++i) {
@@ -859,6 +876,10 @@ static void releaseProcessLock(void)
 static void dsFPExitCleanup(void)
 {
 	bool initialized = false;
+	bool shouldJoin = false;
+	pthread_t threadToJoin;
+	char exitTrigger[sizeof(gPreviousTrigger)] = {0};
+	char exitLedPath[DSFPD_LED_SYSFS_PATH_SIZE] = {0};
 	int lockRc;
 
 	hal_info("invoked.\n");
@@ -876,15 +897,47 @@ static void dsFPExitCleanup(void)
 	lockRc = pthread_mutex_trylock(&gLEDStateMutex);
 	if (lockRc != 0) {
 		hal_info("LED state mutex is busy during atexit; attempting best-effort trigger/brightness restore without mutex.\n");
-		dsFPBestEffortRestoreOnExit();
+		dsFPBestEffortRestoreOnExit(NULL, NULL);
 		return;
 	}
+
+	/* We hold the state mutex without blocking: perform minimal shutdown
+	 * state transitions here so there is no unlock/relock race window.
+	 */
 	initialized = gIsFPDInitialized;
+	if (initialized) {
+		if (gPreviousTrigger[0] != '\0') {
+			snprintf(exitTrigger, sizeof(exitTrigger), "%s", gPreviousTrigger);
+		}
+		if (gLedSysfsPath[0] != '\0') {
+			snprintf(exitLedPath, sizeof(exitLedPath), "%s", gLedSysfsPath);
+		}
+
+		gLEDPatternThreadStop = true;
+		pthread_cond_signal(&gLEDPatternCond);
+		if (gLEDPatternThreadRunning) {
+			threadToJoin = gLEDPatternThread;
+			gLEDPatternThreadRunning = false;
+			shouldJoin = true;
+		}
+		gIsFPDInitialized = false;
+	}
 	(void)pthread_mutex_unlock(&gLEDStateMutex);
 
-	if (initialized) {
-		(void)dsFPTerm();
+	if (!initialized) {
+		return;
 	}
+
+	if (shouldJoin) {
+		(void)pthread_join(threadToJoin, NULL);
+	}
+
+	/* During process exit, restore LED control without taking the state mutex. */
+	dsFPBestEffortRestoreOnExit(exitTrigger, exitLedPath);
+
+#ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
+	releaseProcessLock();
+#endif
 }
 
 /**
