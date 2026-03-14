@@ -196,24 +196,34 @@ static dsError_t readTextFile(const char *path, char *buffer, size_t bufferSize)
 {
 	int fd;
 	ssize_t bytesRead;
+	size_t totalRead = 0;
 
 	if (path == NULL || buffer == NULL || bufferSize < 2) {
 		return dsERR_INVALID_PARAM;
 	}
 
-	fd = open(path, O_RDONLY);
+	fd = open(path, O_RDONLY | O_CLOEXEC);
 	if (fd < 0) {
 		return dsERR_GENERAL;
 	}
 
-	bytesRead = read(fd, buffer, bufferSize - 1);
-	close(fd);
-
-	if (bytesRead < 0) {
-		return dsERR_GENERAL;
+	while (totalRead < bufferSize - 1) {
+		bytesRead = read(fd, buffer + totalRead, (bufferSize - 1) - totalRead);
+		if (bytesRead < 0) {
+			if (errno == EINTR) {
+				continue;
+			}
+			(void)close(fd);
+			return dsERR_GENERAL;
+		}
+		if (bytesRead == 0) {
+			break;
+		}
+		totalRead += (size_t)bytesRead;
 	}
+	(void)close(fd);
 
-	buffer[bytesRead] = '\0';
+	buffer[totalRead] = '\0';
 	return dsERR_NONE;
 }
 
@@ -229,24 +239,35 @@ static dsError_t writeTextFile(const char *path, const char *value)
 {
 	int fd;
 	size_t len;
+	size_t totalWritten = 0;
 	ssize_t bytesWritten;
 
 	if (path == NULL || value == NULL) {
 		return dsERR_INVALID_PARAM;
 	}
 
-	fd = open(path, O_WRONLY);
+	fd = open(path, O_WRONLY | O_CLOEXEC);
 	if (fd < 0) {
 		return dsERR_GENERAL;
 	}
 
 	len = strlen(value);
-	bytesWritten = write(fd, value, len);
-	close(fd);
-
-	if (bytesWritten < 0 || (size_t)bytesWritten != len) {
-		return dsERR_GENERAL;
+	while (totalWritten < len) {
+		bytesWritten = write(fd, value + totalWritten, len - totalWritten);
+		if (bytesWritten < 0) {
+			if (errno == EINTR) {
+				continue;
+			}
+			(void)close(fd);
+			return dsERR_GENERAL;
+		}
+		if (bytesWritten == 0) {
+			(void)close(fd);
+			return dsERR_GENERAL;
+		}
+		totalWritten += (size_t)bytesWritten;
 	}
+	(void)close(fd);
 
 	return dsERR_NONE;
 }
@@ -268,6 +289,7 @@ static dsError_t writeNewTextFile(const char *path, const char *value)
 	int fd;
 	struct stat st;
 	size_t len;
+	size_t totalWritten = 0;
 	ssize_t bytesWritten;
 
 	if (path == NULL || value == NULL) {
@@ -285,12 +307,22 @@ static dsError_t writeNewTextFile(const char *path, const char *value)
 	}
 
 	len = strlen(value);
-	bytesWritten = write(fd, value, len);
-	close(fd);
-
-	if (bytesWritten < 0 || (size_t)bytesWritten != len) {
-		return dsERR_GENERAL;
+	while (totalWritten < len) {
+		bytesWritten = write(fd, value + totalWritten, len - totalWritten);
+		if (bytesWritten < 0) {
+			if (errno == EINTR) {
+				continue;
+			}
+			(void)close(fd);
+			return dsERR_GENERAL;
+		}
+		if (bytesWritten == 0) {
+			(void)close(fd);
+			return dsERR_GENERAL;
+		}
+		totalWritten += (size_t)bytesWritten;
 	}
+	(void)close(fd);
 
 	return dsERR_NONE;
 }
@@ -616,7 +648,21 @@ static dsError_t acquireProcessLock(void)
 	(void)ftruncate(fd, 0);
 	len = snprintf(pidText, sizeof(pidText), "%ld\n", (long)getpid());
 	if (len > 0) {
-		(void)write(fd, pidText, (size_t)len);
+		size_t toWrite = (size_t)len;
+		size_t written = 0;
+		while (written < toWrite) {
+			ssize_t n = write(fd, pidText + written, toWrite - written);
+			if (n < 0) {
+				if (errno == EINTR) {
+					continue;
+				}
+				break;
+			}
+			if (n == 0) {
+				break;
+			}
+			written += (size_t)n;
+		}
 	}
 
 	gProcessLockFd = fd;
@@ -710,7 +756,15 @@ static void *ledPatternWorker(void *arg)
 			(void)writeLedBrightnessRaw(raw);
 
 			FPD_MUTEX_LOCK();
-			if (!gLEDPatternThreadStop) {
+			while (!gLEDPatternThreadStop) {
+				/* Re-read state under the lock before waiting to catch any
+				 * signal that fired while the mutex was unlocked for I/O.
+				 */
+				state = gCurrentLEDState;
+				brightness = gCurrentBrightness;
+				if (state != activeState || brightness != activeBrightness) {
+					break;
+				}
 				pthread_cond_wait(&gLEDPatternCond, &gLEDStateMutex);
 			}
 			FPD_MUTEX_UNLOCK();
@@ -933,7 +987,7 @@ dsError_t dsSetFPBlink(dsFPDIndicator_t eIndicator, unsigned int uBlinkDuration,
 	}
 
 	if (!dsFPDIndicator_isValid(eIndicator) || uBlinkDuration == 0 || uBlinkIterations == 0) {
-		hal_err("Invalid parameter, eIndicator: %d, uBlinkDuration: %d, uBlinkIterations: %d.\n",
+		hal_err("Invalid parameter, eIndicator: %d, uBlinkDuration: %u, uBlinkIterations: %u.\n",
 				eIndicator, uBlinkDuration, uBlinkIterations);
 		return dsERR_INVALID_PARAM;
 	}
@@ -976,7 +1030,7 @@ dsError_t dsSetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t eBrig
 	}
 
 	if (!dsFPDIndicator_isValid(eIndicator) || eBrightness > dsFPD_BRIGHTNESS_MAX) {
-		hal_err("Invalid parameter, eIndicator: %d, eBrightness: %d.\n", eIndicator, eBrightness);
+		hal_err("Invalid parameter, eIndicator: %d, eBrightness: %u.\n", eIndicator, eBrightness);
 		return dsERR_INVALID_PARAM;
 	}
 
@@ -1225,7 +1279,8 @@ dsError_t dsSetFPTime(dsFPDTimeFormat_t eTimeFormat, const unsigned int uHour, c
 
 	if (eTimeFormat < dsFPD_TIME_12_HOUR || eTimeFormat >= dsFPD_TIME_MAX || uMinutes >= 60
 			|| uHour >= ((eTimeFormat == dsFPD_TIME_12_HOUR) ? 13 : 24)) {
-		hal_err("Invalid parameter, eTimeFormat: %d.\n", eTimeFormat);
+		hal_err("Invalid parameter, eTimeFormat: %d, uHour: %u, uMinutes: %u.\n",
+				eTimeFormat, uHour, uMinutes);
 		return dsERR_INVALID_PARAM;
 	}
 
@@ -1270,8 +1325,9 @@ dsError_t dsSetFPText(const char* pText)
 		return dsERR_NOT_INITIALIZED;
 	}
 
-	if (pText == NULL || strlen(pText) > dsFPD_TEXTDISP_MAX) {
-		hal_err("Invalid parameter, pText: %p or length %d.\n", pText, (pText == NULL) ? 0 : strlen(pText));
+	if (pText == NULL || strlen(pText) > (size_t)dsFPD_TEXTDISP_MAX) {
+		hal_err("Invalid parameter, pText: %p or length %zu.\n",
+				pText, (pText != NULL) ? strlen(pText) : (size_t)0);
 		return dsERR_INVALID_PARAM;
 	}
 
@@ -1319,7 +1375,7 @@ dsError_t dsSetFPTextBrightness(dsFPDTextDisplay_t eIndicator, dsFPDBrightness_t
 	}
 
 	if (!dsFPDTextDisplay_isValid(eIndicator) || eBrightness > dsFPD_BRIGHTNESS_MAX) {
-		hal_err("Invalid parameter, eIndicator: %d, eBrightness: %d.\n", eIndicator, eBrightness);
+		hal_err("Invalid parameter, eIndicator: %d, eBrightness: %u.\n", eIndicator, eBrightness);
 		return dsERR_INVALID_PARAM;
 	}
 
@@ -1454,7 +1510,7 @@ dsError_t dsSetFPScroll(unsigned int uScrollHoldOnDur, unsigned int uHorzScrollI
 	}
 
 	if (uScrollHoldOnDur == 0 || (uHorzScrollIterations == 0 && uVertScrollIterations == 0)) {
-		hal_err("Invalid parameter, uScrollHoldOnDur: %d, uHorzScrollIterations: %d, uVertScrollIterations: %d.\n",
+		hal_err("Invalid parameter, uScrollHoldOnDur: %u, uHorzScrollIterations: %u, uVertScrollIterations: %u.\n",
 				uScrollHoldOnDur, uHorzScrollIterations, uVertScrollIterations);
 		return dsERR_INVALID_PARAM;
 	}
