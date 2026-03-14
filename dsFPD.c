@@ -23,7 +23,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdint.h>
+#include <limits.h>
 #include <stdbool.h>
+#include <ctype.h>
 #include <errno.h>
 #include <time.h>
 #include <pthread.h>
@@ -65,6 +68,10 @@ static bool gIsFPDInitialized = false;
 static bool gLEDPatternThreadRunning = false;
 static bool gLEDPatternThreadStop = false;
 static bool gExitCleanupRegistered = false;
+/* Thread-local flag set by the LED worker so the atexit handler can
+ * detect a self-join scenario without reading shared state under a mutex.
+ */
+static _Thread_local bool gIsLEDWorkerThread = false;
 #ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
 static int gProcessLockFd = -1;
 #endif
@@ -273,61 +280,6 @@ static dsError_t writeTextFile(const char *path, const char *value)
 }
 
 /**
- * @brief Creates or overwrites a regular file with the given text value.
- *
- * Unlike writeTextFile (which targets existing sysfs nodes), this helper is
- * intended for non-sysfs paths where the file may not yet exist.
- * Opens with O_CREAT|O_TRUNC|O_NOFOLLOW and restricts permissions to 0600.
- *
- * @param[in] path  File path.
- * @param[in] value Null-terminated value to write.
- *
- * @return dsERR_NONE on success, otherwise error code.
- */
-static dsError_t writeNewTextFile(const char *path, const char *value)
-{
-	int fd;
-	struct stat st;
-	size_t len;
-	size_t totalWritten = 0;
-	ssize_t bytesWritten;
-
-	if (path == NULL || value == NULL) {
-		return dsERR_INVALID_PARAM;
-	}
-
-	fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0600);
-	if (fd < 0) {
-		return dsERR_GENERAL;
-	}
-
-	if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
-		(void)close(fd);
-		return dsERR_GENERAL;
-	}
-
-	len = strlen(value);
-	while (totalWritten < len) {
-		bytesWritten = write(fd, value + totalWritten, len - totalWritten);
-		if (bytesWritten < 0) {
-			if (errno == EINTR) {
-				continue;
-			}
-			(void)close(fd);
-			return dsERR_GENERAL;
-		}
-		if (bytesWritten == 0) {
-			(void)close(fd);
-			return dsERR_GENERAL;
-		}
-		totalWritten += (size_t)bytesWritten;
-	}
-	(void)close(fd);
-
-	return dsERR_NONE;
-}
-
-/**
  * @brief Reads an unsigned integer from a text file.
  *
  * @param[in] path File path.
@@ -351,7 +303,23 @@ static dsError_t readUintFromFile(const char *path, unsigned int *value)
 
 	errno = 0;
 	parsed = strtoul(data, &endPtr, 10);
-	if (errno != 0 || endPtr == data) {
+	if (errno == ERANGE || endPtr == data) {
+		return dsERR_GENERAL;
+	}
+
+	/* Reject trailing non-whitespace characters (e.g. garbled sysfs output) */
+	if (endPtr != NULL) {
+		const char *p = endPtr;
+		while (*p != '\0') {
+			if (!isspace((unsigned char)*p)) {
+				return dsERR_GENERAL;
+			}
+			++p;
+		}
+	}
+
+	/* Guard against values that exceed unsigned int range */
+	if (parsed > (unsigned long)UINT_MAX) {
 		return dsERR_GENERAL;
 	}
 
@@ -505,17 +473,72 @@ static dsError_t loadTriggerBackup(char *trigger, size_t triggerSize)
 /**
  * @brief Persists the current trigger value for crash-safe restore.
  *
+ * Writes to a temporary file in the same directory and renames it into
+ * place atomically so the backup is always either the old or new value,
+ * never partially written.
+ *
  * @param[in] trigger Trigger string to persist.
  *
  * @return dsERR_NONE on success, otherwise error code.
  */
 static dsError_t saveTriggerBackup(const char *trigger)
 {
+	char tmpPath[sizeof(SYSFS_LED_TRIGGER_BACKUP_FILE) + 4];
+	int fd;
+	size_t len;
+	size_t total = 0;
+	ssize_t n;
+
 	if (trigger == NULL || trigger[0] == '\0') {
 		return dsERR_INVALID_PARAM;
 	}
 
-	return writeNewTextFile(SYSFS_LED_TRIGGER_BACKUP_FILE, trigger);
+	if (snprintf(tmpPath, sizeof(tmpPath), "%s.tmp", SYSFS_LED_TRIGGER_BACKUP_FILE)
+			>= (int)sizeof(tmpPath)) {
+		return dsERR_GENERAL;
+	}
+
+	fd = open(tmpPath, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
+	if (fd < 0) {
+		return dsERR_GENERAL;
+	}
+
+	len = strlen(trigger);
+	while (total < len) {
+		n = write(fd, trigger + total, len - total);
+		if (n < 0) {
+			if (errno == EINTR) {
+				continue;
+			}
+			(void)close(fd);
+			(void)unlink(tmpPath);
+			return dsERR_GENERAL;
+		}
+		if (n == 0) {
+			(void)close(fd);
+			(void)unlink(tmpPath);
+			return dsERR_GENERAL;
+		}
+		total += (size_t)n;
+	}
+
+	if (fsync(fd) != 0) {
+		(void)close(fd);
+		(void)unlink(tmpPath);
+		return dsERR_GENERAL;
+	}
+
+	if (close(fd) != 0) {
+		(void)unlink(tmpPath);
+		return dsERR_GENERAL;
+	}
+
+	if (rename(tmpPath, SYSFS_LED_TRIGGER_BACKUP_FILE) != 0) {
+		(void)unlink(tmpPath);
+		return dsERR_GENERAL;
+	}
+
+	return dsERR_NONE;
 }
 
 /**
@@ -694,14 +717,14 @@ static void releaseProcessLock(void)
 static void dsFPExitCleanup(void)
 {
 	hal_info("invoked.\n");
+	/* gIsLEDWorkerThread is set by ledPatternWorker() on entry with no
+	 * mutex required, so it is safe to read here in the atexit handler.
+	 */
+	if (gIsLEDWorkerThread) {
+		hal_info("Skipping dsFPTerm() in LED worker thread atexit handler to avoid self-join.\n");
+		return;
+	}
 	if (isInitialized()) {
-		/* Avoid pthread_join() self-deadlock if the worker thread itself
-		 * calls exit() (e.g. via an unhandled signal or library call).
-		 */
-		if (gLEDPatternThreadRunning && pthread_equal(pthread_self(), gLEDPatternThread)) {
-			hal_info("Skipping dsFPTerm() in LED worker thread atexit handler to avoid self-join.\n");
-			return;
-		}
 		(void)dsFPTerm();
 	}
 }
@@ -716,6 +739,10 @@ static void dsFPExitCleanup(void)
 static void *ledPatternWorker(void *arg)
 {
 	hal_info("LED pattern worker thread started.\n");
+	/* Mark this thread so the atexit handler can skip dsFPTerm() if
+	 * this thread itself calls exit(), avoiding a self-join deadlock.
+	 */
+	gIsLEDWorkerThread = true;
 	dsFPDLedState_t activeState = dsFPD_LED_DEVICE_NONE;
 	dsFPDBrightness_t activeBrightness = dsFPD_BRIGHTNESS_MAX;
 	size_t phaseIndex = 0;
