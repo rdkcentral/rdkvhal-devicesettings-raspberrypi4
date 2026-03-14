@@ -429,8 +429,12 @@ static dsError_t cacheCurrentTrigger(void)
 	}
 
 	openBracket = strchr(triggerData, '[');
-	closeBracket = strchr(triggerData, ']');
-	if (openBracket == NULL || closeBracket == NULL || closeBracket <= openBracket + 1) {
+	if (openBracket == NULL) {
+		return dsERR_GENERAL;
+	}
+
+	closeBracket = strchr(openBracket, ']');
+	if (closeBracket == NULL || closeBracket <= openBracket + 1) {
 		return dsERR_GENERAL;
 	}
 
