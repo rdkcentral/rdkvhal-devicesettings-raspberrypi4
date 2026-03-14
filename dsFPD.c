@@ -32,6 +32,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <libgen.h>
 #include <sys/stat.h>
 
 #include "dsFPD.h"
@@ -626,6 +627,24 @@ static dsError_t saveTriggerBackup(const char *trigger)
 		return dsERR_GENERAL;
 	}
 
+	/* Best-effort fsync of the parent directory to make the rename durable. */
+	{
+		char dirPath[PATH_MAX];
+		char *dirName;
+		int dirfd;
+		if (strlen(SYSFS_LED_TRIGGER_BACKUP_FILE) < sizeof(dirPath)) {
+			(void)strcpy(dirPath, SYSFS_LED_TRIGGER_BACKUP_FILE);
+			dirName = dirname(dirPath);
+			if (dirName != NULL) {
+				dirfd = open(dirName, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+				if (dirfd >= 0) {
+					(void)fsync(dirfd);
+					(void)close(dirfd);
+				}
+			}
+		}
+	}
+
 	return dsERR_NONE;
 }
 
@@ -707,7 +726,7 @@ static unsigned int percentToRawBrightness(dsFPDBrightness_t percent)
 }
 
 /**
- * @brief Best-effort restore of LED trigger/brightness without state mutex.
+ * @brief Best-effort restore of LED trigger without state mutex.
  *
  * Used by atexit when mutex is busy so shutdown does not hang while still
  * attempting to restore kernel-controlled LED behavior.
@@ -896,7 +915,7 @@ static void dsFPExitCleanup(void)
 	 */
 	lockRc = pthread_mutex_trylock(&gLEDStateMutex);
 	if (lockRc != 0) {
-		hal_info("LED state mutex is busy during atexit; attempting best-effort trigger/brightness restore without mutex.\n");
+		hal_info("LED state mutex is busy during atexit; attempting best-effort trigger restore without mutex.\n");
 		dsFPBestEffortRestoreOnExit(NULL, NULL);
 		return;
 	}
@@ -1171,7 +1190,12 @@ dsError_t dsFPInit(void)
 	} else {
 		hal_info("Current LED trigger before init: %s\n", gPreviousTrigger);
 		if (saveTriggerBackup(gPreviousTrigger) != dsERR_NONE) {
-			hal_err("Unable to persist trigger backup file.\n");
+#ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
+			releaseProcessLock();
+#endif
+			FPD_MUTEX_UNLOCK();
+			hal_err("Unable to persist trigger backup file; aborting initialization.\n");
+			return dsERR_GENERAL;
 		}
 	}
 
