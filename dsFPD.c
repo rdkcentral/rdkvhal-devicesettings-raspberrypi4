@@ -266,6 +266,7 @@ static dsError_t writeTextFile(const char *path, const char *value)
 static dsError_t writeNewTextFile(const char *path, const char *value)
 {
 	int fd;
+	struct stat st;
 	size_t len;
 	ssize_t bytesWritten;
 
@@ -273,8 +274,13 @@ static dsError_t writeNewTextFile(const char *path, const char *value)
 		return dsERR_INVALID_PARAM;
 	}
 
-	fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600);
+	fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0600);
 	if (fd < 0) {
+		return dsERR_GENERAL;
+	}
+
+	if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+		(void)close(fd);
 		return dsERR_GENERAL;
 	}
 
@@ -405,14 +411,45 @@ static dsError_t loadTriggerBackup(char *trigger, size_t triggerSize)
 {
 	char data[128];
 	size_t len;
+	int fd;
+	struct stat st;
+	ssize_t n;
+	size_t total = 0;
 
 	if (trigger == NULL || triggerSize == 0) {
 		return dsERR_INVALID_PARAM;
 	}
 
-	if (readTextFile(SYSFS_LED_TRIGGER_BACKUP_FILE, data, sizeof(data)) != dsERR_NONE) {
+	fd = open(SYSFS_LED_TRIGGER_BACKUP_FILE, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+	if (fd < 0) {
 		return dsERR_GENERAL;
 	}
+
+	if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+		(void)close(fd);
+		return dsERR_GENERAL;
+	}
+
+	while (total < sizeof(data) - 1) {
+		n = read(fd, data + total, (sizeof(data) - 1) - total);
+		if (n < 0) {
+			if (errno == EINTR) {
+				continue;
+			}
+			(void)close(fd);
+			return dsERR_GENERAL;
+		}
+		if (n == 0) {
+			break;
+		}
+		total += (size_t)n;
+	}
+	(void)close(fd);
+
+	if (total == 0) {
+		return dsERR_GENERAL;
+	}
+	data[total] = '\0';
 
 	len = strlen(data);
 	while (len > 0 && (data[len - 1] == '\n' || data[len - 1] == '\r' || data[len - 1] == ' ' || data[len - 1] == '\t')) {
@@ -612,6 +649,13 @@ static void dsFPExitCleanup(void)
 {
 	hal_info("invoked.\n");
 	if (isInitialized()) {
+		/* Avoid pthread_join() self-deadlock if the worker thread itself
+		 * calls exit() (e.g. via an unhandled signal or library call).
+		 */
+		if (gLEDPatternThreadRunning && pthread_equal(pthread_self(), gLEDPatternThread)) {
+			hal_info("Skipping dsFPTerm() in LED worker thread atexit handler to avoid self-join.\n");
+			return;
+		}
 		(void)dsFPTerm();
 	}
 }
@@ -627,6 +671,7 @@ static void *ledPatternWorker(void *arg)
 {
 	hal_info("LED pattern worker thread started.\n");
 	dsFPDLedState_t activeState = dsFPD_LED_DEVICE_NONE;
+	dsFPDBrightness_t activeBrightness = dsFPD_BRIGHTNESS_MAX;
 	size_t phaseIndex = 0;
 
 	(void)arg;
@@ -653,9 +698,10 @@ static void *ledPatternWorker(void *arg)
 		rawOn = percentToRawBrightness(brightness);
 		isBlink = getPatternForState(state, &pattern);
 
-		if (state != activeState) {
+		if (state != activeState || brightness != activeBrightness) {
 			phaseIndex = 0;
 			activeState = state;
+			activeBrightness = brightness;
 		}
 
 		if (!isBlink) {
@@ -689,7 +735,18 @@ static void *ledPatternWorker(void *arg)
 				if (waitRc == ETIMEDOUT) {
 					phaseIndex = (phaseIndex + 1U) % pattern.count;
 				} else {
-					phaseIndex = 0;
+					/* Non-timeout wake: check if state or brightness actually changed.
+					 * If not, treat as spurious wakeup and advance phase normally.
+					 */
+					state = gCurrentLEDState;
+					brightness = gCurrentBrightness;
+					if (state != activeState || brightness != activeBrightness) {
+						phaseIndex = 0;
+						activeState = state;
+						activeBrightness = brightness;
+					} else {
+						phaseIndex = (phaseIndex + 1U) % pattern.count;
+					}
 				}
 			}
 			FPD_MUTEX_UNLOCK();
