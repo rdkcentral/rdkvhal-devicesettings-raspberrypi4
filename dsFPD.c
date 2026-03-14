@@ -223,6 +223,7 @@ static dsError_t readTextFile(const char *path, char *buffer, size_t bufferSize)
 
 	fd = open(path, O_RDONLY | O_CLOEXEC);
 	if (fd < 0) {
+		hal_err("Failed to open '%s' for read: %s\n", path, strerror(errno));
 		return dsERR_GENERAL;
 	}
 
@@ -232,6 +233,7 @@ static dsError_t readTextFile(const char *path, char *buffer, size_t bufferSize)
 			if (errno == EINTR) {
 				continue;
 			}
+			hal_err("Failed to read '%s': %s\n", path, strerror(errno));
 			(void)close(fd);
 			return dsERR_GENERAL;
 		}
@@ -267,6 +269,7 @@ static dsError_t writeTextFile(const char *path, const char *value)
 
 	fd = open(path, O_WRONLY | O_CLOEXEC);
 	if (fd < 0) {
+		hal_err("Failed to open '%s' for write: %s\n", path, strerror(errno));
 		return dsERR_GENERAL;
 	}
 
@@ -277,10 +280,12 @@ static dsError_t writeTextFile(const char *path, const char *value)
 			if (errno == EINTR) {
 				continue;
 			}
+			hal_err("Failed to write '%s': %s\n", path, strerror(errno));
 			(void)close(fd);
 			return dsERR_GENERAL;
 		}
 		if (bytesWritten == 0) {
+			hal_err("Failed to write '%s': short write (0 bytes)\n", path);
 			(void)close(fd);
 			return dsERR_GENERAL;
 		}
@@ -641,22 +646,67 @@ static dsError_t writeLedBrightnessRaw(unsigned int raw)
  */
 static unsigned int percentToRawBrightness(dsFPDBrightness_t percent)
 {
+	uint64_t tmp;
 	unsigned int raw;
 
 	if (percent == 0) {
 		return 0;
 	}
 
-	raw = (unsigned int)((percent * gLedMaxBrightness + 99U) / 100U);
-	if (raw == 0) {
-		raw = 1;
+	tmp = (((uint64_t)percent * (uint64_t)gLedMaxBrightness) + 99ULL) / 100ULL;
+	if (tmp == 0ULL) {
+		tmp = 1ULL;
 	}
 
-	if (raw > gLedMaxBrightness) {
-		raw = gLedMaxBrightness;
+	if (tmp > (uint64_t)gLedMaxBrightness) {
+		tmp = (uint64_t)gLedMaxBrightness;
 	}
+
+	if (tmp > (uint64_t)UINT_MAX) {
+		tmp = (uint64_t)UINT_MAX;
+	}
+	raw = (unsigned int)tmp;
 
 	return raw;
+}
+
+/**
+ * @brief Best-effort restore of LED trigger/brightness without state mutex.
+ *
+ * Used by atexit when mutex is busy so shutdown does not hang while still
+ * attempting to restore kernel-controlled LED behavior.
+ */
+static void dsFPBestEffortRestoreOnExit(void)
+{
+	const char *triggerCandidates[] = {
+		"/sys/class/leds/ACT/trigger",
+		"/sys/class/leds/led0/trigger",
+		"/sys/class/leds/act/trigger"
+	};
+	const char *brightnessCandidates[] = {
+		"/sys/class/leds/ACT/brightness",
+		"/sys/class/leds/led0/brightness",
+		"/sys/class/leds/act/brightness"
+	};
+	size_t i;
+
+	for (i = 0; i < (sizeof(triggerCandidates) / sizeof(triggerCandidates[0])); ++i) {
+		int fd = open(triggerCandidates[i], O_WRONLY | O_CLOEXEC | O_NOFOLLOW);
+		if (fd >= 0) {
+			(void)write(fd, "mmc0\n", 5);
+			(void)close(fd);
+			break;
+		}
+	}
+
+	for (i = 0; i < (sizeof(brightnessCandidates) / sizeof(brightnessCandidates[0])); ++i) {
+		int fd = open(brightnessCandidates[i], O_WRONLY | O_CLOEXEC | O_NOFOLLOW);
+		if (fd >= 0) {
+			(void)write(fd, "0\n", 2);
+			(void)close(fd);
+			break;
+		}
+	}
 }
 
 /**
@@ -780,7 +830,8 @@ static void dsFPExitCleanup(void)
 	 */
 	lockRc = pthread_mutex_trylock(&gLEDStateMutex);
 	if (lockRc != 0) {
-		hal_info("Skipping dsFPTerm() in atexit: LED state mutex is busy.\n");
+		hal_info("LED state mutex is busy during atexit; attempting best-effort trigger/brightness restore without mutex.\n");
+		dsFPBestEffortRestoreOnExit();
 		return;
 	}
 	initialized = gIsFPDInitialized;
@@ -895,6 +946,7 @@ static void *ledPatternWorker(void *arg)
 					phaseIndex = 0;
 					activeState = state;
 					activeBrightness = brightness;
+					applyConfirmationPending = true;
 				} else {
 					int waitRc = pthread_cond_timedwait(&gLEDPatternCond, &gLEDStateMutex, &wakeTime);
 					if (waitRc == ETIMEDOUT) {
@@ -909,6 +961,7 @@ static void *ledPatternWorker(void *arg)
 							phaseIndex = 0;
 							activeState = state;
 							activeBrightness = brightness;
+							applyConfirmationPending = true;
 						} else {
 							phaseIndex = (phaseIndex + 1U) % pattern.count;
 						}
