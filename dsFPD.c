@@ -1044,9 +1044,12 @@ dsError_t dsFPInit(void)
 	}
 
 #ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
-	if (acquireProcessLock() != dsERR_NONE) {
-		FPD_MUTEX_UNLOCK();
-		return dsERR_OPERATION_NOT_SUPPORTED;
+	{
+		dsError_t lockErr = acquireProcessLock();
+		if (lockErr != dsERR_NONE) {
+			FPD_MUTEX_UNLOCK();
+			return lockErr;
+		}
 	}
 #endif
 
@@ -1968,16 +1971,17 @@ dsError_t dsFPSetLEDState(dsFPDLedState_t state)
 		return dsERR_INVALID_PARAM;
 	}
 
-	if (((1u << state) & gSupportedLEDStates) == 0u) {
-		hal_err("Requested LED state: %d is unsupported.\n", state);
-		return dsERR_OPERATION_NOT_SUPPORTED;
-	}
-
 	FPD_MUTEX_LOCK();
 	if (!gIsFPDInitialized) {
 		FPD_MUTEX_UNLOCK();
 		hal_err("Module not initialized.\n");
 		return dsERR_NOT_INITIALIZED;
+	}
+
+	if (((1u << state) & gSupportedLEDStates) == 0u) {
+		FPD_MUTEX_UNLOCK();
+		hal_err("Requested LED state: %d is unsupported.\n", state);
+		return dsERR_OPERATION_NOT_SUPPORTED;
 	}
 
 	if (applyLedStateLocked(state) != dsERR_NONE) {
