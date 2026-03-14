@@ -693,7 +693,11 @@ static void dsFPBestEffortRestoreOnExit(void)
 	for (i = 0; i < (sizeof(triggerCandidates) / sizeof(triggerCandidates[0])); ++i) {
 		int fd = open(triggerCandidates[i], O_WRONLY | O_CLOEXEC | O_NOFOLLOW);
 		if (fd >= 0) {
-			(void)write(fd, "mmc0\n", 5);
+			ssize_t n = write(fd, "mmc0\n", 5);
+			if (n != 5) {
+				hal_err("Best-effort trigger restore write failed on '%s': %s\n",
+						triggerCandidates[i], (n < 0) ? strerror(errno) : "short write");
+			}
 			(void)close(fd);
 			break;
 		}
@@ -702,7 +706,11 @@ static void dsFPBestEffortRestoreOnExit(void)
 	for (i = 0; i < (sizeof(brightnessCandidates) / sizeof(brightnessCandidates[0])); ++i) {
 		int fd = open(brightnessCandidates[i], O_WRONLY | O_CLOEXEC | O_NOFOLLOW);
 		if (fd >= 0) {
-			(void)write(fd, "0\n", 2);
+			ssize_t n = write(fd, "0\n", 2);
+			if (n != 2) {
+				hal_err("Best-effort brightness restore write failed on '%s': %s\n",
+						brightnessCandidates[i], (n < 0) ? strerror(errno) : "short write");
+			}
 			(void)close(fd);
 			break;
 		}
