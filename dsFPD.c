@@ -824,7 +824,9 @@ static dsError_t acquireProcessLock(void)
 
 	fd = open(SYSFS_LED_PROCESS_LOCK_FILE, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
 	if (fd < 0) {
-		hal_err("Unable to open process lock file: %s\n", SYSFS_LED_PROCESS_LOCK_FILE);
+		int err = errno;
+		hal_err("Unable to open process lock file '%s': errno=%d (%s)\n",
+				SYSFS_LED_PROCESS_LOCK_FILE, err, strerror(err));
 		return dsERR_GENERAL;
 	}
 
