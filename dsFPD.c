@@ -804,6 +804,17 @@ static dsError_t applyLedStateLocked(dsFPDLedState_t state)
 	return dsERR_NONE;
 }
 
+/**
+ * @brief Returns whether FP indicator APIs should be treated as ON.
+ *
+ * Caller must hold gLEDStateMutex.
+ */
+static bool isFPIndicatorOnLocked(void)
+{
+	return !(gCurrentLEDState == dsFPD_LED_DEVICE_STANDBY ||
+			 gCurrentLEDState == dsFPD_LED_DEVICE_NONE);
+}
+
 #ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
 /**
  * @brief Acquires exclusive inter-process ownership of LED control.
@@ -1279,18 +1290,35 @@ dsError_t dsSetFPBlink(dsFPDIndicator_t eIndicator, unsigned int uBlinkDuration,
 {
 	hal_info("invoked.\n");
 
-	if (!isInitialized()) {
-		hal_err("Module not initialized.\n");
-		return dsERR_NOT_INITIALIZED;
-	}
-
 	if (!dsFPDIndicator_isValid(eIndicator) || uBlinkDuration == 0 || uBlinkIterations == 0) {
 		hal_err("Invalid parameter, eIndicator: %d, uBlinkDuration: %u, uBlinkIterations: %u.\n",
 				eIndicator, uBlinkDuration, uBlinkIterations);
 		return dsERR_INVALID_PARAM;
 	}
 
-	return dsERR_OPERATION_NOT_SUPPORTED;
+	FPD_MUTEX_LOCK();
+	if (!gIsFPDInitialized) {
+		FPD_MUTEX_UNLOCK();
+		hal_err("Module not initialized.\n");
+		return dsERR_NOT_INITIALIZED;
+	}
+
+	if (!isFPIndicatorOnLocked()) {
+		FPD_MUTEX_UNLOCK();
+		return dsERR_OPERATION_NOT_SUPPORTED;
+	}
+
+	/*
+	 * Platform has one ACT LED controlled by state patterns. For indicator-level
+	 * blink requests, use the basic blink pattern state.
+	 */
+	if (applyLedStateLocked(dsFPD_LED_DEVICE_WPS_CONNECTING) != dsERR_NONE) {
+		FPD_MUTEX_UNLOCK();
+		return dsERR_GENERAL;
+	}
+	FPD_MUTEX_UNLOCK();
+
+	return dsERR_NONE;
 }
 
 /**
@@ -1322,17 +1350,29 @@ dsError_t dsSetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t eBrig
 {
 	hal_info("invoked.\n");
 
-	if (!isInitialized()) {
-		hal_err("Module not initialized.\n");
-		return dsERR_NOT_INITIALIZED;
-	}
-
 	if (!dsFPDIndicator_isValid(eIndicator) || eBrightness > dsFPD_BRIGHTNESS_MAX) {
 		hal_err("Invalid parameter, eIndicator: %d, eBrightness: %u.\n", eIndicator, eBrightness);
 		return dsERR_INVALID_PARAM;
 	}
 
-	return dsERR_OPERATION_NOT_SUPPORTED;
+	FPD_MUTEX_LOCK();
+	if (!gIsFPDInitialized) {
+		FPD_MUTEX_UNLOCK();
+		hal_err("Module not initialized.\n");
+		return dsERR_NOT_INITIALIZED;
+	}
+
+	if (!isFPIndicatorOnLocked()) {
+		FPD_MUTEX_UNLOCK();
+		return dsERR_OPERATION_NOT_SUPPORTED;
+	}
+
+	gCurrentBrightness = eBrightness;
+	/* Wake worker so brightness is applied immediately. */
+	pthread_cond_signal(&gLEDPatternCond);
+	FPD_MUTEX_UNLOCK();
+
+	return dsERR_NONE;
 }
 
 /**
@@ -1363,18 +1403,27 @@ dsError_t dsGetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t *pBri
 {
 	hal_info("invoked.\n");
 
-	if (!isInitialized()) {
-		hal_err("Module not initialized.\n");
-		return dsERR_NOT_INITIALIZED;
-	}
-
 	if (!dsFPDIndicator_isValid(eIndicator) || pBrightness == NULL) {
 		hal_err("Invalid parameter, eIndicator: %d, pBrightness: %p.\n", eIndicator, pBrightness);
 		return dsERR_INVALID_PARAM;
 	}
 
-	hal_info("Get brightness is not supported.\n");
-	return dsERR_OPERATION_NOT_SUPPORTED;
+	FPD_MUTEX_LOCK();
+	if (!gIsFPDInitialized) {
+		FPD_MUTEX_UNLOCK();
+		hal_err("Module not initialized.\n");
+		return dsERR_NOT_INITIALIZED;
+	}
+
+	if (!isFPIndicatorOnLocked()) {
+		FPD_MUTEX_UNLOCK();
+		return dsERR_OPERATION_NOT_SUPPORTED;
+	}
+
+	*pBrightness = gCurrentBrightness;
+	FPD_MUTEX_UNLOCK();
+
+	return dsERR_NONE;
 }
 
 /**
@@ -1402,17 +1451,32 @@ dsError_t dsSetFPState(dsFPDIndicator_t eIndicator, dsFPDState_t state)
 {
 	hal_info("invoked.\n");
 
-	if (!isInitialized()) {
-		hal_err("Module not initialized.\n");
-		return dsERR_NOT_INITIALIZED;
-	}
-
 	if (!dsFPDIndicator_isValid(eIndicator) || state < dsFPD_STATE_OFF || state >= dsFPD_STATE_MAX) {
 		hal_err("Invalid parameter, eIndicator: %d, state: %d.\n", eIndicator, state);
 		return dsERR_INVALID_PARAM;
 	}
 
-	return dsERR_OPERATION_NOT_SUPPORTED;
+	FPD_MUTEX_LOCK();
+	if (!gIsFPDInitialized) {
+		FPD_MUTEX_UNLOCK();
+		hal_err("Module not initialized.\n");
+		return dsERR_NOT_INITIALIZED;
+	}
+
+	if (state == dsFPD_STATE_OFF) {
+		if (applyLedStateLocked(dsFPD_LED_DEVICE_STANDBY) != dsERR_NONE) {
+			FPD_MUTEX_UNLOCK();
+			return dsERR_GENERAL;
+		}
+	} else {
+		if (applyLedStateLocked(dsFPD_LED_DEVICE_ACTIVE) != dsERR_NONE) {
+			FPD_MUTEX_UNLOCK();
+			return dsERR_GENERAL;
+		}
+	}
+	FPD_MUTEX_UNLOCK();
+
+	return dsERR_NONE;
 }
 
 /**
@@ -1440,17 +1504,22 @@ dsError_t dsGetFPState(dsFPDIndicator_t eIndicator, dsFPDState_t* state)
 {
 	hal_info("invoked.\n");
 
-	if (!isInitialized()) {
-		hal_err("Module not initialized.\n");
-		return dsERR_NOT_INITIALIZED;
-	}
-
 	if (!dsFPDIndicator_isValid(eIndicator) || state == NULL) {
 		hal_err("Invalid parameter, eIndicator: %d, state: %p.\n", eIndicator, state);
 		return dsERR_INVALID_PARAM;
 	}
 
-	return dsERR_OPERATION_NOT_SUPPORTED;
+	FPD_MUTEX_LOCK();
+	if (!gIsFPDInitialized) {
+		FPD_MUTEX_UNLOCK();
+		hal_err("Module not initialized.\n");
+		return dsERR_NOT_INITIALIZED;
+	}
+
+	*state = isFPIndicatorOnLocked() ? dsFPD_STATE_ON : dsFPD_STATE_OFF;
+	FPD_MUTEX_UNLOCK();
+
+	return dsERR_NONE;
 }
 
 /**
