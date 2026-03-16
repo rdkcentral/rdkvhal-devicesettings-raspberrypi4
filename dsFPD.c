@@ -811,17 +811,6 @@ static dsError_t applyLedStateLocked(dsFPDLedState_t state)
 }
 
 /**
- * @brief Returns whether FP indicator APIs should be treated as ON.
- *
- * Caller must hold gLEDStateMutex.
- */
-static bool isFPIndicatorOnLocked(void)
-{
-	return !(gCurrentLEDState == dsFPD_LED_DEVICE_STANDBY ||
-			 gCurrentLEDState == dsFPD_LED_DEVICE_NONE);
-}
-
-/**
  * @brief Returns whether the selected indicator is ON.
  *
  * Caller must hold gLEDStateMutex.
