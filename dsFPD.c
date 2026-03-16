@@ -73,7 +73,7 @@ static bool gIsFPDInitialized = false;
 static bool gLEDPatternThreadRunning = false;
 static bool gLEDPatternThreadStop = false;
 static bool gExitCleanupRegistered = false;
-static dsFPDState_t gIndicatorStates[dsFPD_INDICATOR_MAX];
+static dsFPDState_t gFPState = dsFPD_STATE_OFF;
 static bool gCustomBlinkActive = false;
 static unsigned int gCustomBlinkDurationMs = 0;
 static unsigned int gCustomBlinkIterations = 0;
@@ -815,13 +815,13 @@ static dsError_t applyLedStateLocked(dsFPDLedState_t state)
  *
  * Caller must hold gLEDStateMutex.
  */
-static bool isIndicatorOnLocked(dsFPDIndicator_t indicator)
+static bool isFPStateEnabledLocked(dsFPDIndicator_t indicator)
 {
 	if (!dsFPDIndicator_isValid(indicator)) {
 		return false;
 	}
 
-	return gIndicatorStates[indicator] == dsFPD_STATE_ON;
+	return gFPState == dsFPD_STATE_ON;
 }
 
 /**
@@ -1297,9 +1297,7 @@ dsError_t dsFPInit(void)
 
 	gCurrentBrightness = dsFPD_BRIGHTNESS_MAX;
 	gCurrentLEDState = dsFPD_LED_DEVICE_ACTIVE;
-	for (int i = 0; i < dsFPD_INDICATOR_MAX; ++i) {
-		gIndicatorStates[i] = dsFPD_STATE_ON;
-	}
+	gFPState = dsFPD_STATE_ON;
 	gCustomBlinkActive = false;
 	gCustomBlinkDurationMs = 0;
 	gCustomBlinkIterations = 0;
@@ -1380,9 +1378,8 @@ dsError_t dsSetFPBlink(dsFPDIndicator_t eIndicator, unsigned int uBlinkDuration,
 		return dsERR_NOT_INITIALIZED;
 	}
 
-	if (!isIndicatorOnLocked(eIndicator)) {
-		hal_err("Blink rejected: indicator is OFF (eIndicator=%d, indicatorState=%d, currentLedState=%d).\n",
-				eIndicator, gIndicatorStates[eIndicator], gCurrentLEDState);
+	if (!isFPStateEnabledLocked(eIndicator)) {
+		hal_err("FPState is %d.\n", gFPState);
 		FPD_MUTEX_UNLOCK();
 		return dsERR_OPERATION_NOT_SUPPORTED;
 	}
@@ -1448,7 +1445,7 @@ dsError_t dsSetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t eBrig
 		return dsERR_NOT_INITIALIZED;
 	}
 
-	if (!isIndicatorOnLocked(eIndicator)) {
+	if (!isFPStateEnabledLocked(eIndicator)) {
 		FPD_MUTEX_UNLOCK();
 		return dsERR_OPERATION_NOT_SUPPORTED;
 	}
@@ -1506,7 +1503,7 @@ dsError_t dsGetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t *pBri
 		return dsERR_NOT_INITIALIZED;
 	}
 
-	if (!isIndicatorOnLocked(eIndicator)) {
+	if (!isFPStateEnabledLocked(eIndicator)) {
 		FPD_MUTEX_UNLOCK();
 		return dsERR_OPERATION_NOT_SUPPORTED;
 	}
@@ -1559,27 +1556,14 @@ dsError_t dsSetFPState(dsFPDIndicator_t eIndicator, dsFPDState_t state)
 		return dsERR_NOT_INITIALIZED;
 	}
 
-	gIndicatorStates[eIndicator] = state;
+	gFPState = state;
 	hal_info("SetFPState applied: eIndicator=%d state=%d.\n", eIndicator, state);
 	if (state == dsFPD_STATE_OFF) {
 		/* Turning an indicator OFF should stop any in-progress custom blink. */
 		gCustomBlinkActive = false;
 	}
 
-	/* The platform has one physical LED. Drive it from POWER indicator state. */
-	if (eIndicator == dsFPD_INDICATOR_POWER) {
-		if (state == dsFPD_STATE_OFF) {
-			if (applyLedStateLocked(dsFPD_LED_DEVICE_STANDBY) != dsERR_NONE) {
-				FPD_MUTEX_UNLOCK();
-				return dsERR_GENERAL;
-			}
-		} else {
-			if (applyLedStateLocked(dsFPD_LED_DEVICE_ACTIVE) != dsERR_NONE) {
-				FPD_MUTEX_UNLOCK();
-				return dsERR_GENERAL;
-			}
-		}
-	}
+	pthread_cond_signal(&gLEDPatternCond);
 	FPD_MUTEX_UNLOCK();
 
 	return dsERR_NONE;
@@ -1627,7 +1611,7 @@ dsError_t dsGetFPState(dsFPDIndicator_t eIndicator, dsFPDState_t* state)
 		return dsERR_NOT_INITIALIZED;
 	}
 
-	*state = gIndicatorStates[eIndicator];
+	*state = gFPState;
 	FPD_MUTEX_UNLOCK();
 
 	return dsERR_NONE;
@@ -1671,6 +1655,7 @@ dsError_t dsSetFPColor(dsFPDIndicator_t eIndicator, dsFPDColor_t eColor)
 		return dsERR_INVALID_PARAM;
 	}
 
+	hal_err("No Hardware support for multi-color.\n");
 	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -1712,6 +1697,7 @@ dsError_t dsGetFPColor(dsFPDIndicator_t eIndicator, dsFPDColor_t *pColor)
 		return dsERR_INVALID_PARAM;
 	}
 
+	hal_err("No Hardware support for multi-color.\n");
 	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -1762,6 +1748,7 @@ dsError_t dsSetFPTime(dsFPDTimeFormat_t eTimeFormat, const unsigned int uHour, c
 		return dsERR_INVALID_PARAM;
 	}
 
+	hal_err("No Hardware support for setting time.\n");
 	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -1808,7 +1795,7 @@ dsError_t dsSetFPText(const char* pText)
 		return dsERR_INVALID_PARAM;
 	}
 
-
+	hal_err("No Hardware support for setting text.\n");
 	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -1856,6 +1843,7 @@ dsError_t dsSetFPTextBrightness(dsFPDTextDisplay_t eIndicator, dsFPDBrightness_t
 		return dsERR_INVALID_PARAM;
 	}
 
+	hal_err("No Hardware support for setting text brightness.\n");
 	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -1902,6 +1890,7 @@ dsError_t dsGetFPTextBrightness(dsFPDTextDisplay_t eIndicator, dsFPDBrightness_t
 		return dsERR_INVALID_PARAM;
 	}
 
+	hal_err("No Hardware support for getting text brightness.\n");
 	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -1944,6 +1933,7 @@ dsError_t dsFPEnableCLockDisplay(int enable)
 		return dsERR_INVALID_PARAM;
 	}
 
+	hal_err("No Hardware support for clock display.\n");
 	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -1992,6 +1982,7 @@ dsError_t dsSetFPScroll(unsigned int uScrollHoldOnDur, unsigned int uHorzScrollI
 		return dsERR_INVALID_PARAM;
 	}
 
+	hal_err("No Hardware support for text scrolling.\n");
 	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -2058,9 +2049,7 @@ dsError_t dsFPTerm(void)
 
 	gCurrentLEDState = dsFPD_LED_DEVICE_NONE;
 	gCurrentBrightness = dsFPD_BRIGHTNESS_MAX;
-	for (int i = 0; i < dsFPD_INDICATOR_MAX; ++i) {
-		gIndicatorStates[i] = dsFPD_STATE_OFF;
-	}
+	gFPState = dsFPD_STATE_OFF;
 	gCustomBlinkActive = false;
 	gCustomBlinkDurationMs = 0;
 	gCustomBlinkIterations = 0;
@@ -2123,7 +2112,7 @@ dsError_t dsSetFPTimeFormat(dsFPDTimeFormat_t eTimeFormat)
 		return dsERR_INVALID_PARAM;
 	}
 
-
+	hal_err("No Hardware support for setting time format.\n");
 	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -2169,6 +2158,7 @@ dsError_t dsGetFPTimeFormat(dsFPDTimeFormat_t *pTimeFormat)
 		return dsERR_INVALID_PARAM;
 	}
 
+	hal_err("No Hardware support for getting time format.\n");
 	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -2211,6 +2201,7 @@ dsError_t dsSetFPDMode(dsFPDMode_t eMode)
 		return dsERR_INVALID_PARAM;
 	}
 
+	hal_err("No Hardware support for setting display mode.\n");
 	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -2352,7 +2343,7 @@ dsError_t dsFPGetSupportedLEDStates(unsigned int* states)
 		hal_err("Module not initialized.\n");
 		return dsERR_NOT_INITIALIZED;
 	}
-
+	hal_info("Supported LED states: 0x%X\n", gSupportedLEDStates);
 	*states = gSupportedLEDStates;
 	return dsERR_NONE;
 }
