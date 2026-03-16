@@ -73,6 +73,12 @@ static bool gIsFPDInitialized = false;
 static bool gLEDPatternThreadRunning = false;
 static bool gLEDPatternThreadStop = false;
 static bool gExitCleanupRegistered = false;
+static dsFPDState_t gIndicatorStates[dsFPD_INDICATOR_MAX];
+static bool gCustomBlinkActive = false;
+static unsigned int gCustomBlinkDurationMs = 0;
+static unsigned int gCustomBlinkIterations = 0;
+static uint64_t gCustomBlinkRequestId = 0;
+static dsFPDLedState_t gCustomBlinkResumeState = dsFPD_LED_DEVICE_ACTIVE;
 /* Thread-local flag set by the LED worker so the atexit handler can
  * detect a self-join scenario without reading shared state under a mutex.
  */
@@ -815,6 +821,30 @@ static bool isFPIndicatorOnLocked(void)
 			 gCurrentLEDState == dsFPD_LED_DEVICE_NONE);
 }
 
+/**
+ * @brief Returns whether the selected indicator is ON.
+ *
+ * Caller must hold gLEDStateMutex.
+ */
+static bool isIndicatorOnLocked(dsFPDIndicator_t indicator)
+{
+	if (!dsFPDIndicator_isValid(indicator)) {
+		return false;
+	}
+
+	return gIndicatorStates[indicator] == dsFPD_STATE_ON;
+}
+
+/**
+ * @brief Returns whether indicator is supported by this platform.
+ *
+ * Raspberry Pi implementation supports only POWER indicator APIs.
+ */
+static bool isIndicatorSupported(dsFPDIndicator_t indicator)
+{
+	return indicator == dsFPD_INDICATOR_POWER;
+}
+
 #ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
 /**
  * @brief Acquires exclusive inter-process ownership of LED control.
@@ -989,6 +1019,9 @@ static void *ledPatternWorker(void *arg)
 	dsFPDLedState_t activeState = dsFPD_LED_DEVICE_NONE;
 	dsFPDBrightness_t activeBrightness = dsFPD_BRIGHTNESS_MAX;
 	size_t phaseIndex = 0;
+	uint64_t activeCustomReqId = 0;
+	bool customPhaseOn = true;
+	unsigned int customPhasesRemaining = 0;
 
 	(void)arg;
 
@@ -998,6 +1031,9 @@ static void *ledPatternWorker(void *arg)
 		dsFPDBrightness_t brightness;
 		unsigned int rawOn;
 		bool isBlink;
+		bool useCustomBlink = false;
+		bool customLedOn = false;
+		unsigned int customDurationMs = 0;
 
 		FPD_MUTEX_LOCK();
 		while (!gLEDPatternThreadStop && !gIsFPDInitialized) {
@@ -1014,13 +1050,39 @@ static void *ledPatternWorker(void *arg)
 		rawOn = percentToRawBrightness(brightness);
 		isBlink = getPatternForState(state, &pattern);
 
+		if (gCustomBlinkActive) {
+			useCustomBlink = true;
+			if (activeCustomReqId != gCustomBlinkRequestId) {
+				activeCustomReqId = gCustomBlinkRequestId;
+				customPhaseOn = true;
+				customPhasesRemaining = gCustomBlinkIterations * 2U;
+			}
+
+			if (customPhasesRemaining == 0U) {
+				gCustomBlinkActive = false;
+				useCustomBlink = false;
+				activeCustomReqId = 0;
+				customPhaseOn = true;
+				if (applyLedStateLocked(gCustomBlinkResumeState) != dsERR_NONE) {
+					hal_err("Failed to restore LED state after custom blink sequence.\n");
+				}
+				state = gCurrentLEDState;
+				brightness = gCurrentBrightness;
+				rawOn = percentToRawBrightness(brightness);
+				isBlink = getPatternForState(state, &pattern);
+			} else {
+				customLedOn = customPhaseOn;
+				customDurationMs = gCustomBlinkDurationMs;
+			}
+		}
+
 		if (state != activeState || brightness != activeBrightness) {
 			phaseIndex = 0;
 			activeState = state;
 			activeBrightness = brightness;
 		}
 
-		if (!isBlink) {
+		if (!useCustomBlink && !isBlink) {
 			unsigned int raw = (state == dsFPD_LED_DEVICE_STANDBY || state == dsFPD_LED_DEVICE_NONE) ? 0 : rawOn;
 			FPD_MUTEX_UNLOCK();
 			if (dsERR_NONE != writeLedBrightnessRaw(raw)) {
@@ -1034,7 +1096,7 @@ static void *ledPatternWorker(void *arg)
 				 */
 				state = gCurrentLEDState;
 				brightness = gCurrentBrightness;
-				if (state != activeState || brightness != activeBrightness) {
+				if (state != activeState || brightness != activeBrightness || gCustomBlinkActive) {
 					break;
 				}
 				pthread_cond_wait(&gLEDPatternCond, &gLEDStateMutex);
@@ -1044,9 +1106,9 @@ static void *ledPatternWorker(void *arg)
 		}
 
 		{
-			bool ledOn = ((phaseIndex % 2U) == 0U) ? pattern.startOn : !pattern.startOn;
+			bool ledOn = useCustomBlink ? customLedOn : (((phaseIndex % 2U) == 0U) ? pattern.startOn : !pattern.startOn);
 			unsigned int raw = ledOn ? rawOn : 0;
-			unsigned int durationMs = pattern.durationsMs[phaseIndex % pattern.count];
+			unsigned int durationMs = useCustomBlink ? customDurationMs : pattern.durationsMs[phaseIndex % pattern.count];
 			struct timespec wakeTime;
 
 			FPD_MUTEX_UNLOCK();
@@ -1071,7 +1133,20 @@ static void *ledPatternWorker(void *arg)
 				} else {
 					int waitRc = pthread_cond_timedwait(&gLEDPatternCond, &gLEDStateMutex, &wakeTime);
 					if (waitRc == ETIMEDOUT) {
-						phaseIndex = (phaseIndex + 1U) % pattern.count;
+						if (useCustomBlink) {
+							if (customPhasesRemaining > 0U) {
+								customPhasesRemaining--;
+								customPhaseOn = !customPhaseOn;
+							}
+							if (customPhasesRemaining == 0U) {
+								gCustomBlinkActive = false;
+								if (applyLedStateLocked(gCustomBlinkResumeState) != dsERR_NONE) {
+									hal_err("Failed to restore LED state after custom blink timeout.\n");
+								}
+							}
+						} else {
+							phaseIndex = (phaseIndex + 1U) % pattern.count;
+						}
 					} else {
 						/* Non-timeout wake: check if state or brightness actually changed.
 						 * If not, treat as spurious wakeup and advance phase normally.
@@ -1082,7 +1157,7 @@ static void *ledPatternWorker(void *arg)
 							phaseIndex = 0;
 							activeState = state;
 							activeBrightness = brightness;
-						} else {
+						} else if (!useCustomBlink) {
 							phaseIndex = (phaseIndex + 1U) % pattern.count;
 						}
 					}
@@ -1233,6 +1308,14 @@ dsError_t dsFPInit(void)
 
 	gCurrentBrightness = dsFPD_BRIGHTNESS_MAX;
 	gCurrentLEDState = dsFPD_LED_DEVICE_ACTIVE;
+	for (int i = 0; i < dsFPD_INDICATOR_MAX; ++i) {
+		gIndicatorStates[i] = dsFPD_STATE_ON;
+	}
+	gCustomBlinkActive = false;
+	gCustomBlinkDurationMs = 0;
+	gCustomBlinkIterations = 0;
+	gCustomBlinkRequestId = 0;
+	gCustomBlinkResumeState = dsFPD_LED_DEVICE_ACTIVE;
 	gLEDPatternThreadStop = false;
 	if (pthread_create(&gLEDPatternThread, NULL, ledPatternWorker, NULL) != 0) {
 		(void)writeLedBrightnessRaw(0);
@@ -1296,6 +1379,11 @@ dsError_t dsSetFPBlink(dsFPDIndicator_t eIndicator, unsigned int uBlinkDuration,
 		return dsERR_INVALID_PARAM;
 	}
 
+	if (!isIndicatorSupported(eIndicator)) {
+		hal_err("Blink rejected: unsupported indicator eIndicator=%d.\n", eIndicator);
+		return dsERR_OPERATION_NOT_SUPPORTED;
+	}
+
 	FPD_MUTEX_LOCK();
 	if (!gIsFPDInitialized) {
 		FPD_MUTEX_UNLOCK();
@@ -1303,19 +1391,23 @@ dsError_t dsSetFPBlink(dsFPDIndicator_t eIndicator, unsigned int uBlinkDuration,
 		return dsERR_NOT_INITIALIZED;
 	}
 
-	if (!isFPIndicatorOnLocked()) {
+	if (!isIndicatorOnLocked(eIndicator)) {
+		hal_err("Blink rejected: indicator is OFF (eIndicator=%d, indicatorState=%d, currentLedState=%d).\n",
+				eIndicator, gIndicatorStates[eIndicator], gCurrentLEDState);
 		FPD_MUTEX_UNLOCK();
 		return dsERR_OPERATION_NOT_SUPPORTED;
 	}
 
-	/*
-	 * Platform has one ACT LED controlled by state patterns. For indicator-level
-	 * blink requests, use the basic blink pattern state.
-	 */
-	if (applyLedStateLocked(dsFPD_LED_DEVICE_WPS_CONNECTING) != dsERR_NONE) {
-		FPD_MUTEX_UNLOCK();
-		return dsERR_GENERAL;
-	}
+	hal_info("Blink accepted: eIndicator=%d, durationMs=%u, iterations=%u, resumeLedState=%d.\n",
+			eIndicator, uBlinkDuration, uBlinkIterations, gCurrentLEDState);
+
+	gCustomBlinkDurationMs = uBlinkDuration;
+	gCustomBlinkIterations = uBlinkIterations;
+	gCustomBlinkResumeState = gCurrentLEDState;
+	gCustomBlinkRequestId++;
+	gCustomBlinkActive = true;
+	/* Wake the worker so custom blink starts immediately. */
+	pthread_cond_signal(&gLEDPatternCond);
 	FPD_MUTEX_UNLOCK();
 
 	return dsERR_NONE;
@@ -1355,6 +1447,11 @@ dsError_t dsSetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t eBrig
 		return dsERR_INVALID_PARAM;
 	}
 
+	if (!isIndicatorSupported(eIndicator)) {
+		hal_err("Unsupported indicator, eIndicator: %d.\n", eIndicator);
+		return dsERR_OPERATION_NOT_SUPPORTED;
+	}
+
 	FPD_MUTEX_LOCK();
 	if (!gIsFPDInitialized) {
 		FPD_MUTEX_UNLOCK();
@@ -1362,7 +1459,7 @@ dsError_t dsSetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t eBrig
 		return dsERR_NOT_INITIALIZED;
 	}
 
-	if (!isFPIndicatorOnLocked()) {
+	if (!isIndicatorOnLocked(eIndicator)) {
 		FPD_MUTEX_UNLOCK();
 		return dsERR_OPERATION_NOT_SUPPORTED;
 	}
@@ -1408,6 +1505,11 @@ dsError_t dsGetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t *pBri
 		return dsERR_INVALID_PARAM;
 	}
 
+	if (!isIndicatorSupported(eIndicator)) {
+		hal_err("Unsupported indicator, eIndicator: %d.\n", eIndicator);
+		return dsERR_OPERATION_NOT_SUPPORTED;
+	}
+
 	FPD_MUTEX_LOCK();
 	if (!gIsFPDInitialized) {
 		FPD_MUTEX_UNLOCK();
@@ -1415,7 +1517,7 @@ dsError_t dsGetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t *pBri
 		return dsERR_NOT_INITIALIZED;
 	}
 
-	if (!isFPIndicatorOnLocked()) {
+	if (!isIndicatorOnLocked(eIndicator)) {
 		FPD_MUTEX_UNLOCK();
 		return dsERR_OPERATION_NOT_SUPPORTED;
 	}
@@ -1456,6 +1558,11 @@ dsError_t dsSetFPState(dsFPDIndicator_t eIndicator, dsFPDState_t state)
 		return dsERR_INVALID_PARAM;
 	}
 
+	if (!isIndicatorSupported(eIndicator)) {
+		hal_err("SetFPState rejected: unsupported indicator eIndicator=%d.\n", eIndicator);
+		return dsERR_OPERATION_NOT_SUPPORTED;
+	}
+
 	FPD_MUTEX_LOCK();
 	if (!gIsFPDInitialized) {
 		FPD_MUTEX_UNLOCK();
@@ -1463,15 +1570,25 @@ dsError_t dsSetFPState(dsFPDIndicator_t eIndicator, dsFPDState_t state)
 		return dsERR_NOT_INITIALIZED;
 	}
 
+	gIndicatorStates[eIndicator] = state;
+	hal_info("SetFPState applied: eIndicator=%d state=%d.\n", eIndicator, state);
 	if (state == dsFPD_STATE_OFF) {
-		if (applyLedStateLocked(dsFPD_LED_DEVICE_STANDBY) != dsERR_NONE) {
-			FPD_MUTEX_UNLOCK();
-			return dsERR_GENERAL;
-		}
-	} else {
-		if (applyLedStateLocked(dsFPD_LED_DEVICE_ACTIVE) != dsERR_NONE) {
-			FPD_MUTEX_UNLOCK();
-			return dsERR_GENERAL;
+		/* Turning an indicator OFF should stop any in-progress custom blink. */
+		gCustomBlinkActive = false;
+	}
+
+	/* The platform has one physical LED. Drive it from POWER indicator state. */
+	if (eIndicator == dsFPD_INDICATOR_POWER) {
+		if (state == dsFPD_STATE_OFF) {
+			if (applyLedStateLocked(dsFPD_LED_DEVICE_STANDBY) != dsERR_NONE) {
+				FPD_MUTEX_UNLOCK();
+				return dsERR_GENERAL;
+			}
+		} else {
+			if (applyLedStateLocked(dsFPD_LED_DEVICE_ACTIVE) != dsERR_NONE) {
+				FPD_MUTEX_UNLOCK();
+				return dsERR_GENERAL;
+			}
 		}
 	}
 	FPD_MUTEX_UNLOCK();
@@ -1509,6 +1626,11 @@ dsError_t dsGetFPState(dsFPDIndicator_t eIndicator, dsFPDState_t* state)
 		return dsERR_INVALID_PARAM;
 	}
 
+	if (!isIndicatorSupported(eIndicator)) {
+		hal_err("Unsupported indicator, eIndicator: %d.\n", eIndicator);
+		return dsERR_OPERATION_NOT_SUPPORTED;
+	}
+
 	FPD_MUTEX_LOCK();
 	if (!gIsFPDInitialized) {
 		FPD_MUTEX_UNLOCK();
@@ -1516,7 +1638,7 @@ dsError_t dsGetFPState(dsFPDIndicator_t eIndicator, dsFPDState_t* state)
 		return dsERR_NOT_INITIALIZED;
 	}
 
-	*state = isFPIndicatorOnLocked() ? dsFPD_STATE_ON : dsFPD_STATE_OFF;
+	*state = gIndicatorStates[eIndicator];
 	FPD_MUTEX_UNLOCK();
 
 	return dsERR_NONE;
@@ -1947,6 +2069,14 @@ dsError_t dsFPTerm(void)
 
 	gCurrentLEDState = dsFPD_LED_DEVICE_NONE;
 	gCurrentBrightness = dsFPD_BRIGHTNESS_MAX;
+	for (int i = 0; i < dsFPD_INDICATOR_MAX; ++i) {
+		gIndicatorStates[i] = dsFPD_STATE_OFF;
+	}
+	gCustomBlinkActive = false;
+	gCustomBlinkDurationMs = 0;
+	gCustomBlinkIterations = 0;
+	gCustomBlinkRequestId = 0;
+	gCustomBlinkResumeState = dsFPD_LED_DEVICE_ACTIVE;
 	gLedMaxBrightness = 1;
 	gLedSysfsPath[0] = '\0';
 	gPreviousTrigger[0] = '\0';
@@ -2189,6 +2319,9 @@ dsError_t dsFPSetLEDState(dsFPDLedState_t state)
 		hal_err("Requested LED state: %d is unsupported.\n", state);
 		return dsERR_OPERATION_NOT_SUPPORTED;
 	}
+
+	/* API contract: dsFPSetLEDState should stop an in-progress indicator blink. */
+	gCustomBlinkActive = false;
 
 	if (applyLedStateLocked(state) != dsERR_NONE) {
 		FPD_MUTEX_UNLOCK();
