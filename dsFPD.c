@@ -63,29 +63,58 @@ static const dsFPDLedState_t gSupportedLEDStates = (dsFPDLedState_t)(
 	(1u << dsFPD_LED_DEVICE_SOFTWARE_DOWNLOAD_ERROR)
 );
 
-static dsFPDLedState_t gCurrentLEDState = dsFPD_LED_DEVICE_NONE;
-static dsFPDBrightness_t gCurrentBrightness = dsFPD_BRIGHTNESS_MAX;
-static pthread_mutex_t gLEDStateMutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t gLEDPatternCond;
-static bool gCondVarReady = false;
-static pthread_t gLEDPatternThread;
-static bool gIsFPDInitialized = false;
-static bool gLEDPatternThreadRunning = false;
-static bool gLEDPatternThreadStop = false;
-static bool gExitCleanupRegistered = false;
-static dsFPDState_t gFPState = dsFPD_STATE_OFF;
-static bool gCustomBlinkActive = false;
-static unsigned int gCustomBlinkDurationMs = 0;
-static unsigned int gCustomBlinkIterations = 0;
-static uint64_t gCustomBlinkRequestId = 0;
-static dsFPDLedState_t gCustomBlinkResumeState = dsFPD_LED_DEVICE_ACTIVE;
+typedef struct {
+	dsFPDLedState_t currentLEDState;
+	dsFPDBrightness_t currentBrightness;
+	pthread_mutex_t ledStateMutex;
+	pthread_cond_t ledPatternCond;
+	bool condVarReady;
+	pthread_t ledPatternThread;
+	bool isFPDInitialized;
+	bool ledPatternThreadRunning;
+	bool ledPatternThreadStop;
+	bool exitCleanupRegistered;
+	dsFPDState_t fpState;
+	bool customBlinkActive;
+	unsigned int customBlinkDurationMs;
+	unsigned int customBlinkIterations;
+	uint64_t customBlinkRequestId;
+	dsFPDLedState_t customBlinkResumeState;
+	char ledSysfsPath[PATH_MAX];
+	char previousTrigger[256];
+	unsigned int ledMaxBrightness;
+#ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
+	int processLockFd;
+#endif
+} dsFPDContext_t;
+
+static dsFPDContext_t gFPDCtx = {
+	.currentLEDState = dsFPD_LED_DEVICE_NONE,
+	.currentBrightness = dsFPD_BRIGHTNESS_MAX,
+	.ledStateMutex = PTHREAD_MUTEX_INITIALIZER,
+	.condVarReady = false,
+	.isFPDInitialized = false,
+	.ledPatternThreadRunning = false,
+	.ledPatternThreadStop = false,
+	.exitCleanupRegistered = false,
+	.fpState = dsFPD_STATE_OFF,
+	.customBlinkActive = false,
+	.customBlinkDurationMs = 0,
+	.customBlinkIterations = 0,
+	.customBlinkRequestId = 0,
+	.customBlinkResumeState = dsFPD_LED_DEVICE_ACTIVE,
+	.ledSysfsPath = {0},
+	.previousTrigger = {0},
+	.ledMaxBrightness = 1,
+#ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
+	.processLockFd = -1,
+#endif
+};
+
 /* Thread-local flag set by the LED worker so the atexit handler can
  * detect a self-join scenario without reading shared state under a mutex.
  */
 static _Thread_local bool gIsLEDWorkerThread = false;
-#ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
-static int gProcessLockFd = -1;
-#endif
 #define DSFPD_LED_SYSFS_PATH_SIZE PATH_MAX
 #define DSFPD_LED_FILE_PATH_SIZE PATH_MAX
 #define DSFPD_TRIGGER_TOKEN_SIZE 256
@@ -94,10 +123,6 @@ static int gProcessLockFd = -1;
 #define DSFPD_SMALL_TEXT_BUFFER_SIZE 64
 #define DSFPD_NUMERIC_TEXT_BUFFER_SIZE 32
 
-static char gLedSysfsPath[DSFPD_LED_SYSFS_PATH_SIZE] = {0};
-static char gPreviousTrigger[DSFPD_TRIGGER_TOKEN_SIZE] = {0};
-static unsigned int gLedMaxBrightness = 1;
-
 #define SYSFS_LED_BRIGHTNESS_FILE "brightness"
 #define SYSFS_LED_MAX_BRIGHTNESS_FILE "max_brightness"
 #define SYSFS_LED_TRIGGER_FILE "trigger"
@@ -105,11 +130,11 @@ static unsigned int gLedMaxBrightness = 1;
 #define SYSFS_LED_PROCESS_LOCK_FILE "/run/lock/rpi_act_led_control.lock"
 
 #define FPD_MUTEX_LOCK()   do { \
-	pthread_mutex_lock(&gLEDStateMutex); \
+	pthread_mutex_lock(&gFPDCtx.ledStateMutex); \
 } while(0)
 
 #define FPD_MUTEX_UNLOCK()   do { \
-	pthread_mutex_unlock(&gLEDStateMutex); \
+	pthread_mutex_unlock(&gFPDCtx.ledStateMutex); \
 } while(0)
 
 /**
@@ -121,7 +146,7 @@ static bool isInitialized(void)
 {
 	bool initialized;
 	FPD_MUTEX_LOCK();
-	initialized = gIsFPDInitialized;
+	initialized = gFPDCtx.isFPDInitialized;
 	FPD_MUTEX_UNLOCK();
 	return initialized;
 }
@@ -369,8 +394,8 @@ static void composeLedFilePath(char *outPath, size_t outPathSize, const char *fi
 	}
 
 	outPath[0] = '\0';
-	baseLen = strnlen(gLedSysfsPath, sizeof(gLedSysfsPath));
-	if (baseLen == 0 || baseLen >= sizeof(gLedSysfsPath)) {
+	baseLen = strnlen(gFPDCtx.ledSysfsPath, sizeof(gFPDCtx.ledSysfsPath));
+	if (baseLen == 0 || baseLen >= sizeof(gFPDCtx.ledSysfsPath)) {
 		return;
 	}
 
@@ -384,7 +409,7 @@ static void composeLedFilePath(char *outPath, size_t outPathSize, const char *fi
 		return;
 	}
 
-	memcpy(outPath, gLedSysfsPath, baseLen);
+	memcpy(outPath, gFPDCtx.ledSysfsPath, baseLen);
 	outPath[baseLen] = '/';
 	memcpy(outPath + baseLen + 1U, fileName, nameLen);
 	outPath[baseLen + 1U + nameLen] = '\0';
@@ -406,7 +431,7 @@ static dsError_t detectLedPath(void)
 
 	for (i = 0; i < (sizeof(candidates) / sizeof(candidates[0])); ++i) {
 		if (access(candidates[i], F_OK) == 0) {
-			snprintf(gLedSysfsPath, sizeof(gLedSysfsPath), "%s", candidates[i]);
+			snprintf(gFPDCtx.ledSysfsPath, sizeof(gFPDCtx.ledSysfsPath), "%s", candidates[i]);
 			return dsERR_NONE;
 		}
 	}
@@ -484,7 +509,7 @@ static dsError_t readCurrentSysfsTrigger(char *buffer, size_t bufferSize)
  */
 static dsError_t cacheCurrentTrigger(void)
 {
-	return readCurrentSysfsTrigger(gPreviousTrigger, sizeof(gPreviousTrigger));
+	return readCurrentSysfsTrigger(gFPDCtx.previousTrigger, sizeof(gFPDCtx.previousTrigger));
 }
 
 /**
@@ -689,8 +714,8 @@ static dsError_t writeLedBrightnessRaw(unsigned int raw)
 	char brightnessPath[DSFPD_LED_FILE_PATH_SIZE];
 	char value[DSFPD_NUMERIC_TEXT_BUFFER_SIZE];
 
-	if (raw > gLedMaxBrightness) {
-		raw = gLedMaxBrightness;
+	if (raw > gFPDCtx.ledMaxBrightness) {
+		raw = gFPDCtx.ledMaxBrightness;
 	}
 
 	composeLedFilePath(brightnessPath, sizeof(brightnessPath), SYSFS_LED_BRIGHTNESS_FILE);
@@ -714,13 +739,13 @@ static unsigned int percentToRawBrightness(dsFPDBrightness_t percent)
 		return 0;
 	}
 
-	tmp = (((uint64_t)percent * (uint64_t)gLedMaxBrightness) + 99ULL) / 100ULL;
+	tmp = (((uint64_t)percent * (uint64_t)gFPDCtx.ledMaxBrightness) + 99ULL) / 100ULL;
 	if (tmp == 0ULL) {
 		tmp = 1ULL;
 	}
 
-	if (tmp > (uint64_t)gLedMaxBrightness) {
-		tmp = (uint64_t)gLedMaxBrightness;
+	if (tmp > (uint64_t)gFPDCtx.ledMaxBrightness) {
+		tmp = (uint64_t)gFPDCtx.ledMaxBrightness;
 	}
 
 	if (tmp > (uint64_t)UINT_MAX) {
@@ -744,9 +769,9 @@ static void dsFPBestEffortRestoreOnExit(const char *preferredTrigger, const char
 		"/sys/class/leds/led0/trigger",
 		"/sys/class/leds/act/trigger"
 	};
-	char restoreTrigger[sizeof(gPreviousTrigger)] = {0};
+	char restoreTrigger[sizeof(gFPDCtx.previousTrigger)] = {0};
 	char preferredTriggerPath[DSFPD_LED_FILE_PATH_SIZE];
-	char triggerLine[sizeof(gPreviousTrigger) + 2];
+	char triggerLine[sizeof(gFPDCtx.previousTrigger) + 2];
 	size_t triggerLineLen = 0;
 	size_t i;
 
@@ -805,15 +830,15 @@ static void dsFPBestEffortRestoreOnExit(const char *preferredTrigger, const char
  */
 static dsError_t applyLedStateLocked(dsFPDLedState_t state)
 {
-	gCurrentLEDState = state;
-	pthread_cond_signal(&gLEDPatternCond);
+	gFPDCtx.currentLEDState = state;
+	pthread_cond_signal(&gFPDCtx.ledPatternCond);
 	return dsERR_NONE;
 }
 
 /**
  * @brief Returns whether the selected indicator is ON.
  *
- * Caller must hold gLEDStateMutex.
+ * Caller must hold gFPDCtx.ledStateMutex.
  */
 static bool isFPStateEnabledLocked(dsFPDIndicator_t indicator)
 {
@@ -821,7 +846,7 @@ static bool isFPStateEnabledLocked(dsFPDIndicator_t indicator)
 		return false;
 	}
 
-	return gFPState == dsFPD_STATE_ON;
+	return gFPDCtx.fpState == dsFPD_STATE_ON;
 }
 
 /**
@@ -848,7 +873,7 @@ static dsError_t acquireProcessLock(void)
 	char pidText[DSFPD_NUMERIC_TEXT_BUFFER_SIZE];
 	int len;
 
-	if (gProcessLockFd >= 0) {
+	if (gFPDCtx.processLockFd >= 0) {
 		return dsERR_NONE;
 	}
 
@@ -898,7 +923,7 @@ static dsError_t acquireProcessLock(void)
 		}
 	}
 
-	gProcessLockFd = fd;
+	gFPDCtx.processLockFd = fd;
 	return dsERR_NONE;
 }
 
@@ -907,13 +932,13 @@ static dsError_t acquireProcessLock(void)
  */
 static void releaseProcessLock(void)
 {
-	if (gProcessLockFd >= 0) {
+	if (gFPDCtx.processLockFd >= 0) {
 		struct flock lock = {0};
 		lock.l_type = F_UNLCK;
 		lock.l_whence = SEEK_SET;
-		(void)fcntl(gProcessLockFd, F_SETLK, &lock);
-		(void)close(gProcessLockFd);
-		gProcessLockFd = -1;
+		(void)fcntl(gFPDCtx.processLockFd, F_SETLK, &lock);
+		(void)close(gFPDCtx.processLockFd);
+		gFPDCtx.processLockFd = -1;
 	}
 }
 #endif
@@ -929,7 +954,7 @@ static void dsFPExitCleanup(void)
 	bool initialized = false;
 	bool shouldJoin = false;
 	pthread_t threadToJoin;
-	char exitTrigger[sizeof(gPreviousTrigger)] = {0};
+	char exitTrigger[sizeof(gFPDCtx.previousTrigger)] = {0};
 	char exitLedPath[DSFPD_LED_SYSFS_PATH_SIZE] = {0};
 	int lockRc;
 
@@ -945,7 +970,7 @@ static void dsFPExitCleanup(void)
 	/* Best-effort exit path: do not block on the state mutex during process
 	 * shutdown, otherwise atexit can hang if another thread holds the lock.
 	 */
-	lockRc = pthread_mutex_trylock(&gLEDStateMutex);
+	lockRc = pthread_mutex_trylock(&gFPDCtx.ledStateMutex);
 	if (lockRc != 0) {
 		hal_info("LED state mutex is busy during atexit; attempting best-effort trigger restore without mutex.\n");
 		dsFPBestEffortRestoreOnExit(NULL, NULL);
@@ -955,25 +980,25 @@ static void dsFPExitCleanup(void)
 	/* We hold the state mutex without blocking: perform minimal shutdown
 	 * state transitions here so there is no unlock/relock race window.
 	 */
-	initialized = gIsFPDInitialized;
+	initialized = gFPDCtx.isFPDInitialized;
 	if (initialized) {
-		if (gPreviousTrigger[0] != '\0') {
-			snprintf(exitTrigger, sizeof(exitTrigger), "%s", gPreviousTrigger);
+		if (gFPDCtx.previousTrigger[0] != '\0') {
+			snprintf(exitTrigger, sizeof(exitTrigger), "%s", gFPDCtx.previousTrigger);
 		}
-		if (gLedSysfsPath[0] != '\0') {
-			snprintf(exitLedPath, sizeof(exitLedPath), "%s", gLedSysfsPath);
+		if (gFPDCtx.ledSysfsPath[0] != '\0') {
+			snprintf(exitLedPath, sizeof(exitLedPath), "%s", gFPDCtx.ledSysfsPath);
 		}
 
-		gLEDPatternThreadStop = true;
-		pthread_cond_signal(&gLEDPatternCond);
-		if (gLEDPatternThreadRunning) {
-			threadToJoin = gLEDPatternThread;
-			gLEDPatternThreadRunning = false;
+		gFPDCtx.ledPatternThreadStop = true;
+		pthread_cond_signal(&gFPDCtx.ledPatternCond);
+		if (gFPDCtx.ledPatternThreadRunning) {
+			threadToJoin = gFPDCtx.ledPatternThread;
+			gFPDCtx.ledPatternThreadRunning = false;
 			shouldJoin = true;
 		}
-		gIsFPDInitialized = false;
+		gFPDCtx.isFPDInitialized = false;
 	}
-	(void)pthread_mutex_unlock(&gLEDStateMutex);
+	(void)pthread_mutex_unlock(&gFPDCtx.ledStateMutex);
 
 	if (!initialized) {
 		return;
@@ -994,12 +1019,18 @@ static void dsFPExitCleanup(void)
 /**
  * @brief Worker thread that drives steady and blinking LED behavior.
  *
- * @param[in] arg Unused thread argument.
+ * @param[in] arg Shared FPD context.
  *
  * @return NULL on thread exit.
  */
 static void *ledPatternWorker(void *arg)
 {
+	dsFPDContext_t *ctx = (dsFPDContext_t *)arg;
+	if (ctx == NULL) {
+		hal_err("LED pattern worker started without context.\n");
+		return NULL;
+	}
+
 	hal_info("LED pattern worker thread started.\n");
 	/* Mark this thread so the atexit handler can skip dsFPTerm() if
 	 * this thread itself calls exit(), avoiding a self-join deadlock.
@@ -1007,90 +1038,93 @@ static void *ledPatternWorker(void *arg)
 	gIsLEDWorkerThread = true;
 	dsFPDLedState_t activeState = dsFPD_LED_DEVICE_NONE;
 	dsFPDBrightness_t activeBrightness = dsFPD_BRIGHTNESS_MAX;
+	dsFPDState_t activeFPState = dsFPD_STATE_OFF;
 	size_t phaseIndex = 0;
 	uint64_t activeCustomReqId = 0;
 	bool customPhaseOn = true;
 	unsigned int customPhasesRemaining = 0;
 
-	(void)arg;
-
 	while (true) {
 		dsLedBlinkPattern_t pattern;
 		dsFPDLedState_t state;
 		dsFPDBrightness_t brightness;
+		dsFPDState_t fpState;
 		unsigned int rawOn;
 		bool isBlink;
 		bool useCustomBlink = false;
 		bool customLedOn = false;
 		unsigned int customDurationMs = 0;
 
-		FPD_MUTEX_LOCK();
-		while (!gLEDPatternThreadStop && !gIsFPDInitialized) {
-			pthread_cond_wait(&gLEDPatternCond, &gLEDStateMutex);
+		pthread_mutex_lock(&ctx->ledStateMutex);
+		while (!ctx->ledPatternThreadStop && !ctx->isFPDInitialized) {
+			pthread_cond_wait(&ctx->ledPatternCond, &ctx->ledStateMutex);
 		}
 
-		if (gLEDPatternThreadStop) {
-			FPD_MUTEX_UNLOCK();
+		if (ctx->ledPatternThreadStop) {
+			pthread_mutex_unlock(&ctx->ledStateMutex);
 			break;
 		}
 
-		state = gCurrentLEDState;
-		brightness = gCurrentBrightness;
+		state = ctx->currentLEDState;
+		brightness = ctx->currentBrightness;
+		fpState = ctx->fpState;
 		rawOn = percentToRawBrightness(brightness);
-		isBlink = getPatternForState(state, &pattern);
+		/* Invariant: FP OFF always forces physical LED output off. */
+		isBlink = (fpState == dsFPD_STATE_ON) ? getPatternForState(state, &pattern) : false;
 
-		if (gCustomBlinkActive) {
+		if (fpState == dsFPD_STATE_ON && ctx->customBlinkActive) {
 			useCustomBlink = true;
-			if (activeCustomReqId != gCustomBlinkRequestId) {
-				activeCustomReqId = gCustomBlinkRequestId;
+			if (activeCustomReqId != ctx->customBlinkRequestId) {
+				activeCustomReqId = ctx->customBlinkRequestId;
 				customPhaseOn = true;
-				customPhasesRemaining = gCustomBlinkIterations * 2U;
+				customPhasesRemaining = ctx->customBlinkIterations * 2U;
 			}
 
 			if (customPhasesRemaining == 0U) {
-				gCustomBlinkActive = false;
+				ctx->customBlinkActive = false;
 				useCustomBlink = false;
 				activeCustomReqId = 0;
 				customPhaseOn = true;
-				if (applyLedStateLocked(gCustomBlinkResumeState) != dsERR_NONE) {
-					hal_err("Failed to restore LED state after custom blink sequence.\n");
-				}
-				state = gCurrentLEDState;
-				brightness = gCurrentBrightness;
+				ctx->currentLEDState = ctx->customBlinkResumeState;
+				pthread_cond_signal(&ctx->ledPatternCond);
+				state = ctx->currentLEDState;
+				brightness = ctx->currentBrightness;
 				rawOn = percentToRawBrightness(brightness);
 				isBlink = getPatternForState(state, &pattern);
 			} else {
 				customLedOn = customPhaseOn;
-				customDurationMs = gCustomBlinkDurationMs;
+				customDurationMs = ctx->customBlinkDurationMs;
 			}
 		}
 
-		if (state != activeState || brightness != activeBrightness) {
+		if (state != activeState || brightness != activeBrightness || fpState != activeFPState) {
 			phaseIndex = 0;
 			activeState = state;
 			activeBrightness = brightness;
+			activeFPState = fpState;
 		}
 
 		if (!useCustomBlink && !isBlink) {
-			unsigned int raw = (state == dsFPD_LED_DEVICE_STANDBY || state == dsFPD_LED_DEVICE_NONE) ? 0 : rawOn;
-			FPD_MUTEX_UNLOCK();
+			unsigned int raw = (fpState != dsFPD_STATE_ON || state == dsFPD_LED_DEVICE_STANDBY || state == dsFPD_LED_DEVICE_NONE) ? 0 : rawOn;
+			pthread_mutex_unlock(&ctx->ledStateMutex);
 			if (dsERR_NONE != writeLedBrightnessRaw(raw)) {
 				hal_err("Failed to apply LED brightness for state=%d in steady mode.\n", activeState);
 			}
 
-			FPD_MUTEX_LOCK();
-			while (!gLEDPatternThreadStop) {
+			pthread_mutex_lock(&ctx->ledStateMutex);
+			while (!ctx->ledPatternThreadStop) {
 				/* Re-read state under the lock before waiting to catch any
 				 * signal that fired while the mutex was unlocked for I/O.
 				 */
-				state = gCurrentLEDState;
-				brightness = gCurrentBrightness;
-				if (state != activeState || brightness != activeBrightness || gCustomBlinkActive) {
+				state = ctx->currentLEDState;
+				brightness = ctx->currentBrightness;
+				fpState = ctx->fpState;
+				if (state != activeState || brightness != activeBrightness || fpState != activeFPState || ctx->customBlinkActive) {
 					break;
 				}
-				pthread_cond_wait(&gLEDPatternCond, &gLEDStateMutex);
+				pthread_cond_wait(&ctx->ledPatternCond, &ctx->ledStateMutex);
 			}
-			FPD_MUTEX_UNLOCK();
+			pthread_mutex_unlock(&ctx->ledStateMutex);
 			continue;
 		}
 
@@ -1100,7 +1134,7 @@ static void *ledPatternWorker(void *arg)
 			unsigned int durationMs = useCustomBlink ? customDurationMs : pattern.durationsMs[phaseIndex % pattern.count];
 			struct timespec wakeTime;
 
-			FPD_MUTEX_UNLOCK();
+			pthread_mutex_unlock(&ctx->ledStateMutex);
 			if (dsERR_NONE != writeLedBrightnessRaw(raw)) {
 				hal_err("Failed to apply LED brightness for state=%d in blink mode.\n", activeState);
 			}
@@ -1108,19 +1142,21 @@ static void *ledPatternWorker(void *arg)
 			clock_gettime(CLOCK_MONOTONIC, &wakeTime);
 			addMsToTimespec(&wakeTime, durationMs);
 
-			FPD_MUTEX_LOCK();
-			if (!gLEDPatternThreadStop) {
+			pthread_mutex_lock(&ctx->ledStateMutex);
+			if (!ctx->ledPatternThreadStop) {
 				/* Re-check under lock before timed wait so a state/brightness
 				 * update that happened while unlocked is handled immediately.
 				 */
-				state = gCurrentLEDState;
-				brightness = gCurrentBrightness;
-				if (state != activeState || brightness != activeBrightness) {
+				state = ctx->currentLEDState;
+				brightness = ctx->currentBrightness;
+				fpState = ctx->fpState;
+				if (state != activeState || brightness != activeBrightness || fpState != activeFPState) {
 					phaseIndex = 0;
 					activeState = state;
 					activeBrightness = brightness;
+					activeFPState = fpState;
 				} else {
-					int waitRc = pthread_cond_timedwait(&gLEDPatternCond, &gLEDStateMutex, &wakeTime);
+					int waitRc = pthread_cond_timedwait(&ctx->ledPatternCond, &ctx->ledStateMutex, &wakeTime);
 					if (waitRc == ETIMEDOUT) {
 						if (useCustomBlink) {
 							if (customPhasesRemaining > 0U) {
@@ -1128,10 +1164,9 @@ static void *ledPatternWorker(void *arg)
 								customPhaseOn = !customPhaseOn;
 							}
 							if (customPhasesRemaining == 0U) {
-								gCustomBlinkActive = false;
-								if (applyLedStateLocked(gCustomBlinkResumeState) != dsERR_NONE) {
-									hal_err("Failed to restore LED state after custom blink timeout.\n");
-								}
+								ctx->customBlinkActive = false;
+								ctx->currentLEDState = ctx->customBlinkResumeState;
+								pthread_cond_signal(&ctx->ledPatternCond);
 							}
 						} else {
 							phaseIndex = (phaseIndex + 1U) % pattern.count;
@@ -1140,19 +1175,21 @@ static void *ledPatternWorker(void *arg)
 						/* Non-timeout wake: check if state or brightness actually changed.
 						 * If not, treat as spurious wakeup and advance phase normally.
 						 */
-						state = gCurrentLEDState;
-						brightness = gCurrentBrightness;
-						if (state != activeState || brightness != activeBrightness) {
+						state = ctx->currentLEDState;
+						brightness = ctx->currentBrightness;
+						fpState = ctx->fpState;
+						if (state != activeState || brightness != activeBrightness || fpState != activeFPState) {
 							phaseIndex = 0;
 							activeState = state;
 							activeBrightness = brightness;
+							activeFPState = fpState;
 						} else if (!useCustomBlink) {
 							phaseIndex = (phaseIndex + 1U) % pattern.count;
 						}
 					}
 				}
 			}
-			FPD_MUTEX_UNLOCK();
+			pthread_mutex_unlock(&ctx->ledStateMutex);
 		}
 	}
 
@@ -1184,21 +1221,21 @@ dsError_t dsFPInit(void)
 	hal_info("invoked.\n");
 
 	FPD_MUTEX_LOCK();
-	if (!gExitCleanupRegistered) {
+	if (!gFPDCtx.exitCleanupRegistered) {
 		if (atexit(dsFPExitCleanup) == 0) {
-			gExitCleanupRegistered = true;
+			gFPDCtx.exitCleanupRegistered = true;
 		} else {
 			hal_err("Unable to register process-exit cleanup handler.\n");
 		}
 	}
 
-	if (gIsFPDInitialized) {
+	if (gFPDCtx.isFPDInitialized) {
 		FPD_MUTEX_UNLOCK();
 		hal_err("Already initialized.\n");
 		return dsERR_ALREADY_INITIALIZED;
 	}
 
-	if (!gCondVarReady) {
+	if (!gFPDCtx.condVarReady) {
 		pthread_condattr_t condattr;
 		int rc = pthread_condattr_init(&condattr);
 		if (rc != 0) {
@@ -1213,14 +1250,14 @@ dsError_t dsFPInit(void)
 			hal_err("pthread_condattr_setclock(CLOCK_MONOTONIC) failed: %s\n", strerror(rc));
 			return dsERR_GENERAL;
 		}
-		rc = pthread_cond_init(&gLEDPatternCond, &condattr);
+		rc = pthread_cond_init(&gFPDCtx.ledPatternCond, &condattr);
 		(void)pthread_condattr_destroy(&condattr);
 		if (rc != 0) {
 			FPD_MUTEX_UNLOCK();
 			hal_err("pthread_cond_init failed: %s\n", strerror(rc));
 			return dsERR_GENERAL;
 		}
-		gCondVarReady = true;
+		gFPDCtx.condVarReady = true;
 	}
 
 	if (detectLedPath() != dsERR_NONE) {
@@ -1239,23 +1276,23 @@ dsError_t dsFPInit(void)
 	}
 #endif
 
-	if (loadTriggerBackup(gPreviousTrigger, sizeof(gPreviousTrigger)) == dsERR_NONE) {
-		char currentTrigger[sizeof(gPreviousTrigger)] = {0};
-		hal_info("Loaded previous trigger from backup: %s\n", gPreviousTrigger);
+	if (loadTriggerBackup(gFPDCtx.previousTrigger, sizeof(gFPDCtx.previousTrigger)) == dsERR_NONE) {
+		char currentTrigger[sizeof(gFPDCtx.previousTrigger)] = {0};
+		hal_info("Loaded previous trigger from backup: %s\n", gFPDCtx.previousTrigger);
 		if (readCurrentSysfsTrigger(currentTrigger, sizeof(currentTrigger)) == dsERR_NONE) {
 			if (strcmp(currentTrigger, "none") != 0) {
 				hal_info("Ignoring stale trigger backup '%s'; using current trigger '%s'.\n",
-						 gPreviousTrigger, currentTrigger);
-				snprintf(gPreviousTrigger, sizeof(gPreviousTrigger), "%s", currentTrigger);
-				if (saveTriggerBackup(gPreviousTrigger) != dsERR_NONE) {
+						 gFPDCtx.previousTrigger, currentTrigger);
+				snprintf(gFPDCtx.previousTrigger, sizeof(gFPDCtx.previousTrigger), "%s", currentTrigger);
+				if (saveTriggerBackup(gFPDCtx.previousTrigger) != dsERR_NONE) {
 					hal_err("Unable to update trigger backup file with current trigger.\n");
 				}
 			} else {
-				hal_info("Current trigger is 'none'; keeping backup trigger '%s'.\n", gPreviousTrigger);
+				hal_info("Current trigger is 'none'; keeping backup trigger '%s'.\n", gFPDCtx.previousTrigger);
 			}
 		} else {
 			hal_err("Failed to read current sysfs trigger; proceeding with backup trigger '%s'.\n",
-					gPreviousTrigger);
+					gFPDCtx.previousTrigger);
 		}
 	} else if (cacheCurrentTrigger() != dsERR_NONE) {
 #ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
@@ -1265,8 +1302,8 @@ dsError_t dsFPInit(void)
 		hal_err("Unable to determine current LED trigger; aborting initialization.\n");
 		return dsERR_GENERAL;
 	} else {
-		hal_info("Current LED trigger before init: %s\n", gPreviousTrigger);
-		if (saveTriggerBackup(gPreviousTrigger) != dsERR_NONE) {
+		hal_info("Current LED trigger before init: %s\n", gFPDCtx.previousTrigger);
+		if (saveTriggerBackup(gFPDCtx.previousTrigger) != dsERR_NONE) {
 #ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
 			releaseProcessLock();
 #endif
@@ -1292,29 +1329,29 @@ dsError_t dsFPInit(void)
 		if (readUintFromFile(maxBrightnessPath, &maxBrightness) != dsERR_NONE || maxBrightness == 0) {
 			maxBrightness = 1;
 		}
-		gLedMaxBrightness = maxBrightness;
+		gFPDCtx.ledMaxBrightness = maxBrightness;
 	}
 
-	gCurrentBrightness = dsFPD_BRIGHTNESS_MAX;
-	gCurrentLEDState = dsFPD_LED_DEVICE_ACTIVE;
-	gFPState = dsFPD_STATE_ON;
-	gCustomBlinkActive = false;
-	gCustomBlinkDurationMs = 0;
-	gCustomBlinkIterations = 0;
-	gCustomBlinkRequestId = 0;
-	gCustomBlinkResumeState = dsFPD_LED_DEVICE_ACTIVE;
-	gLEDPatternThreadStop = false;
-	if (pthread_create(&gLEDPatternThread, NULL, ledPatternWorker, NULL) != 0) {
+	gFPDCtx.currentBrightness = dsFPD_BRIGHTNESS_MAX;
+	gFPDCtx.currentLEDState = dsFPD_LED_DEVICE_ACTIVE;
+	gFPDCtx.fpState = dsFPD_STATE_OFF;
+	gFPDCtx.customBlinkActive = false;
+	gFPDCtx.customBlinkDurationMs = 0;
+	gFPDCtx.customBlinkIterations = 0;
+	gFPDCtx.customBlinkRequestId = 0;
+	gFPDCtx.customBlinkResumeState = dsFPD_LED_DEVICE_ACTIVE;
+	gFPDCtx.ledPatternThreadStop = false;
+	if (pthread_create(&gFPDCtx.ledPatternThread, NULL, ledPatternWorker, &gFPDCtx) != 0) {
 		(void)writeLedBrightnessRaw(0);
-		if (gPreviousTrigger[0] != '\0') {
-			if (setLedTrigger(gPreviousTrigger) == dsERR_NONE) {
+		if (gFPDCtx.previousTrigger[0] != '\0') {
+			if (setLedTrigger(gFPDCtx.previousTrigger) == dsERR_NONE) {
 				clearTriggerBackup();
 			} else {
-				hal_err("Unable to restore LED trigger '%s' after worker thread create failure.\n", gPreviousTrigger);
+				hal_err("Unable to restore LED trigger '%s' after worker thread create failure.\n", gFPDCtx.previousTrigger);
 			}
 		}
-		gLedSysfsPath[0] = '\0';
-		gPreviousTrigger[0] = '\0';
+		gFPDCtx.ledSysfsPath[0] = '\0';
+		gFPDCtx.previousTrigger[0] = '\0';
 #ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
 		releaseProcessLock();
 #endif
@@ -1322,10 +1359,10 @@ dsError_t dsFPInit(void)
 		hal_err("Unable to create LED pattern worker thread.\n");
 		return dsERR_GENERAL;
 	}
-	gLEDPatternThreadRunning = true;
+	gFPDCtx.ledPatternThreadRunning = true;
 
-	gIsFPDInitialized = true;
-	pthread_cond_signal(&gLEDPatternCond);
+	gFPDCtx.isFPDInitialized = true;
+	pthread_cond_signal(&gFPDCtx.ledPatternCond);
 	FPD_MUTEX_UNLOCK();
 
 	return dsERR_NONE;
@@ -1365,6 +1402,11 @@ dsError_t dsSetFPBlink(dsFPDIndicator_t eIndicator, unsigned int uBlinkDuration,
 				eIndicator, uBlinkDuration, uBlinkIterations);
 		return dsERR_INVALID_PARAM;
 	}
+	if (uBlinkIterations > (UINT_MAX / 2U)) {
+		/* Keep phase multiplication (iterations * 2) in-range in worker thread. */
+		hal_err("Invalid parameter, uBlinkIterations=%u exceeds safe range.\n", uBlinkIterations);
+		return dsERR_INVALID_PARAM;
+	}
 
 	if (!isIndicatorSupported(eIndicator)) {
 		hal_err("Blink rejected: unsupported indicator eIndicator=%d.\n", eIndicator);
@@ -1372,28 +1414,28 @@ dsError_t dsSetFPBlink(dsFPDIndicator_t eIndicator, unsigned int uBlinkDuration,
 	}
 
 	FPD_MUTEX_LOCK();
-	if (!gIsFPDInitialized) {
+	if (!gFPDCtx.isFPDInitialized) {
 		FPD_MUTEX_UNLOCK();
 		hal_err("Module not initialized.\n");
 		return dsERR_NOT_INITIALIZED;
 	}
 
 	if (!isFPStateEnabledLocked(eIndicator)) {
-		hal_err("FPState is %d.\n", gFPState);
+		hal_err("FPState is %d.\n", gFPDCtx.fpState);
 		FPD_MUTEX_UNLOCK();
 		return dsERR_OPERATION_NOT_SUPPORTED;
 	}
 
 	hal_info("Blink accepted: eIndicator=%d, durationMs=%u, iterations=%u, resumeLedState=%d.\n",
-			eIndicator, uBlinkDuration, uBlinkIterations, gCurrentLEDState);
+			eIndicator, uBlinkDuration, uBlinkIterations, gFPDCtx.currentLEDState);
 
-	gCustomBlinkDurationMs = uBlinkDuration;
-	gCustomBlinkIterations = uBlinkIterations;
-	gCustomBlinkResumeState = gCurrentLEDState;
-	gCustomBlinkRequestId++;
-	gCustomBlinkActive = true;
+	gFPDCtx.customBlinkDurationMs = uBlinkDuration;
+	gFPDCtx.customBlinkIterations = uBlinkIterations;
+	gFPDCtx.customBlinkResumeState = gFPDCtx.currentLEDState;
+	gFPDCtx.customBlinkRequestId++;
+	gFPDCtx.customBlinkActive = true;
 	/* Wake the worker so custom blink starts immediately. */
-	pthread_cond_signal(&gLEDPatternCond);
+	pthread_cond_signal(&gFPDCtx.ledPatternCond);
 	FPD_MUTEX_UNLOCK();
 
 	return dsERR_NONE;
@@ -1439,7 +1481,7 @@ dsError_t dsSetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t eBrig
 	}
 
 	FPD_MUTEX_LOCK();
-	if (!gIsFPDInitialized) {
+	if (!gFPDCtx.isFPDInitialized) {
 		FPD_MUTEX_UNLOCK();
 		hal_err("Module not initialized.\n");
 		return dsERR_NOT_INITIALIZED;
@@ -1450,9 +1492,14 @@ dsError_t dsSetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t eBrig
 		return dsERR_OPERATION_NOT_SUPPORTED;
 	}
 
-	gCurrentBrightness = eBrightness;
+	if (gFPDCtx.currentBrightness == eBrightness) {
+		FPD_MUTEX_UNLOCK();
+		return dsERR_NONE;
+	}
+
+	gFPDCtx.currentBrightness = eBrightness;
 	/* Wake worker so brightness is applied immediately. */
-	pthread_cond_signal(&gLEDPatternCond);
+	pthread_cond_signal(&gFPDCtx.ledPatternCond);
 	FPD_MUTEX_UNLOCK();
 
 	return dsERR_NONE;
@@ -1497,7 +1544,7 @@ dsError_t dsGetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t *pBri
 	}
 
 	FPD_MUTEX_LOCK();
-	if (!gIsFPDInitialized) {
+	if (!gFPDCtx.isFPDInitialized) {
 		FPD_MUTEX_UNLOCK();
 		hal_err("Module not initialized.\n");
 		return dsERR_NOT_INITIALIZED;
@@ -1508,7 +1555,7 @@ dsError_t dsGetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t *pBri
 		return dsERR_OPERATION_NOT_SUPPORTED;
 	}
 
-	*pBrightness = gCurrentBrightness;
+	*pBrightness = gFPDCtx.currentBrightness;
 	FPD_MUTEX_UNLOCK();
 
 	return dsERR_NONE;
@@ -1550,20 +1597,20 @@ dsError_t dsSetFPState(dsFPDIndicator_t eIndicator, dsFPDState_t state)
 	}
 
 	FPD_MUTEX_LOCK();
-	if (!gIsFPDInitialized) {
+	if (!gFPDCtx.isFPDInitialized) {
 		FPD_MUTEX_UNLOCK();
 		hal_err("Module not initialized.\n");
 		return dsERR_NOT_INITIALIZED;
 	}
 
-	gFPState = state;
+	gFPDCtx.fpState = state;
 	hal_info("SetFPState applied: eIndicator=%d state=%d.\n", eIndicator, state);
 	if (state == dsFPD_STATE_OFF) {
 		/* Turning an indicator OFF should stop any in-progress custom blink. */
-		gCustomBlinkActive = false;
+		gFPDCtx.customBlinkActive = false;
 	}
 
-	pthread_cond_signal(&gLEDPatternCond);
+	pthread_cond_signal(&gFPDCtx.ledPatternCond);
 	FPD_MUTEX_UNLOCK();
 
 	return dsERR_NONE;
@@ -1605,13 +1652,13 @@ dsError_t dsGetFPState(dsFPDIndicator_t eIndicator, dsFPDState_t* state)
 	}
 
 	FPD_MUTEX_LOCK();
-	if (!gIsFPDInitialized) {
+	if (!gFPDCtx.isFPDInitialized) {
 		FPD_MUTEX_UNLOCK();
 		hal_err("Module not initialized.\n");
 		return dsERR_NOT_INITIALIZED;
 	}
 
-	*state = gFPState;
+	*state = gFPDCtx.fpState;
 	FPD_MUTEX_UNLOCK();
 
 	return dsERR_NONE;
@@ -2012,20 +2059,20 @@ dsError_t dsFPTerm(void)
 	bool shouldJoin = false;
 
 	FPD_MUTEX_LOCK();
-	if (!gIsFPDInitialized) {
+	if (!gFPDCtx.isFPDInitialized) {
 		FPD_MUTEX_UNLOCK();
 		hal_err("Module not initialized.\n");
 		return dsERR_NOT_INITIALIZED;
 	}
 
-	gLEDPatternThreadStop = true;
-	pthread_cond_signal(&gLEDPatternCond);
-	if (gLEDPatternThreadRunning) {
-		threadToJoin = gLEDPatternThread;
-		gLEDPatternThreadRunning = false;
+	gFPDCtx.ledPatternThreadStop = true;
+	pthread_cond_signal(&gFPDCtx.ledPatternCond);
+	if (gFPDCtx.ledPatternThreadRunning) {
+		threadToJoin = gFPDCtx.ledPatternThread;
+		gFPDCtx.ledPatternThreadRunning = false;
 		shouldJoin = true;
 	}
-	gIsFPDInitialized = false;
+	gFPDCtx.isFPDInitialized = false;
 	FPD_MUTEX_UNLOCK();
 
 	if (shouldJoin) {
@@ -2035,30 +2082,38 @@ dsError_t dsFPTerm(void)
 	FPD_MUTEX_LOCK();
 
 	(void)writeLedBrightnessRaw(0);
-	if (gPreviousTrigger[0] == '\0') {
-		(void)loadTriggerBackup(gPreviousTrigger, sizeof(gPreviousTrigger));
+	if (gFPDCtx.previousTrigger[0] == '\0') {
+		(void)loadTriggerBackup(gFPDCtx.previousTrigger, sizeof(gFPDCtx.previousTrigger));
 	}
-	if (gPreviousTrigger[0] != '\0') {
-		if (setLedTrigger(gPreviousTrigger) != dsERR_NONE) {
-			hal_err("Unable to restore previous LED trigger '%s'.\n", gPreviousTrigger);
+	if (gFPDCtx.previousTrigger[0] != '\0') {
+		if (setLedTrigger(gFPDCtx.previousTrigger) != dsERR_NONE) {
+			hal_err("Unable to restore previous LED trigger '%s'.\n", gFPDCtx.previousTrigger);
 		} else {
-			hal_info("LED trigger restored to pre-init value: %s\n", gPreviousTrigger);
+			hal_info("LED trigger restored to pre-init value: %s\n", gFPDCtx.previousTrigger);
 			clearTriggerBackup();
 		}
 	}
 
-	gCurrentLEDState = dsFPD_LED_DEVICE_NONE;
-	gCurrentBrightness = dsFPD_BRIGHTNESS_MAX;
-	gFPState = dsFPD_STATE_OFF;
-	gCustomBlinkActive = false;
-	gCustomBlinkDurationMs = 0;
-	gCustomBlinkIterations = 0;
-	gCustomBlinkRequestId = 0;
-	gCustomBlinkResumeState = dsFPD_LED_DEVICE_ACTIVE;
-	gLedMaxBrightness = 1;
-	gLedSysfsPath[0] = '\0';
-	gPreviousTrigger[0] = '\0';
-	gLEDPatternThreadStop = false;
+	gFPDCtx.currentLEDState = dsFPD_LED_DEVICE_NONE;
+	gFPDCtx.currentBrightness = dsFPD_BRIGHTNESS_MAX;
+	gFPDCtx.fpState = dsFPD_STATE_OFF;
+	gFPDCtx.customBlinkActive = false;
+	gFPDCtx.customBlinkDurationMs = 0;
+	gFPDCtx.customBlinkIterations = 0;
+	gFPDCtx.customBlinkRequestId = 0;
+	gFPDCtx.customBlinkResumeState = dsFPD_LED_DEVICE_ACTIVE;
+	gFPDCtx.ledMaxBrightness = 1;
+	gFPDCtx.ledSysfsPath[0] = '\0';
+	gFPDCtx.previousTrigger[0] = '\0';
+	gFPDCtx.ledPatternThreadStop = false;
+	if (gFPDCtx.condVarReady) {
+		int rc = pthread_cond_destroy(&gFPDCtx.ledPatternCond);
+		if (rc != 0) {
+			hal_err("pthread_cond_destroy failed: %s\n", strerror(rc));
+		} else {
+			gFPDCtx.condVarReady = false;
+		}
+	}
 
 #ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
 	releaseProcessLock();
@@ -2235,25 +2290,25 @@ dsError_t dsFPGetLEDState(dsFPDLedState_t* state)
 	}
 
 	FPD_MUTEX_LOCK();
-	if (!gIsFPDInitialized) {
+	if (!gFPDCtx.isFPDInitialized) {
 		FPD_MUTEX_UNLOCK();
 		hal_err("Module not initialized.\n");
 		return dsERR_NOT_INITIALIZED;
 	}
 
-	if (gCurrentLEDState <= dsFPD_LED_DEVICE_NONE || gCurrentLEDState >= dsFPD_LED_DEVICE_MAX) {
+	if (gFPDCtx.currentLEDState <= dsFPD_LED_DEVICE_NONE || gFPDCtx.currentLEDState >= dsFPD_LED_DEVICE_MAX) {
 		FPD_MUTEX_UNLOCK();
-		hal_err("Current LED state: %d is out of valid range.\n", gCurrentLEDState);
+		hal_err("Current LED state: %d is out of valid range.\n", gFPDCtx.currentLEDState);
 		return dsERR_GENERAL;
 	}
 
-	if (((1u << gCurrentLEDState) & gSupportedLEDStates) == 0u) {
+	if (((1u << gFPDCtx.currentLEDState) & gSupportedLEDStates) == 0u) {
 		FPD_MUTEX_UNLOCK();
-		hal_err("Current LED state: %d is unsupported.\n", gCurrentLEDState);
+		hal_err("Current LED state: %d is unsupported.\n", gFPDCtx.currentLEDState);
 		return dsERR_GENERAL;
 	}
 
-	*state = gCurrentLEDState;
+	*state = gFPDCtx.currentLEDState;
 	FPD_MUTEX_UNLOCK();
 	return dsERR_NONE;
 }
@@ -2288,7 +2343,7 @@ dsError_t dsFPSetLEDState(dsFPDLedState_t state)
 	}
 
 	FPD_MUTEX_LOCK();
-	if (!gIsFPDInitialized) {
+	if (!gFPDCtx.isFPDInitialized) {
 		FPD_MUTEX_UNLOCK();
 		hal_err("Module not initialized.\n");
 		return dsERR_NOT_INITIALIZED;
@@ -2301,7 +2356,7 @@ dsError_t dsFPSetLEDState(dsFPDLedState_t state)
 	}
 
 	/* API contract: dsFPSetLEDState should stop an in-progress indicator blink. */
-	gCustomBlinkActive = false;
+	gFPDCtx.customBlinkActive = false;
 
 	if (applyLedStateLocked(state) != dsERR_NONE) {
 		FPD_MUTEX_UNLOCK();
