@@ -1328,7 +1328,7 @@ dsError_t dsFPInit(void)
 		return dsERR_GENERAL;
 	}
 
-	/* Ensure LED is physically OFF before worker startup when FP state defaults to OFF. */
+	/* Ensure LED starts from a known OFF level before worker applies initial state. */
 	if (writeLedBrightnessRaw(0) != dsERR_NONE) {
 		hal_err("Unable to turn off LED after setting trigger to none.\n");
 	}
@@ -1345,7 +1345,7 @@ dsError_t dsFPInit(void)
 
 	gFPDCtx.currentBrightness = dsFPD_BRIGHTNESS_MAX;
 	gFPDCtx.currentLEDState = dsFPD_LED_DEVICE_ACTIVE;
-	gFPDCtx.fpState = dsFPD_STATE_OFF;
+	gFPDCtx.fpState = dsFPD_STATE_ON;
 	gFPDCtx.customBlinkActive = false;
 	gFPDCtx.customBlinkDurationMs = 0;
 	gFPDCtx.customBlinkIterations = 0;
@@ -1374,6 +1374,8 @@ dsError_t dsFPInit(void)
 
 	gFPDCtx.isFPDInitialized = true;
 	pthread_cond_signal(&gFPDCtx.ledPatternCond);
+	hal_info("FP init defaults: state=%d brightness=%u fpState=%d maxRaw=%u\n",
+		 gFPDCtx.currentLEDState, gFPDCtx.currentBrightness, gFPDCtx.fpState, gFPDCtx.ledMaxBrightness);
 	FPD_MUTEX_UNLOCK();
 
 	return dsERR_NONE;
@@ -2347,6 +2349,7 @@ dsError_t dsFPGetLEDState(dsFPDLedState_t* state)
 dsError_t dsFPSetLEDState(dsFPDLedState_t state)
 {
 	hal_info("invoked.\n");
+	dsFPDState_t queuedFpState;
 
 	if (state <= dsFPD_LED_DEVICE_NONE || state >= dsFPD_LED_DEVICE_MAX) {
 		hal_err("Invalid parameter, state: %d.\n", state);
@@ -2373,8 +2376,9 @@ dsError_t dsFPSetLEDState(dsFPDLedState_t state)
 		FPD_MUTEX_UNLOCK();
 		return dsERR_GENERAL;
 	}
+	queuedFpState = gFPDCtx.fpState;
 	FPD_MUTEX_UNLOCK();
-	hal_info("[LED_REQ] queued state=%d\n", state);
+	hal_info("[LED_REQ] queued state=%d fpState=%d\n", state, queuedFpState);
 	return dsERR_NONE;
 }
 
