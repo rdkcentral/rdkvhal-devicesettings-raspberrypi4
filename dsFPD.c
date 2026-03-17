@@ -1140,8 +1140,12 @@ static void *ledPatternWorker(void *arg)
 				hal_err("Failed to apply LED brightness for state=%d in blink mode.\n", activeState);
 			}
 
-			clock_gettime(CLOCK_MONOTONIC, &wakeTime);
-			addMsToTimespec(&wakeTime, durationMs);
+			int clockRc = clock_gettime(CLOCK_MONOTONIC, &wakeTime);
+			if (clockRc != 0) {
+				hal_err("clock_gettime(CLOCK_MONOTONIC) failed in blink mode: %s\n", strerror(errno));
+			} else {
+				addMsToTimespec(&wakeTime, durationMs);
+			}
 
 			pthread_mutex_lock(&ctx->ledStateMutex);
 			if (!ctx->ledPatternThreadStop) {
@@ -1157,7 +1161,13 @@ static void *ledPatternWorker(void *arg)
 					activeBrightness = brightness;
 					activeFPState = fpState;
 				} else {
-					int waitRc = pthread_cond_timedwait(&ctx->ledPatternCond, &ctx->ledStateMutex, &wakeTime);
+					int waitRc;
+					if (clockRc == 0) {
+						waitRc = pthread_cond_timedwait(&ctx->ledPatternCond, &ctx->ledStateMutex, &wakeTime);
+					} else {
+						/* Fallback: avoid using an undefined timeout when clock_gettime fails. */
+						waitRc = pthread_cond_wait(&ctx->ledPatternCond, &ctx->ledStateMutex);
+					}
 					if (waitRc == ETIMEDOUT) {
 						if (useCustomBlink) {
 							if (customPhasesRemaining > 0U) {
@@ -1173,9 +1183,7 @@ static void *ledPatternWorker(void *arg)
 							phaseIndex = (phaseIndex + 1U) % pattern.count;
 						}
 					} else if (waitRc == 0) {
-						/* Non-timeout wake: check if state or brightness actually changed.
-						 * If not, treat as spurious wakeup and advance phase normally.
-						 */
+						/* Non-timeout wake: check if state or brightness actually changed. */
 						state = ctx->currentLEDState;
 						brightness = ctx->currentBrightness;
 						fpState = ctx->fpState;
@@ -1184,8 +1192,24 @@ static void *ledPatternWorker(void *arg)
 							activeState = state;
 							activeBrightness = brightness;
 							activeFPState = fpState;
-						} else if (!useCustomBlink) {
-							phaseIndex = (phaseIndex + 1U) % pattern.count;
+						} else {
+							/* Spurious (non-timeout) wake without effective change.
+							 * Advance phase just as we would on timeout so that
+							 * frequent signals cannot stall blink completion.
+							 */
+							if (useCustomBlink) {
+								if (customPhasesRemaining > 0U) {
+									customPhasesRemaining--;
+									customPhaseOn = !customPhaseOn;
+								}
+								if (customPhasesRemaining == 0U) {
+									ctx->customBlinkActive = false;
+									ctx->currentLEDState = ctx->customBlinkResumeState;
+									pthread_cond_signal(&ctx->ledPatternCond);
+								}
+							} else {
+								phaseIndex = (phaseIndex + 1U) % pattern.count;
+							}
 						}
 					} else {
 						/* Real timed-wait error: stop worker to avoid tight retry loops. */
