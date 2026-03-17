@@ -1171,7 +1171,7 @@ static void *ledPatternWorker(void *arg)
 						} else {
 							phaseIndex = (phaseIndex + 1U) % pattern.count;
 						}
-					} else {
+					} else if (waitRc == 0) {
 						/* Non-timeout wake: check if state or brightness actually changed.
 						 * If not, treat as spurious wakeup and advance phase normally.
 						 */
@@ -1186,6 +1186,11 @@ static void *ledPatternWorker(void *arg)
 						} else if (!useCustomBlink) {
 							phaseIndex = (phaseIndex + 1U) % pattern.count;
 						}
+					} else {
+						/* Unexpected error from timed wait: avoid rapid retries on repeated failures. */
+						hal_err("pthread_cond_timedwait failed in ledPatternWorker: rc=%d (%s)\n",
+								waitRc, strerror(waitRc));
+						(void)pthread_cond_wait(&ctx->ledPatternCond, &ctx->ledStateMutex);
 					}
 				}
 			}
@@ -1320,6 +1325,11 @@ dsError_t dsFPInit(void)
 		FPD_MUTEX_UNLOCK();
 		hal_err("Unable to set LED trigger to none.\n");
 		return dsERR_GENERAL;
+	}
+
+	/* Ensure LED is physically OFF before worker startup when FP state defaults to OFF. */
+	if (writeLedBrightnessRaw(0) != dsERR_NONE) {
+		hal_err("Unable to turn off LED after setting trigger to none.\n");
 	}
 
 	{
