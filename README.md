@@ -29,7 +29,9 @@ Front Panel LCD is not supported in this implementation.
 
 ### Brightness Behavior
 
-- Front-panel brightness control is not supported in this implementation.
+- Front-panel brightness is controlled via the Device Settings HAL APIs `dsSetFPBrightness()` and `dsGetFPBrightness()`.
+- The implementation maps requested brightness levels to the underlying Linux `max_brightness` scaling for the RPi4 ACT LED.
+- On some Raspberry Pi 4 boards this may effectively result in simple on/off behavior (minimum vs. maximum), while on others limited intermediate levels may be available.
 
 ### Supported LED States
 
