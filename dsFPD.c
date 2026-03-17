@@ -792,8 +792,9 @@ static void dsFPBestEffortRestoreOnExit(const char *preferredTrigger, const char
 	}
 
 	if (preferredLedPath != NULL && preferredLedPath[0] != '\0') {
-		if (snprintf(preferredTriggerPath, sizeof(preferredTriggerPath), "%s/%s",
-					 preferredLedPath, SYSFS_LED_TRIGGER_FILE) < (int)sizeof(preferredTriggerPath)) {
+		int pathLen = snprintf(preferredTriggerPath, sizeof(preferredTriggerPath), "%s/%s",
+					 preferredLedPath, SYSFS_LED_TRIGGER_FILE);
+		if (pathLen >= 0 && (size_t)pathLen < sizeof(preferredTriggerPath)) {
 			int fd = open(preferredTriggerPath, O_WRONLY | O_CLOEXEC | O_NOFOLLOW);
 			if (fd >= 0) {
 				ssize_t n = write(fd, triggerLine, triggerLineLen);
