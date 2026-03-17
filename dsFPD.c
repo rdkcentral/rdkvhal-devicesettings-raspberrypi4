@@ -792,8 +792,9 @@ static void dsFPBestEffortRestoreOnExit(const char *preferredTrigger, const char
 	}
 
 	if (preferredLedPath != NULL && preferredLedPath[0] != '\0') {
-		if (snprintf(preferredTriggerPath, sizeof(preferredTriggerPath), "%s/%s",
-					 preferredLedPath, SYSFS_LED_TRIGGER_FILE) < (int)sizeof(preferredTriggerPath)) {
+		int rc = snprintf(preferredTriggerPath, sizeof(preferredTriggerPath), "%s/%s",
+				  preferredLedPath, SYSFS_LED_TRIGGER_FILE);
+		if (rc >= 0 && (size_t)rc < sizeof(preferredTriggerPath)) {
 			int fd = open(preferredTriggerPath, O_WRONLY | O_CLOEXEC | O_NOFOLLOW);
 			if (fd >= 0) {
 				ssize_t n = write(fd, triggerLine, triggerLineLen);
@@ -1171,7 +1172,7 @@ static void *ledPatternWorker(void *arg)
 						} else {
 							phaseIndex = (phaseIndex + 1U) % pattern.count;
 						}
-					} else {
+					} else if (waitRc == 0) {
 						/* Non-timeout wake: check if state or brightness actually changed.
 						 * If not, treat as spurious wakeup and advance phase normally.
 						 */
@@ -1186,6 +1187,11 @@ static void *ledPatternWorker(void *arg)
 						} else if (!useCustomBlink) {
 							phaseIndex = (phaseIndex + 1U) % pattern.count;
 						}
+					} else {
+						/* Real timed-wait error: stop worker to avoid tight retry loops. */
+						hal_err("pthread_cond_timedwait failed in ledPatternWorker: rc=%d (%s)\n",
+								waitRc, strerror(waitRc));
+						ctx->ledPatternThreadStop = true;
 					}
 				}
 			}
@@ -1320,6 +1326,11 @@ dsError_t dsFPInit(void)
 		FPD_MUTEX_UNLOCK();
 		hal_err("Unable to set LED trigger to none.\n");
 		return dsERR_GENERAL;
+	}
+
+	/* Ensure LED is physically OFF before worker startup when FP state defaults to OFF. */
+	if (writeLedBrightnessRaw(0) != dsERR_NONE) {
+		hal_err("Unable to turn off LED after setting trigger to none.\n");
 	}
 
 	{
