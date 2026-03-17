@@ -792,9 +792,9 @@ static void dsFPBestEffortRestoreOnExit(const char *preferredTrigger, const char
 	}
 
 	if (preferredLedPath != NULL && preferredLedPath[0] != '\0') {
-		int pathLen = snprintf(preferredTriggerPath, sizeof(preferredTriggerPath), "%s/%s",
-					 preferredLedPath, SYSFS_LED_TRIGGER_FILE);
-		if (pathLen >= 0 && (size_t)pathLen < sizeof(preferredTriggerPath)) {
+		int rc = snprintf(preferredTriggerPath, sizeof(preferredTriggerPath), "%s/%s",
+				  preferredLedPath, SYSFS_LED_TRIGGER_FILE);
+		if (rc >= 0 && (size_t)rc < sizeof(preferredTriggerPath)) {
 			int fd = open(preferredTriggerPath, O_WRONLY | O_CLOEXEC | O_NOFOLLOW);
 			if (fd >= 0) {
 				ssize_t n = write(fd, triggerLine, triggerLineLen);
@@ -1188,10 +1188,10 @@ static void *ledPatternWorker(void *arg)
 							phaseIndex = (phaseIndex + 1U) % pattern.count;
 						}
 					} else {
-						/* Unexpected error from timed wait: avoid rapid retries on repeated failures. */
+						/* Real timed-wait error: stop worker to avoid tight retry loops. */
 						hal_err("pthread_cond_timedwait failed in ledPatternWorker: rc=%d (%s)\n",
 								waitRc, strerror(waitRc));
-						(void)pthread_cond_wait(&ctx->ledPatternCond, &ctx->ledStateMutex);
+						ctx->ledPatternThreadStop = true;
 					}
 				}
 			}
