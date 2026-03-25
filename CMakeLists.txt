@@ -5,6 +5,7 @@ project(ds-hal VERSION 0.0.0 LANGUAGES C)
 
 # Set the library name
 set(LIBNAME "dshal" CACHE STRING "Name of the HAL library")
+option(ENABLE_FPD_MULTI_PROCESS_GUARD "Enable inter-process LED ownership guard" OFF)
 
 set(DEFAULT_BUILD_TYPE "Release")
 
@@ -29,6 +30,13 @@ if (DRI_CARD)
 	add_definitions(-DDRI_CARD=\"${DRI_CARD}\")
 else()
 	message(FATAL_ERROR "DRI_CARD is not set")
+endif()
+
+if (ENABLE_FPD_MULTI_PROCESS_GUARD)
+	message(STATUS "ENABLE_FPD_MULTI_PROCESS_GUARD is ON")
+	add_definitions(-DDSFPD_ENABLE_MULTI_PROCESS_GUARD)
+else()
+	message(STATUS "ENABLE_FPD_MULTI_PROCESS_GUARD is OFF")
 endif()
 
 # Add GIT version to the compile flags

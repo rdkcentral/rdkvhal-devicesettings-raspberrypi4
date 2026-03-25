@@ -17,114 +17,1215 @@
  * limitations under the License.
  */
 
+/* Enable POSIX/GNU extensions for O_NOFOLLOW and pthread_condattr_setclock */
+#define _GNU_SOURCE
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdint.h>
+#include <limits.h>
 #include <stdbool.h>
+#include <ctype.h>
 #include <errno.h>
 #include <time.h>
+#include <pthread.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <libgen.h>
+#include <sys/stat.h>
 
 #include "dsFPD.h"
 #include "dsFPDTypes.h"
 #include "dshalLogger.h"
-#include <pthread.h>
 
-#define LED_ON  1
-#define LED_OFF  0
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
 
-#define LED_TIME_INTERVAL  500
+/***
+ * RaspberryPi 4 specific implementation of the Device Settings HAL for LED Indicator.
+ * We shall be using the GREEN LED on the RaspberryPi 4 as the RDK Status LED for this implementation.
+ * The APIs in this module will ONLY control the state of this LED.
+ * No 7-segment display or multi-color LED support, hence related APIs will return dsERR_OPERATION_NOT_SUPPORTED.
+ */
 
-static pthread_mutex_t dsHalLock = PTHREAD_MUTEX_INITIALIZER;
-#define DS_HAL_Lock() pthread_mutex_lock(&dsHalLock)
-#define DS_HAL_Unlock() pthread_mutex_unlock(&dsHalLock)
-#define DS_HAL_FP_HUNDREDMS 100
+// RPi4 has only one ACT LED which is used as the status LED.
+// See README.md for details on supported states and patterns for this LED.
+static const dsFPDLedState_t gSupportedLEDStates = (dsFPDLedState_t)(
+	(1u << dsFPD_LED_DEVICE_ACTIVE) |
+	(1u << dsFPD_LED_DEVICE_STANDBY) |
+	(1u << dsFPD_LED_DEVICE_WPS_CONNECTING) |
+	(1u << dsFPD_LED_DEVICE_WPS_CONNECTED) |
+	(1u << dsFPD_LED_DEVICE_WPS_ERROR) |
+	(1u << dsFPD_LED_DEVICE_FACTORY_RESET) |
+	(1u << dsFPD_LED_DEVICE_USB_UPGRADE) |
+	(1u << dsFPD_LED_DEVICE_SOFTWARE_DOWNLOAD_ERROR)
+);
 
-void setValue (int pin, int value);
-dsError_t GreenLedOnAndOff( int value );
-void stop_led_blink( void );
-int start_led_blink ( void );
-void* led_blink_thread(void *arg);
+typedef struct {
+	dsFPDLedState_t currentLEDState;
+	dsFPDBrightness_t currentBrightness;
+	pthread_mutex_t ledStateMutex;
+	pthread_cond_t ledPatternCond;
+	bool condVarReady;
+	pthread_t ledPatternThread;
+	bool isFPDInitialized;
+	bool ledPatternThreadRunning;
+	bool ledPatternThreadStop;
+	bool exitCleanupRegistered;
+	dsFPDState_t fpState;
+	bool customBlinkActive;
+	unsigned int customBlinkDurationMs;
+	unsigned int customBlinkIterations;
+	uint64_t customBlinkRequestId;
+	dsFPDLedState_t customBlinkResumeState;
+	char ledSysfsPath[PATH_MAX];
+	char previousTrigger[256];
+	unsigned int ledMaxBrightness;
+#ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
+	int processLockFd;
+#endif
+} dsFPDContext_t;
 
-char fName[128] = {0};
-FILE *fd;
+static dsFPDContext_t gFPDCtx = {
+	.currentLEDState = dsFPD_LED_DEVICE_NONE,
+	.currentBrightness = dsFPD_BRIGHTNESS_MAX,
+	.ledStateMutex = PTHREAD_MUTEX_INITIALIZER,
+	.condVarReady = false,
+	.isFPDInitialized = false,
+	.ledPatternThreadRunning = false,
+	.ledPatternThreadStop = false,
+	.exitCleanupRegistered = false,
+	.fpState = dsFPD_STATE_OFF,
+	.customBlinkActive = false,
+	.customBlinkDurationMs = 0,
+	.customBlinkIterations = 0,
+	.customBlinkRequestId = 0,
+	.customBlinkResumeState = dsFPD_LED_DEVICE_ACTIVE,
+	.ledSysfsPath = {0},
+	.previousTrigger = {0},
+	.ledMaxBrightness = 1,
+#ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
+	.processLockFd = -1,
+#endif
+};
 
-int LED_RED = 9;
-int LED_YELLOW = 10;
-int LED_GREEN = 11;
+/* Thread-local flag set by the LED worker so the atexit handler can
+ * detect a self-join scenario without reading shared state under a mutex.
+ */
+static _Thread_local bool gIsLEDWorkerThread = false;
+#define DSFPD_LED_SYSFS_PATH_SIZE PATH_MAX
+#define DSFPD_LED_FILE_PATH_SIZE PATH_MAX
+#define DSFPD_TRIGGER_TOKEN_SIZE 256
+#define DSFPD_TRIGGER_TEXT_BUFFER_SIZE 4096
+#define DSFPD_BACKUP_TEXT_BUFFER_SIZE 4096
+#define DSFPD_SMALL_TEXT_BUFFER_SIZE 64
+#define DSFPD_NUMERIC_TEXT_BUFFER_SIZE 32
 
+#define SYSFS_LED_BRIGHTNESS_FILE "brightness"
+#define SYSFS_LED_MAX_BRIGHTNESS_FILE "max_brightness"
+#define SYSFS_LED_TRIGGER_FILE "trigger"
+#define SYSFS_LED_TRIGGER_BACKUP_FILE "/run/lock/rpi_act_led_trigger.backup"
+#define SYSFS_LED_PROCESS_LOCK_FILE "/run/lock/rpi_act_led_control.lock"
 
-static dsFPDLedState_t enCurrentLedState = dsFPD_LED_DEVICE_NONE;
-static pthread_t ledBlinkThreadId;
-static bool isledBlinkThreadEnabled = true;
+#define FPD_MUTEX_LOCK()   do { \
+	pthread_mutex_lock(&gFPDCtx.ledStateMutex); \
+} while(0)
 
-void exportPins(int pin)
+#define FPD_MUTEX_UNLOCK()   do { \
+	pthread_mutex_unlock(&gFPDCtx.ledStateMutex); \
+} while(0)
+
+/**
+ * @brief Returns whether the FPD module is initialized.
+ *
+ * @return true when initialized, otherwise false.
+ */
+static bool isInitialized(void)
 {
-    if ((fd = fopen("/sys/class/gpio/export", "w")) == NULL) {
-        hal_err("fopen error /sys/class/gpio/export for pin(%d): %s\n", pin, strerror(errno));
-        exit (1);
-    }
-    fprintf(fd, "%d\n", pin);
-    fclose(fd);
+	bool initialized;
+	FPD_MUTEX_LOCK();
+	initialized = gFPDCtx.isFPDInitialized;
+	FPD_MUTEX_UNLOCK();
+	return initialized;
 }
 
-void setDirection(int pin)
+typedef struct {
+	const unsigned int *durationsMs;
+	size_t count;
+	bool startOn;
+} dsLedBlinkPattern_t;
+
+static const unsigned int gPatternWpsConnecting[] = {500, 500};
+static const unsigned int gPatternWpsConnected[] = {120, 120, 120, 640};
+static const unsigned int gPatternWpsError[] = {80, 80};
+static const unsigned int gPatternFactoryReset[] = {900, 250, 900, 250, 900, 1400};
+static const unsigned int gPatternUsbUpgrade[] = {120, 120, 120, 120, 700, 1400};
+static const unsigned int gPatternDownloadError[] = {
+	120, 120, 120, 120, 120, 300,
+	400, 120, 400, 120, 400, 300,
+	120, 120, 120, 120, 120, 1400
+};
+
+/**
+ * @brief Maps an LED state to its blink pattern definition.
+ *
+ * @param[in] state LED state to map.
+ * @param[out] pattern Output pattern structure.
+ *
+ * @return true if a blink pattern exists for the state, otherwise false.
+ */
+static bool getPatternForState(dsFPDLedState_t state, dsLedBlinkPattern_t *pattern)
 {
-    snprintf(fName, sizeof(fName), "/sys/class/gpio/gpio%d/direction", pin);
-    if ((fd = fopen (fName, "w")) == NULL) {
-        hal_err("fopen error for setting direction - pin(%d): %s\n", pin, strerror(errno));
-        exit(1);
-    }
-    fprintf(fd, "out\n") ;
-    fclose(fd);
+	if (pattern == NULL) {
+		return false;
+	}
+
+	switch (state) {
+		case dsFPD_LED_DEVICE_WPS_CONNECTING:
+			pattern->durationsMs = gPatternWpsConnecting;
+			pattern->count = sizeof(gPatternWpsConnecting) / sizeof(gPatternWpsConnecting[0]);
+			pattern->startOn = true;
+			return true;
+		case dsFPD_LED_DEVICE_WPS_CONNECTED:
+			pattern->durationsMs = gPatternWpsConnected;
+			pattern->count = sizeof(gPatternWpsConnected) / sizeof(gPatternWpsConnected[0]);
+			pattern->startOn = true;
+			return true;
+		case dsFPD_LED_DEVICE_WPS_ERROR:
+			pattern->durationsMs = gPatternWpsError;
+			pattern->count = sizeof(gPatternWpsError) / sizeof(gPatternWpsError[0]);
+			pattern->startOn = true;
+			return true;
+		case dsFPD_LED_DEVICE_FACTORY_RESET:
+			pattern->durationsMs = gPatternFactoryReset;
+			pattern->count = sizeof(gPatternFactoryReset) / sizeof(gPatternFactoryReset[0]);
+			pattern->startOn = true;
+			return true;
+		case dsFPD_LED_DEVICE_USB_UPGRADE:
+			pattern->durationsMs = gPatternUsbUpgrade;
+			pattern->count = sizeof(gPatternUsbUpgrade) / sizeof(gPatternUsbUpgrade[0]);
+			pattern->startOn = true;
+			return true;
+		case dsFPD_LED_DEVICE_SOFTWARE_DOWNLOAD_ERROR:
+			pattern->durationsMs = gPatternDownloadError;
+			pattern->count = sizeof(gPatternDownloadError) / sizeof(gPatternDownloadError[0]);
+			pattern->startOn = true;
+			return true;
+		default:
+			return false;
+	}
 }
 
-void setValue(int pin, int value)
+/**
+ * @brief Adds milliseconds to an absolute timespec value.
+ *
+ * @param[in,out] ts Timespec to update.
+ * @param[in] ms Milliseconds to add.
+ */
+static void addMsToTimespec(struct timespec *ts, unsigned int ms)
 {
-    snprintf(fName, sizeof(fName), "/sys/class/gpio/gpio%d/value", pin);
-    if ((fd = fopen (fName, "w")) == NULL) {
-        hal_err("fopen error for setting value - pin(%d): %s\n", pin, strerror(errno));
-        exit (1);
-    }
-    fprintf(fd, "%d\n", value);
-    fclose(fd);
+	ts->tv_sec += (time_t)(ms / 1000U);
+	ts->tv_nsec += (long)((ms % 1000U) * 1000000L);
+	if (ts->tv_nsec >= 1000000000L) {
+		ts->tv_sec += 1;
+		ts->tv_nsec -= 1000000000L;
+	}
 }
 
-dsError_t GreenLedOnAndOff( int value )
+/**
+ * @brief Reads a text file into a caller-provided buffer.
+ *
+ * @param[in] path File path.
+ * @param[out] buffer Output buffer.
+ * @param[in] bufferSize Size of output buffer.
+ *
+ * @return dsERR_NONE on success, otherwise error code.
+ */
+static dsError_t readTextFile(const char *path, char *buffer, size_t bufferSize)
 {
-    dsError_t   enErrorCode = dsERR_NONE;
-    int i32ReturnValue = 0;
+	int fd;
+	ssize_t bytesRead;
+	size_t totalRead = 0;
 
-    if( LED_ON == value )
-    {
-        /*  Writing "none" disables any automatic behavior, giving manual control over the LED.
-            So we need to set "none" for keeping the led ON continuous glow. Other wise LED will be automatically OFF.*/
-        i32ReturnValue = system( "echo none > /sys/class/leds/led0/trigger" );
+	if (path == NULL || buffer == NULL || bufferSize < 2) {
+		return dsERR_INVALID_PARAM;
+	}
 
-        if( !i32ReturnValue )
-        {
-            i32ReturnValue = system( "echo 1 > /sys/class/leds/led0/brightness" );
+	fd = open(path, O_RDONLY | O_CLOEXEC);
+	if (fd < 0) {
+		hal_err("Failed to open '%s' for read: %s\n", path, strerror(errno));
+		return dsERR_GENERAL;
+	}
 
-            if( i32ReturnValue )
-            {
-                enErrorCode = dsERR_OPERATION_FAILED;
-            }
-        }
-        else
-        {
-            enErrorCode = dsERR_OPERATION_FAILED;
-        }
-    }
-    else if( LED_OFF == value )
-    {
-        i32ReturnValue = system( "echo 0 > /sys/class/leds/led0/brightness" );
+	while (totalRead < bufferSize - 1) {
+		bytesRead = read(fd, buffer + totalRead, (bufferSize - 1) - totalRead);
+		if (bytesRead < 0) {
+			if (errno == EINTR) {
+				continue;
+			}
+			hal_err("Failed to read '%s': %s\n", path, strerror(errno));
+			(void)close(fd);
+			return dsERR_GENERAL;
+		}
+		if (bytesRead == 0) {
+			break;
+		}
+		totalRead += (size_t)bytesRead;
+	}
+	(void)close(fd);
 
-        if( i32ReturnValue )
-        {
-            enErrorCode = dsERR_OPERATION_FAILED;
-        }
-    }
+	buffer[totalRead] = '\0';
+	return dsERR_NONE;
+}
 
-    return enErrorCode;
+/**
+ * @brief Writes a full string value to a text file.
+ *
+ * @param[in] path File path.
+ * @param[in] value Null-terminated value to write.
+ *
+ * @return dsERR_NONE on success, otherwise error code.
+ */
+static dsError_t writeTextFile(const char *path, const char *value)
+{
+	int fd;
+	size_t len;
+	size_t totalWritten = 0;
+	ssize_t bytesWritten;
+
+	if (path == NULL || value == NULL) {
+		return dsERR_INVALID_PARAM;
+	}
+
+	fd = open(path, O_WRONLY | O_CLOEXEC);
+	if (fd < 0) {
+		hal_err("Failed to open '%s' for write: %s\n", path, strerror(errno));
+		return dsERR_GENERAL;
+	}
+
+	len = strlen(value);
+	while (totalWritten < len) {
+		bytesWritten = write(fd, value + totalWritten, len - totalWritten);
+		if (bytesWritten < 0) {
+			if (errno == EINTR) {
+				continue;
+			}
+			hal_err("Failed to write '%s': %s\n", path, strerror(errno));
+			(void)close(fd);
+			return dsERR_GENERAL;
+		}
+		if (bytesWritten == 0) {
+			hal_err("Failed to write '%s': short write (0 bytes)\n", path);
+			(void)close(fd);
+			return dsERR_GENERAL;
+		}
+		totalWritten += (size_t)bytesWritten;
+	}
+	(void)close(fd);
+
+	return dsERR_NONE;
+}
+
+/**
+ * @brief Reads an unsigned integer from a text file.
+ *
+ * @param[in] path File path.
+ * @param[out] value Parsed unsigned value.
+ *
+ * @return dsERR_NONE on success, otherwise error code.
+ */
+static dsError_t readUintFromFile(const char *path, unsigned int *value)
+{
+	char data[DSFPD_SMALL_TEXT_BUFFER_SIZE];
+	char *endPtr = NULL;
+	unsigned long parsed;
+
+	if (value == NULL) {
+		return dsERR_INVALID_PARAM;
+	}
+
+	if (readTextFile(path, data, sizeof(data)) != dsERR_NONE) {
+		return dsERR_GENERAL;
+	}
+
+	errno = 0;
+	parsed = strtoul(data, &endPtr, 10);
+	if (errno == ERANGE || endPtr == data) {
+		return dsERR_GENERAL;
+	}
+
+	/* Reject trailing non-whitespace characters (e.g. garbled sysfs output) */
+	if (endPtr != NULL) {
+		const char *p = endPtr;
+		while (*p != '\0') {
+			if (!isspace((unsigned char)*p)) {
+				return dsERR_GENERAL;
+			}
+			++p;
+		}
+	}
+
+	/* Guard against values that exceed unsigned int range */
+	if (parsed > (unsigned long)UINT_MAX) {
+		return dsERR_GENERAL;
+	}
+
+	*value = (unsigned int)parsed;
+	return dsERR_NONE;
+}
+
+/**
+ * @brief Builds a full sysfs LED file path under the detected LED directory.
+ *
+ * @param[out] outPath Destination path buffer.
+ * @param[in] outPathSize Destination buffer size.
+ * @param[in] fileName Sysfs file name.
+ */
+static void composeLedFilePath(char *outPath, size_t outPathSize, const char *fileName)
+{
+	size_t baseLen;
+	size_t nameLen;
+	size_t needed;
+
+	if (outPath == NULL || outPathSize == 0 || fileName == NULL) {
+		return;
+	}
+
+	outPath[0] = '\0';
+	baseLen = strnlen(gFPDCtx.ledSysfsPath, sizeof(gFPDCtx.ledSysfsPath));
+	if (baseLen == 0 || baseLen >= sizeof(gFPDCtx.ledSysfsPath)) {
+		return;
+	}
+
+	nameLen = strlen(fileName);
+	if (baseLen > (SIZE_MAX - nameLen - 2U)) {
+		return;
+	}
+
+	needed = baseLen + 1U + nameLen + 1U;
+	if (needed > outPathSize) {
+		return;
+	}
+
+	memcpy(outPath, gFPDCtx.ledSysfsPath, baseLen);
+	outPath[baseLen] = '/';
+	memcpy(outPath + baseLen + 1U, fileName, nameLen);
+	outPath[baseLen + 1U + nameLen] = '\0';
+}
+
+/**
+ * @brief Detects the ACT LED sysfs directory on the current platform.
+ *
+ * @return dsERR_NONE when found, otherwise dsERR_OPERATION_NOT_SUPPORTED.
+ */
+static dsError_t detectLedPath(void)
+{
+	const char *candidates[] = {
+		"/sys/class/leds/ACT",
+		"/sys/class/leds/led0",
+		"/sys/class/leds/act"
+	};
+	size_t i;
+
+	for (i = 0; i < (sizeof(candidates) / sizeof(candidates[0])); ++i) {
+		if (access(candidates[i], F_OK) == 0) {
+			snprintf(gFPDCtx.ledSysfsPath, sizeof(gFPDCtx.ledSysfsPath), "%s", candidates[i]);
+			return dsERR_NONE;
+		}
+	}
+
+	return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @brief Reads the currently active LED trigger token from sysfs.
+ *
+ * The sysfs trigger file usually contains multiple trigger names where the
+ * active trigger is enclosed in brackets, e.g. "none [mmc0] timer". This
+ * helper extracts the active token. If brackets are not found, it falls back
+ * to the first whitespace-delimited token.
+ *
+ * @param[out] buffer Output trigger token.
+ * @param[in] bufferSize Output buffer size.
+ *
+ * @return dsERR_NONE on success, otherwise error code.
+ */
+static dsError_t readCurrentSysfsTrigger(char *buffer, size_t bufferSize)
+{
+	char triggerPath[DSFPD_LED_FILE_PATH_SIZE];
+	char triggerData[DSFPD_TRIGGER_TEXT_BUFFER_SIZE] = {0};
+	char *tokenStart;
+	char *tokenEnd;
+	size_t tokenLen;
+
+	if (buffer == NULL || bufferSize < 2) {
+		return dsERR_INVALID_PARAM;
+	}
+
+	buffer[0] = '\0';
+	composeLedFilePath(triggerPath, sizeof(triggerPath), SYSFS_LED_TRIGGER_FILE);
+	if (readTextFile(triggerPath, triggerData, sizeof(triggerData)) != dsERR_NONE) {
+		return dsERR_GENERAL;
+	}
+
+	tokenStart = strchr(triggerData, '[');
+	if (tokenStart != NULL) {
+		++tokenStart;
+		tokenEnd = strchr(tokenStart, ']');
+		if (tokenEnd == NULL || tokenEnd <= tokenStart) {
+			return dsERR_GENERAL;
+		}
+	} else {
+		/* Fallback when the active token is not bracketed. */
+		tokenStart = triggerData;
+		while (*tokenStart != '\0' && isspace((unsigned char)*tokenStart)) {
+			++tokenStart;
+		}
+		if (*tokenStart == '\0') {
+			return dsERR_GENERAL;
+		}
+		tokenEnd = tokenStart;
+		while (*tokenEnd != '\0' && !isspace((unsigned char)*tokenEnd)) {
+			++tokenEnd;
+		}
+	}
+
+	tokenLen = (size_t)(tokenEnd - tokenStart);
+	if (tokenLen == 0 || tokenLen >= bufferSize) {
+		return dsERR_GENERAL;
+	}
+
+	memcpy(buffer, tokenStart, tokenLen);
+	buffer[tokenLen] = '\0';
+	return dsERR_NONE;
+}
+
+/**
+ * @brief Caches the currently active LED trigger from sysfs.
+ *
+ * @return dsERR_NONE on success, otherwise error code.
+ */
+static dsError_t cacheCurrentTrigger(void)
+{
+	return readCurrentSysfsTrigger(gFPDCtx.previousTrigger, sizeof(gFPDCtx.previousTrigger));
+}
+
+/**
+ * @brief Loads a previously saved LED trigger value from backup file.
+ *
+ * @param[out] trigger Output trigger string.
+ * @param[in] triggerSize Output buffer size.
+ *
+ * @return dsERR_NONE on success, otherwise error code.
+ */
+static dsError_t loadTriggerBackup(char *trigger, size_t triggerSize)
+{
+	char data[DSFPD_BACKUP_TEXT_BUFFER_SIZE] = {0};
+	size_t len;
+	int fd;
+	struct stat st;
+	ssize_t n;
+	size_t total = 0;
+
+	if (trigger == NULL || triggerSize == 0) {
+		return dsERR_INVALID_PARAM;
+	}
+
+	fd = open(SYSFS_LED_TRIGGER_BACKUP_FILE, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+	if (fd < 0) {
+		return dsERR_GENERAL;
+	}
+
+	if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+		(void)close(fd);
+		return dsERR_GENERAL;
+	}
+
+	while (total < sizeof(data) - 1) {
+		n = read(fd, data + total, (sizeof(data) - 1) - total);
+		if (n < 0) {
+			if (errno == EINTR) {
+				continue;
+			}
+			(void)close(fd);
+			return dsERR_GENERAL;
+		}
+		if (n == 0) {
+			break;
+		}
+		total += (size_t)n;
+	}
+	(void)close(fd);
+
+	if (total == 0) {
+		return dsERR_GENERAL;
+	}
+	data[total] = '\0';
+
+	len = strlen(data);
+	while (len > 0 && (data[len - 1] == '\n' || data[len - 1] == '\r' || data[len - 1] == ' ' || data[len - 1] == '\t')) {
+		data[len - 1] = '\0';
+		len--;
+	}
+
+	if (len == 0) {
+		return dsERR_GENERAL;
+	}
+
+	if (len >= triggerSize) {
+		return dsERR_GENERAL;
+	}
+
+	memcpy(trigger, data, len);
+	trigger[len] = '\0';
+	return dsERR_NONE;
+}
+
+/**
+ * @brief Persists the current trigger value for crash-safe restore.
+ *
+ * Writes to a temporary file in the same directory and renames it into
+ * place atomically so the backup is always either the old or new value,
+ * never partially written.
+ *
+ * @param[in] trigger Trigger string to persist.
+ *
+ * @return dsERR_NONE on success, otherwise error code.
+ */
+static dsError_t saveTriggerBackup(const char *trigger)
+{
+	char tmpPath[sizeof(SYSFS_LED_TRIGGER_BACKUP_FILE) + 4];
+	int fd;
+	struct stat st;
+	size_t len;
+	size_t total = 0;
+	ssize_t n;
+
+	if (trigger == NULL || trigger[0] == '\0') {
+		return dsERR_INVALID_PARAM;
+	}
+
+	if (snprintf(tmpPath, sizeof(tmpPath), "%s.tmp", SYSFS_LED_TRIGGER_BACKUP_FILE)
+			>= (int)sizeof(tmpPath)) {
+		return dsERR_GENERAL;
+	}
+
+	fd = open(tmpPath, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
+	if (fd < 0) {
+		return dsERR_GENERAL;
+	}
+
+	if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+		(void)close(fd);
+		(void)unlink(tmpPath);
+		return dsERR_GENERAL;
+	}
+
+	len = strlen(trigger);
+	while (total < len) {
+		n = write(fd, trigger + total, len - total);
+		if (n < 0) {
+			if (errno == EINTR) {
+				continue;
+			}
+			(void)close(fd);
+			(void)unlink(tmpPath);
+			return dsERR_GENERAL;
+		}
+		if (n == 0) {
+			(void)close(fd);
+			(void)unlink(tmpPath);
+			return dsERR_GENERAL;
+		}
+		total += (size_t)n;
+	}
+
+	if (fsync(fd) != 0) {
+		(void)close(fd);
+		(void)unlink(tmpPath);
+		return dsERR_GENERAL;
+	}
+
+	if (close(fd) != 0) {
+		(void)unlink(tmpPath);
+		return dsERR_GENERAL;
+	}
+
+	if (rename(tmpPath, SYSFS_LED_TRIGGER_BACKUP_FILE) != 0) {
+		(void)unlink(tmpPath);
+		return dsERR_GENERAL;
+	}
+
+	/* Best-effort fsync of the parent directory to make the rename durable. */
+	{
+		char dirPath[PATH_MAX];
+		char *dirName;
+		int dirfd;
+		if (strlen(SYSFS_LED_TRIGGER_BACKUP_FILE) < sizeof(dirPath)) {
+			(void)strcpy(dirPath, SYSFS_LED_TRIGGER_BACKUP_FILE);
+			dirName = dirname(dirPath);
+			if (dirName != NULL) {
+				dirfd = open(dirName, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+				if (dirfd >= 0) {
+					(void)fsync(dirfd);
+					(void)close(dirfd);
+				}
+			}
+		}
+	}
+
+	return dsERR_NONE;
+}
+
+/**
+ * @brief Removes the persisted trigger backup file.
+ */
+static void clearTriggerBackup(void)
+{
+	(void)unlink(SYSFS_LED_TRIGGER_BACKUP_FILE);
+}
+
+/**
+ * @brief Sets the LED trigger mode in sysfs.
+ *
+ * @param[in] trigger Trigger name.
+ *
+ * @return dsERR_NONE on success, otherwise error code.
+ */
+static dsError_t setLedTrigger(const char *trigger)
+{
+	char triggerPath[DSFPD_LED_FILE_PATH_SIZE];
+
+	composeLedFilePath(triggerPath, sizeof(triggerPath), SYSFS_LED_TRIGGER_FILE);
+	return writeTextFile(triggerPath, trigger);
+}
+
+/**
+ * @brief Writes raw LED brightness value to sysfs.
+ *
+ * @param[in] raw Raw brightness value in sysfs scale.
+ *
+ * @return dsERR_NONE on success, otherwise error code.
+ */
+static dsError_t writeLedBrightnessRaw(unsigned int raw)
+{
+	char brightnessPath[DSFPD_LED_FILE_PATH_SIZE];
+	char value[DSFPD_NUMERIC_TEXT_BUFFER_SIZE];
+
+	if (raw > gFPDCtx.ledMaxBrightness) {
+		raw = gFPDCtx.ledMaxBrightness;
+	}
+
+	composeLedFilePath(brightnessPath, sizeof(brightnessPath), SYSFS_LED_BRIGHTNESS_FILE);
+	snprintf(value, sizeof(value), "%u", raw);
+	return writeTextFile(brightnessPath, value);
+}
+
+/**
+ * @brief Converts percentage brightness to platform raw brightness.
+ *
+ * @param[in] percent Brightness in 0-100 range.
+ *
+ * @return Raw brightness value clamped to supported range.
+ */
+static unsigned int percentToRawBrightness(dsFPDBrightness_t percent)
+{
+	uint64_t tmp;
+	unsigned int raw;
+
+	if (percent == 0) {
+		return 0;
+	}
+
+	tmp = (((uint64_t)percent * (uint64_t)gFPDCtx.ledMaxBrightness) + 99ULL) / 100ULL;
+	if (tmp == 0ULL) {
+		tmp = 1ULL;
+	}
+
+	if (tmp > (uint64_t)gFPDCtx.ledMaxBrightness) {
+		tmp = (uint64_t)gFPDCtx.ledMaxBrightness;
+	}
+
+	if (tmp > (uint64_t)UINT_MAX) {
+		tmp = (uint64_t)UINT_MAX;
+	}
+	raw = (unsigned int)tmp;
+
+	return raw;
+}
+
+/**
+ * @brief Best-effort restore of LED trigger without state mutex.
+ *
+ * Used by atexit when mutex is busy so shutdown does not hang while still
+ * attempting to restore kernel-controlled LED behavior.
+ */
+static void dsFPBestEffortRestoreOnExit(const char *preferredTrigger, const char *preferredLedPath)
+{
+	const char *triggerCandidates[] = {
+		"/sys/class/leds/ACT/trigger",
+		"/sys/class/leds/led0/trigger",
+		"/sys/class/leds/act/trigger"
+	};
+	char restoreTrigger[sizeof(gFPDCtx.previousTrigger)] = {0};
+	char preferredTriggerPath[DSFPD_LED_FILE_PATH_SIZE];
+	char triggerLine[sizeof(gFPDCtx.previousTrigger) + 2];
+	size_t triggerLineLen = 0;
+	size_t i;
+
+	if (preferredTrigger != NULL && preferredTrigger[0] != '\0') {
+		snprintf(restoreTrigger, sizeof(restoreTrigger), "%s", preferredTrigger);
+	} else if (loadTriggerBackup(restoreTrigger, sizeof(restoreTrigger)) != dsERR_NONE) {
+		hal_info("Best-effort restore skipped trigger write: no persisted trigger available.\n");
+		return;
+	}
+
+	{
+		int lineLen = snprintf(triggerLine, sizeof(triggerLine), "%s\n", restoreTrigger);
+		if (lineLen <= 0 || (size_t)lineLen >= sizeof(triggerLine)) {
+			hal_err("Best-effort trigger restore skipped: trigger token is invalid.\n");
+			return;
+		}
+		triggerLineLen = (size_t)lineLen;
+	}
+
+	if (preferredLedPath != NULL && preferredLedPath[0] != '\0') {
+		int rc = snprintf(preferredTriggerPath, sizeof(preferredTriggerPath), "%s/%s",
+				  preferredLedPath, SYSFS_LED_TRIGGER_FILE);
+		if (rc >= 0 && (size_t)rc < sizeof(preferredTriggerPath)) {
+			int fd = open(preferredTriggerPath, O_WRONLY | O_CLOEXEC | O_NOFOLLOW);
+			if (fd >= 0) {
+				ssize_t n = write(fd, triggerLine, triggerLineLen);
+				if (n != (ssize_t)triggerLineLen) {
+					hal_err("Best-effort trigger restore write failed on '%s': %s\n",
+							preferredTriggerPath, (n < 0) ? strerror(errno) : "short write");
+				}
+				(void)close(fd);
+				return;
+			}
+		}
+	}
+
+	for (i = 0; i < (sizeof(triggerCandidates) / sizeof(triggerCandidates[0])); ++i) {
+		int fd = open(triggerCandidates[i], O_WRONLY | O_CLOEXEC | O_NOFOLLOW);
+		if (fd >= 0) {
+			ssize_t n = write(fd, triggerLine, triggerLineLen);
+			if (n != (ssize_t)triggerLineLen) {
+				hal_err("Best-effort trigger restore write failed on '%s': %s\n",
+						triggerCandidates[i], (n < 0) ? strerror(errno) : "short write");
+			}
+			(void)close(fd);
+			break;
+		}
+	}
+}
+
+/**
+ * @brief Updates current LED state and wakes pattern worker.
+ *
+ * @param[in] state New LED state.
+ *
+ * @return dsERR_NONE always.
+ */
+static dsError_t applyLedStateLocked(dsFPDLedState_t state)
+{
+	gFPDCtx.currentLEDState = state;
+	pthread_cond_signal(&gFPDCtx.ledPatternCond);
+	return dsERR_NONE;
+}
+
+/**
+ * @brief Returns whether the selected indicator is ON.
+ *
+ * Caller must hold gFPDCtx.ledStateMutex.
+ */
+static bool isFPStateEnabledLocked(dsFPDIndicator_t indicator)
+{
+	if (!dsFPDIndicator_isValid(indicator)) {
+		return false;
+	}
+
+	return gFPDCtx.fpState == dsFPD_STATE_ON;
+}
+
+/**
+ * @brief Returns whether indicator is supported by this platform.
+ *
+ * Raspberry Pi implementation supports only POWER indicator APIs.
+ */
+static bool isIndicatorSupported(dsFPDIndicator_t indicator)
+{
+	return indicator == dsFPD_INDICATOR_POWER;
+}
+
+#ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
+/**
+ * @brief Acquires exclusive inter-process ownership of LED control.
+ *
+ * @return dsERR_NONE on success, otherwise error code.
+ */
+static dsError_t acquireProcessLock(void)
+{
+	int fd;
+	struct flock lock = {0};
+	struct stat st;
+	char pidText[DSFPD_NUMERIC_TEXT_BUFFER_SIZE];
+	int len;
+
+	if (gFPDCtx.processLockFd >= 0) {
+		return dsERR_NONE;
+	}
+
+	fd = open(SYSFS_LED_PROCESS_LOCK_FILE, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
+	if (fd < 0) {
+		int err = errno;
+		hal_err("Unable to open process lock file '%s': errno=%d (%s)\n",
+				SYSFS_LED_PROCESS_LOCK_FILE, err, strerror(err));
+		return dsERR_GENERAL;
+	}
+
+	if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+		hal_err("Process lock file is not a regular file: %s\n", SYSFS_LED_PROCESS_LOCK_FILE);
+		(void)close(fd);
+		return dsERR_GENERAL;
+	}
+
+	lock.l_type = F_WRLCK;
+	lock.l_whence = SEEK_SET;
+	if (fcntl(fd, F_SETLK, &lock) != 0) {
+		if (errno == EACCES || errno == EAGAIN) {
+			hal_err("ACT LED control is already owned by another process.\n");
+		} else {
+			hal_err("Unable to acquire process lock: errno=%d\n", errno);
+		}
+		(void)close(fd);
+		return dsERR_OPERATION_NOT_SUPPORTED;
+	}
+
+	(void)ftruncate(fd, 0);
+	len = snprintf(pidText, sizeof(pidText), "%ld\n", (long)getpid());
+	if (len > 0) {
+		size_t toWrite = (size_t)len;
+		size_t written = 0;
+		while (written < toWrite) {
+			ssize_t n = write(fd, pidText + written, toWrite - written);
+			if (n < 0) {
+				if (errno == EINTR) {
+					continue;
+				}
+				break;
+			}
+			if (n == 0) {
+				break;
+			}
+			written += (size_t)n;
+		}
+	}
+
+	gFPDCtx.processLockFd = fd;
+	return dsERR_NONE;
+}
+
+/**
+ * @brief Releases inter-process ownership lock of LED control.
+ */
+static void releaseProcessLock(void)
+{
+	if (gFPDCtx.processLockFd >= 0) {
+		struct flock lock = {0};
+		lock.l_type = F_UNLCK;
+		lock.l_whence = SEEK_SET;
+		(void)fcntl(gFPDCtx.processLockFd, F_SETLK, &lock);
+		(void)close(gFPDCtx.processLockFd);
+		gFPDCtx.processLockFd = -1;
+	}
+}
+#endif
+
+/**
+ * @brief Best-effort process-exit cleanup for normal termination paths.
+ *
+ * Invoked via atexit() to stop the worker and restore trigger when process
+ * exits without an explicit dsFPTerm() call.
+ */
+static void dsFPExitCleanup(void)
+{
+	bool initialized = false;
+	bool shouldJoin = false;
+	pthread_t threadToJoin;
+	char exitTrigger[sizeof(gFPDCtx.previousTrigger)] = {0};
+	char exitLedPath[DSFPD_LED_SYSFS_PATH_SIZE] = {0};
+	int lockRc;
+
+	hal_info("invoked.\n");
+	/* gIsLEDWorkerThread is set by ledPatternWorker() on entry with no
+	 * mutex required, so it is safe to read here in the atexit handler.
+	 */
+	if (gIsLEDWorkerThread) {
+		hal_info("Skipping dsFPTerm() in LED worker thread atexit handler to avoid self-join.\n");
+		return;
+	}
+
+	/* Best-effort exit path: do not block on the state mutex during process
+	 * shutdown, otherwise atexit can hang if another thread holds the lock.
+	 */
+	lockRc = pthread_mutex_trylock(&gFPDCtx.ledStateMutex);
+	if (lockRc != 0) {
+		hal_info("LED state mutex is busy during atexit; attempting best-effort trigger restore without mutex.\n");
+		dsFPBestEffortRestoreOnExit(NULL, NULL);
+		return;
+	}
+
+	/* We hold the state mutex without blocking: perform minimal shutdown
+	 * state transitions here so there is no unlock/relock race window.
+	 */
+	initialized = gFPDCtx.isFPDInitialized;
+	if (initialized) {
+		if (gFPDCtx.previousTrigger[0] != '\0') {
+			snprintf(exitTrigger, sizeof(exitTrigger), "%s", gFPDCtx.previousTrigger);
+		}
+		if (gFPDCtx.ledSysfsPath[0] != '\0') {
+			snprintf(exitLedPath, sizeof(exitLedPath), "%s", gFPDCtx.ledSysfsPath);
+		}
+
+		gFPDCtx.ledPatternThreadStop = true;
+		pthread_cond_signal(&gFPDCtx.ledPatternCond);
+		if (gFPDCtx.ledPatternThreadRunning) {
+			threadToJoin = gFPDCtx.ledPatternThread;
+			gFPDCtx.ledPatternThreadRunning = false;
+			shouldJoin = true;
+		}
+		gFPDCtx.isFPDInitialized = false;
+	}
+	(void)pthread_mutex_unlock(&gFPDCtx.ledStateMutex);
+
+	if (!initialized) {
+		return;
+	}
+
+	if (shouldJoin) {
+		(void)pthread_join(threadToJoin, NULL);
+	}
+
+	/* During process exit, restore LED control without taking the state mutex. */
+	dsFPBestEffortRestoreOnExit(exitTrigger, exitLedPath);
+
+#ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
+	releaseProcessLock();
+#endif
+}
+
+/**
+ * @brief Worker thread that drives steady and blinking LED behavior.
+ *
+ * @param[in] arg Shared FPD context.
+ *
+ * @return NULL on thread exit.
+ */
+static void *ledPatternWorker(void *arg)
+{
+	dsFPDContext_t *ctx = (dsFPDContext_t *)arg;
+	if (ctx == NULL) {
+		hal_err("LED pattern worker started without context.\n");
+		return NULL;
+	}
+
+	hal_info("LED pattern worker thread started.\n");
+	/* Mark this thread so the atexit handler can skip dsFPTerm() if
+	 * this thread itself calls exit(), avoiding a self-join deadlock.
+	 */
+	gIsLEDWorkerThread = true;
+	dsFPDLedState_t activeState = dsFPD_LED_DEVICE_NONE;
+	dsFPDBrightness_t activeBrightness = dsFPD_BRIGHTNESS_MAX;
+	dsFPDState_t activeFPState = dsFPD_STATE_OFF;
+	size_t phaseIndex = 0;
+	uint64_t activeCustomReqId = 0;
+	bool customPhaseOn = true;
+	unsigned int customPhasesRemaining = 0;
+
+	while (true) {
+		dsLedBlinkPattern_t pattern;
+		dsFPDLedState_t state;
+		dsFPDBrightness_t brightness;
+		dsFPDState_t fpState;
+		unsigned int rawOn;
+		bool isBlink;
+		bool useCustomBlink = false;
+		bool customLedOn = false;
+		unsigned int customDurationMs = 0;
+
+		pthread_mutex_lock(&ctx->ledStateMutex);
+		while (!ctx->ledPatternThreadStop && !ctx->isFPDInitialized) {
+			pthread_cond_wait(&ctx->ledPatternCond, &ctx->ledStateMutex);
+		}
+
+		if (ctx->ledPatternThreadStop) {
+			pthread_mutex_unlock(&ctx->ledStateMutex);
+			break;
+		}
+
+		state = ctx->currentLEDState;
+		brightness = ctx->currentBrightness;
+		fpState = ctx->fpState;
+		rawOn = percentToRawBrightness(brightness);
+		/* Invariant: FP OFF always forces physical LED output off. */
+		isBlink = (fpState == dsFPD_STATE_ON) ? getPatternForState(state, &pattern) : false;
+
+		if (fpState == dsFPD_STATE_ON && ctx->customBlinkActive) {
+			useCustomBlink = true;
+			if (activeCustomReqId != ctx->customBlinkRequestId) {
+				activeCustomReqId = ctx->customBlinkRequestId;
+				customPhaseOn = true;
+				customPhasesRemaining = ctx->customBlinkIterations * 2U;
+			}
+
+			if (customPhasesRemaining == 0U) {
+				ctx->customBlinkActive = false;
+				useCustomBlink = false;
+				activeCustomReqId = 0;
+				customPhaseOn = true;
+				ctx->currentLEDState = ctx->customBlinkResumeState;
+				pthread_cond_signal(&ctx->ledPatternCond);
+				state = ctx->currentLEDState;
+				brightness = ctx->currentBrightness;
+				rawOn = percentToRawBrightness(brightness);
+				isBlink = getPatternForState(state, &pattern);
+			} else {
+				customLedOn = customPhaseOn;
+				customDurationMs = ctx->customBlinkDurationMs;
+			}
+		}
+
+		if (state != activeState || brightness != activeBrightness || fpState != activeFPState) {
+			phaseIndex = 0;
+			activeState = state;
+			activeBrightness = brightness;
+			activeFPState = fpState;
+		}
+
+		if (!useCustomBlink && !isBlink) {
+			unsigned int raw = (fpState != dsFPD_STATE_ON || state == dsFPD_LED_DEVICE_STANDBY || state == dsFPD_LED_DEVICE_NONE) ? 0 : rawOn;
+			pthread_mutex_unlock(&ctx->ledStateMutex);
+			if (dsERR_NONE != writeLedBrightnessRaw(raw)) {
+				hal_err("Failed to apply LED brightness for state=%d in steady mode.\n", activeState);
+			}
+
+			pthread_mutex_lock(&ctx->ledStateMutex);
+			while (!ctx->ledPatternThreadStop) {
+				/* Re-read state under the lock before waiting to catch any
+				 * signal that fired while the mutex was unlocked for I/O.
+				 */
+				state = ctx->currentLEDState;
+				brightness = ctx->currentBrightness;
+				fpState = ctx->fpState;
+				if (state != activeState || brightness != activeBrightness || fpState != activeFPState || ctx->customBlinkActive) {
+					break;
+				}
+				pthread_cond_wait(&ctx->ledPatternCond, &ctx->ledStateMutex);
+			}
+			pthread_mutex_unlock(&ctx->ledStateMutex);
+			continue;
+		}
+
+		{
+			bool ledOn = useCustomBlink ? customLedOn : (((phaseIndex % 2U) == 0U) ? pattern.startOn : !pattern.startOn);
+			unsigned int raw = ledOn ? rawOn : 0;
+			unsigned int durationMs = useCustomBlink ? customDurationMs : pattern.durationsMs[phaseIndex % pattern.count];
+			struct timespec wakeTime;
+
+			pthread_mutex_unlock(&ctx->ledStateMutex);
+			if (dsERR_NONE != writeLedBrightnessRaw(raw)) {
+				hal_err("Failed to apply LED brightness for state=%d in blink mode.\n", activeState);
+			}
+
+			int clockRc = clock_gettime(CLOCK_MONOTONIC, &wakeTime);
+			if (clockRc != 0) {
+				hal_err("clock_gettime(CLOCK_MONOTONIC) failed in blink mode: %s\n", strerror(errno));
+			} else {
+				addMsToTimespec(&wakeTime, durationMs);
+			}
+
+			pthread_mutex_lock(&ctx->ledStateMutex);
+			if (!ctx->ledPatternThreadStop) {
+				/* Re-check under lock before timed wait so a state/brightness
+				 * update that happened while unlocked is handled immediately.
+				 */
+				state = ctx->currentLEDState;
+				brightness = ctx->currentBrightness;
+				fpState = ctx->fpState;
+				if (state != activeState || brightness != activeBrightness || fpState != activeFPState) {
+					phaseIndex = 0;
+					activeState = state;
+					activeBrightness = brightness;
+					activeFPState = fpState;
+				} else {
+					int waitRc;
+					if (clockRc == 0) {
+						waitRc = pthread_cond_timedwait(&ctx->ledPatternCond, &ctx->ledStateMutex, &wakeTime);
+					} else {
+						/* Fallback: avoid using an undefined timeout when clock_gettime fails. */
+						waitRc = pthread_cond_wait(&ctx->ledPatternCond, &ctx->ledStateMutex);
+					}
+					if (waitRc == ETIMEDOUT) {
+						if (useCustomBlink) {
+							if (customPhasesRemaining > 0U) {
+								customPhasesRemaining--;
+								customPhaseOn = !customPhaseOn;
+							}
+							if (customPhasesRemaining == 0U) {
+								ctx->customBlinkActive = false;
+								ctx->currentLEDState = ctx->customBlinkResumeState;
+								pthread_cond_signal(&ctx->ledPatternCond);
+							}
+						} else {
+							phaseIndex = (phaseIndex + 1U) % pattern.count;
+						}
+					} else if (waitRc == 0) {
+						/* Non-timeout wake: check if state or brightness actually changed. */
+						state = ctx->currentLEDState;
+						brightness = ctx->currentBrightness;
+						fpState = ctx->fpState;
+						if (state != activeState || brightness != activeBrightness || fpState != activeFPState) {
+							phaseIndex = 0;
+							activeState = state;
+							activeBrightness = brightness;
+							activeFPState = fpState;
+						} else {
+							/* Spurious (non-timeout) wake without effective change.
+							 * Advance phase just as we would on timeout so that
+							 * frequent signals cannot stall blink completion.
+							 */
+							if (useCustomBlink) {
+								if (customPhasesRemaining > 0U) {
+									customPhasesRemaining--;
+									customPhaseOn = !customPhaseOn;
+								}
+								if (customPhasesRemaining == 0U) {
+									ctx->customBlinkActive = false;
+									ctx->currentLEDState = ctx->customBlinkResumeState;
+									pthread_cond_signal(&ctx->ledPatternCond);
+								}
+							} else {
+								phaseIndex = (phaseIndex + 1U) % pattern.count;
+							}
+						}
+					} else {
+						/* Real timed-wait error: stop worker to avoid tight retry loops. */
+						hal_err("pthread_cond_timedwait failed in ledPatternWorker: rc=%d (%s)\n",
+								waitRc, strerror(waitRc));
+						ctx->ledPatternThreadStop = true;
+					}
+				}
+			}
+			pthread_mutex_unlock(&ctx->ledStateMutex);
+		}
+	}
+
+	hal_info("LED pattern worker thread exiting.\n");
+
+	return NULL;
 }
 
 /**
@@ -138,6 +1239,7 @@ dsError_t GreenLedOnAndOff( int value )
  * @retval dsERR_ALREADY_INITIALIZED  -  Function is already initialized
  * @retval dsERR_GENERAL              -  Underlying undefined platform error
  *
+ * @post dsFPTerm() must be called to release resources
  *
  * @warning  This API is Not thread safe
  *
@@ -146,51 +1248,161 @@ dsError_t GreenLedOnAndOff( int value )
  */
 dsError_t dsFPInit(void)
 {
-    hal_info("invoked.\n");
+	hal_info("invoked.\n");
 
-    pthread_mutex_init(&dsHalLock, NULL);
-    // These changes were added for Traffic light LED support in RPI3. Not relevant otherwise.
-#if 0
-    exportPins (LED_RED);
-    exportPins (LED_YELLOW);
-    exportPins (LED_GREEN);
+	FPD_MUTEX_LOCK();
+	if (!gFPDCtx.exitCleanupRegistered) {
+		if (atexit(dsFPExitCleanup) == 0) {
+			gFPDCtx.exitCleanupRegistered = true;
+		} else {
+			hal_err("Unable to register process-exit cleanup handler.\n");
+		}
+	}
 
-    setDirection (LED_RED);
-    setDirection (LED_YELLOW);
-    setDirection (LED_GREEN);
+	if (gFPDCtx.isFPDInitialized) {
+		FPD_MUTEX_UNLOCK();
+		hal_err("Already initialized.\n");
+		return dsERR_ALREADY_INITIALIZED;
+	}
+
+	if (!gFPDCtx.condVarReady) {
+		pthread_condattr_t condattr;
+		int rc = pthread_condattr_init(&condattr);
+		if (rc != 0) {
+			FPD_MUTEX_UNLOCK();
+			hal_err("pthread_condattr_init failed: %s\n", strerror(rc));
+			return dsERR_GENERAL;
+		}
+		rc = pthread_condattr_setclock(&condattr, CLOCK_MONOTONIC);
+		if (rc != 0) {
+			(void)pthread_condattr_destroy(&condattr);
+			FPD_MUTEX_UNLOCK();
+			hal_err("pthread_condattr_setclock(CLOCK_MONOTONIC) failed: %s\n", strerror(rc));
+			return dsERR_GENERAL;
+		}
+		rc = pthread_cond_init(&gFPDCtx.ledPatternCond, &condattr);
+		(void)pthread_condattr_destroy(&condattr);
+		if (rc != 0) {
+			FPD_MUTEX_UNLOCK();
+			hal_err("pthread_cond_init failed: %s\n", strerror(rc));
+			return dsERR_GENERAL;
+		}
+		gFPDCtx.condVarReady = true;
+	}
+
+	if (detectLedPath() != dsERR_NONE) {
+		FPD_MUTEX_UNLOCK();
+		hal_err("Unable to find ACT LED sysfs path.\n");
+		return dsERR_OPERATION_NOT_SUPPORTED;
+	}
+
+#ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
+	{
+		dsError_t lockErr = acquireProcessLock();
+		if (lockErr != dsERR_NONE) {
+			FPD_MUTEX_UNLOCK();
+			return lockErr;
+		}
+	}
 #endif
-    // Should not return error, as this is not a critical operation.
-    return dsERR_NONE;
-}
 
-/**
- * @brief Terminates the the Front Panel Display sub-module
- *
- * This function resets any data structures used within Front Panel sub-module,
- * and releases all the resources allocated during the init function.
- *
- * @return dsError_t                      -  Status
- * @retval dsERR_NONE                     -  Success
- * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
- * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
- * @retval dsERR_GENERAL                  -  Underlying undefined platform error
- *
- * @pre dsFPInit() must be called before calling this API
- *
- * @warning This API is Not thread safe
- *
- * @see dsFPInit()
- *
- */
-dsError_t dsFPTerm(void)
-{
-    hal_info("invoked.\n");
+	if (loadTriggerBackup(gFPDCtx.previousTrigger, sizeof(gFPDCtx.previousTrigger)) == dsERR_NONE) {
+		char currentTrigger[sizeof(gFPDCtx.previousTrigger)] = {0};
+		hal_info("Loaded previous trigger from backup: %s\n", gFPDCtx.previousTrigger);
+		if (readCurrentSysfsTrigger(currentTrigger, sizeof(currentTrigger)) == dsERR_NONE) {
+			if (strcmp(currentTrigger, "none") != 0) {
+				hal_info("Ignoring stale trigger backup '%s'; using current trigger '%s'.\n",
+						 gFPDCtx.previousTrigger, currentTrigger);
+				snprintf(gFPDCtx.previousTrigger, sizeof(gFPDCtx.previousTrigger), "%s", currentTrigger);
+				if (saveTriggerBackup(gFPDCtx.previousTrigger) != dsERR_NONE) {
+					hal_err("Unable to update trigger backup file with current trigger.\n");
+				}
+			} else {
+				hal_info("Current trigger is 'none'; keeping backup trigger '%s'.\n", gFPDCtx.previousTrigger);
+			}
+		} else {
+			hal_err("Failed to read current sysfs trigger; proceeding with backup trigger '%s'.\n",
+					gFPDCtx.previousTrigger);
+		}
+	} else if (cacheCurrentTrigger() != dsERR_NONE) {
+#ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
+		releaseProcessLock();
+#endif
+		FPD_MUTEX_UNLOCK();
+		hal_err("Unable to determine current LED trigger; aborting initialization.\n");
+		return dsERR_GENERAL;
+	} else {
+		hal_info("Current LED trigger before init: %s\n", gFPDCtx.previousTrigger);
+		if (saveTriggerBackup(gFPDCtx.previousTrigger) != dsERR_NONE) {
+#ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
+			releaseProcessLock();
+#endif
+			FPD_MUTEX_UNLOCK();
+			hal_err("Unable to persist trigger backup file; aborting initialization.\n");
+			return dsERR_GENERAL;
+		}
+	}
 
-    stop_led_blink( );
+	if (setLedTrigger("none") != dsERR_NONE) {
+#ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
+		releaseProcessLock();
+#endif
+		FPD_MUTEX_UNLOCK();
+		hal_err("Unable to set LED trigger to none.\n");
+		return dsERR_GENERAL;
+	}
 
-    pthread_mutex_destroy(&dsHalLock);
+	/* Ensure LED starts from a known OFF level before worker applies initial state. */
+	if (writeLedBrightnessRaw(0) != dsERR_NONE) {
+		hal_err("Unable to turn off LED after setting trigger to none.\n");
+	}
 
-    return dsERR_NONE;
+	{
+		char maxBrightnessPath[DSFPD_LED_FILE_PATH_SIZE];
+		unsigned int maxBrightness = 1;
+		composeLedFilePath(maxBrightnessPath, sizeof(maxBrightnessPath), SYSFS_LED_MAX_BRIGHTNESS_FILE);
+		if (readUintFromFile(maxBrightnessPath, &maxBrightness) != dsERR_NONE || maxBrightness == 0) {
+			maxBrightness = 1;
+		}
+		gFPDCtx.ledMaxBrightness = maxBrightness;
+	}
+
+	gFPDCtx.currentBrightness = dsFPD_BRIGHTNESS_MAX;
+	gFPDCtx.currentLEDState = dsFPD_LED_DEVICE_ACTIVE;
+	gFPDCtx.fpState = dsFPD_STATE_ON;
+	gFPDCtx.customBlinkActive = false;
+	gFPDCtx.customBlinkDurationMs = 0;
+	gFPDCtx.customBlinkIterations = 0;
+	gFPDCtx.customBlinkRequestId = 0;
+	gFPDCtx.customBlinkResumeState = dsFPD_LED_DEVICE_ACTIVE;
+	gFPDCtx.ledPatternThreadStop = false;
+	if (pthread_create(&gFPDCtx.ledPatternThread, NULL, ledPatternWorker, &gFPDCtx) != 0) {
+		(void)writeLedBrightnessRaw(0);
+		if (gFPDCtx.previousTrigger[0] != '\0') {
+			if (setLedTrigger(gFPDCtx.previousTrigger) == dsERR_NONE) {
+				clearTriggerBackup();
+			} else {
+				hal_err("Unable to restore LED trigger '%s' after worker thread create failure.\n", gFPDCtx.previousTrigger);
+			}
+		}
+		gFPDCtx.ledSysfsPath[0] = '\0';
+		gFPDCtx.previousTrigger[0] = '\0';
+#ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
+		releaseProcessLock();
+#endif
+		FPD_MUTEX_UNLOCK();
+		hal_err("Unable to create LED pattern worker thread.\n");
+		return dsERR_GENERAL;
+	}
+	gFPDCtx.ledPatternThreadRunning = true;
+
+	gFPDCtx.isFPDInitialized = true;
+	pthread_cond_signal(&gFPDCtx.ledPatternCond);
+	hal_info("FP init defaults: state=%d brightness=%u fpState=%d maxRaw=%u\n",
+		 gFPDCtx.currentLEDState, gFPDCtx.currentBrightness, gFPDCtx.fpState, gFPDCtx.ledMaxBrightness);
+	FPD_MUTEX_UNLOCK();
+
+	return dsERR_NONE;
 }
 
 /**
@@ -198,6 +1410,7 @@ dsError_t dsFPTerm(void)
  *
  * This function is used to set the individual discrete LED to blink for a specified number of iterations with blink interval.
  * This function must return dsERR_OPERATION_NOT_SUPPORTED if FP State is "OFF".
+ * To stop the blink, either dsFPSetLEDState() or dsFPTerm() can be invoked.
  *
  * @param[in] eIndicator        -  FPD indicator index. Please refer ::dsFPDIndicator_t
  * @param[in] uBlinkDuration    -  Blink interval. The time in ms the text display will remain ON
@@ -212,21 +1425,57 @@ dsError_t dsFPTerm(void)
  * @retval dsERR_GENERAL                  -  Underlying undefined platform error
  *
  *
- * @pre dsFPInit() must be called and FP State must be "ON" before calling this API
+ * @pre dsFPInit() and dsSetFPState() must be called and FP State must be "ON" before calling this API
  *
  * @warning  This API is Not thread safe
  *
  */
 dsError_t dsSetFPBlink(dsFPDIndicator_t eIndicator, unsigned int uBlinkDuration, unsigned int uBlinkIterations)
 {
-    hal_info("invoked.\n");
-    if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX
-            || uBlinkDuration == 0 || uBlinkIterations == 0) {
-        hal_err("Invalid parameter, eIndicator: %d, uBlinkDuration: %d, uBlinkIterations: %d\n",
-                eIndicator, uBlinkDuration, uBlinkIterations);
-        return dsERR_INVALID_PARAM;
-    }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+	hal_info("invoked.\n");
+
+	if (!dsFPDIndicator_isValid(eIndicator) || uBlinkDuration == 0 || uBlinkIterations == 0) {
+		hal_err("Invalid parameter, eIndicator: %d, uBlinkDuration: %u, uBlinkIterations: %u.\n",
+				eIndicator, uBlinkDuration, uBlinkIterations);
+		return dsERR_INVALID_PARAM;
+	}
+	if (uBlinkIterations > (UINT_MAX / 2U)) {
+		/* Keep phase multiplication (iterations * 2) in-range in worker thread. */
+		hal_err("Invalid parameter, uBlinkIterations=%u exceeds safe range.\n", uBlinkIterations);
+		return dsERR_INVALID_PARAM;
+	}
+
+	if (!isIndicatorSupported(eIndicator)) {
+		hal_err("Blink rejected: unsupported indicator eIndicator=%d.\n", eIndicator);
+		return dsERR_OPERATION_NOT_SUPPORTED;
+	}
+
+	FPD_MUTEX_LOCK();
+	if (!gFPDCtx.isFPDInitialized) {
+		FPD_MUTEX_UNLOCK();
+		hal_err("Module not initialized.\n");
+		return dsERR_NOT_INITIALIZED;
+	}
+
+	if (!isFPStateEnabledLocked(eIndicator)) {
+		hal_err("FPState is %d.\n", gFPDCtx.fpState);
+		FPD_MUTEX_UNLOCK();
+		return dsERR_OPERATION_NOT_SUPPORTED;
+	}
+
+	hal_info("Blink accepted: eIndicator=%d, durationMs=%u, iterations=%u, resumeLedState=%d.\n",
+			eIndicator, uBlinkDuration, uBlinkIterations, gFPDCtx.currentLEDState);
+
+	gFPDCtx.customBlinkDurationMs = uBlinkDuration;
+	gFPDCtx.customBlinkIterations = uBlinkIterations;
+	gFPDCtx.customBlinkResumeState = gFPDCtx.currentLEDState;
+	gFPDCtx.customBlinkRequestId++;
+	gFPDCtx.customBlinkActive = true;
+	/* Wake the worker so custom blink starts immediately. */
+	pthread_cond_signal(&gFPDCtx.ledPatternCond);
+	FPD_MUTEX_UNLOCK();
+
+	return dsERR_NONE;
 }
 
 /**
@@ -234,7 +1483,8 @@ dsError_t dsSetFPBlink(dsFPDIndicator_t eIndicator, unsigned int uBlinkDuration,
  *
  * This function will set the brightness of the specified discrete LED on the Front
  * Panel Display to the specified brightness level. This function must return dsERR_OPERATION_NOT_SUPPORTED
- * if the FP State is "OFF".
+ * if the FP State is "OFF". In that case, the stored brightness value is not changed, and the last
+ * successfully set brightness is retained for use when the FP State is "ON".
  *
  * @param[in] eIndicator  - FPD indicator index. Please refer ::dsFPDIndicator_t
  * @param[in] eBrightness - The brightness value(0 to 100) for the specified indicator.
@@ -244,10 +1494,10 @@ dsError_t dsSetFPBlink(dsFPDIndicator_t eIndicator, unsigned int uBlinkDuration,
  * @retval dsERR_NONE                     -  Success
  * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
  * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
- c
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported/FP State is "OFF". Please refer ::dsFPDState_t
  * @retval dsERR_GENERAL                  -  Underlying undefined platform error
  *
- * @pre dsFPInit() must be called and FP State must be "ON" before calling this API
+ * @pre dsFPInit() and dsSetFPState() must be called and FP State must be "ON" before calling this API
  *
  * @warning  This API is Not thread safe
  *
@@ -256,25 +1506,41 @@ dsError_t dsSetFPBlink(dsFPDIndicator_t eIndicator, unsigned int uBlinkDuration,
  */
 dsError_t dsSetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t eBrightness)
 {
-    // These changes were added for Traffic light LED support in RPI3. Not relevant otherwise.
-#if 0
-    int gpio_pin = LED_RED;
+	hal_info("invoked.\n");
 
-    if (eIndicator == dsFPD_INDICATOR_POWER)
-        gpio_pin = LED_RED;
-    else if (eIndicator == dsFPD_INDICATOR_REMOTE)
-        gpio_pin = LED_YELLOW;
-    else if (eIndicator == dsFPD_INDICATOR_MESSAGE)
-        gpio_pin = LED_GREEN;
+	if (!dsFPDIndicator_isValid(eIndicator) || eBrightness > dsFPD_BRIGHTNESS_MAX) {
+		hal_err("Invalid parameter, eIndicator: %d, eBrightness: %u.\n", eIndicator, eBrightness);
+		return dsERR_INVALID_PARAM;
+	}
 
-    setValue (gpio_pin, eBrightness);
-#endif
-    hal_info("invoked.\n");
-    if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX || eBrightness > 100) {
-        hal_err("Invalid parameter, eIndicator: %d, eBrightness: %d.\n", eIndicator, eBrightness);
-        return dsERR_INVALID_PARAM;
-    }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+	if (!isIndicatorSupported(eIndicator)) {
+		hal_err("Unsupported indicator, eIndicator: %d.\n", eIndicator);
+		return dsERR_OPERATION_NOT_SUPPORTED;
+	}
+
+	FPD_MUTEX_LOCK();
+	if (!gFPDCtx.isFPDInitialized) {
+		FPD_MUTEX_UNLOCK();
+		hal_err("Module not initialized.\n");
+		return dsERR_NOT_INITIALIZED;
+	}
+
+	if (!isFPStateEnabledLocked(eIndicator)) {
+		FPD_MUTEX_UNLOCK();
+		return dsERR_OPERATION_NOT_SUPPORTED;
+	}
+
+	if (gFPDCtx.currentBrightness == eBrightness) {
+		FPD_MUTEX_UNLOCK();
+		return dsERR_NONE;
+	}
+
+	gFPDCtx.currentBrightness = eBrightness;
+	/* Wake worker so brightness is applied immediately. */
+	pthread_cond_signal(&gFPDCtx.ledPatternCond);
+	FPD_MUTEX_UNLOCK();
+
+	return dsERR_NONE;
 }
 
 /**
@@ -294,7 +1560,7 @@ dsError_t dsSetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t eBrig
  * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported/FP State is "OFF". Please refer ::dsFPDState_t
  * @retval dsERR_GENERAL                  -  Underlying undefined platform error
  *
- * @pre dsFPInit() must be called and FP State must be "ON" before calling this API
+ * @pre dsFPInit() and dsSetFPState() must be called and FP State must be "ON" before calling this API
  *
  * @warning  This API is Not thread safe.
  *
@@ -303,14 +1569,137 @@ dsError_t dsSetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t eBrig
  */
 dsError_t dsGetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t *pBrightness)
 {
-    hal_info("invoked.\n");
-    if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX
-            || pBrightness == NULL) {
-        hal_err("Invalid parameter, eIndicator: %d, pBrightness: %p.\n", eIndicator, pBrightness);
-        return dsERR_INVALID_PARAM;
-    }
-    return dsERR_OPERATION_NOT_SUPPORTED;
-    return dsERR_OPERATION_NOT_SUPPORTED;
+	hal_info("invoked.\n");
+
+	if (!dsFPDIndicator_isValid(eIndicator) || pBrightness == NULL) {
+		hal_err("Invalid parameter, eIndicator: %d, pBrightness: %p.\n", eIndicator, pBrightness);
+		return dsERR_INVALID_PARAM;
+	}
+
+	if (!isIndicatorSupported(eIndicator)) {
+		hal_err("Unsupported indicator, eIndicator: %d.\n", eIndicator);
+		return dsERR_OPERATION_NOT_SUPPORTED;
+	}
+
+	FPD_MUTEX_LOCK();
+	if (!gFPDCtx.isFPDInitialized) {
+		FPD_MUTEX_UNLOCK();
+		hal_err("Module not initialized.\n");
+		return dsERR_NOT_INITIALIZED;
+	}
+
+	if (!isFPStateEnabledLocked(eIndicator)) {
+		FPD_MUTEX_UNLOCK();
+		return dsERR_OPERATION_NOT_SUPPORTED;
+	}
+
+	*pBrightness = gFPDCtx.currentBrightness;
+	FPD_MUTEX_UNLOCK();
+
+	return dsERR_NONE;
+}
+
+/**
+ * @brief Sets the indicator state of specified discrete Front Panel Display LED
+ *
+ *
+ * @param[in] eIndicator - FPD indicator index. Please refer ::dsFPDIndicator_t
+ * @param[in] state      - Indicates the state of the indicator to be set. Please refer ::dsFPDState_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre dsFPInit() must be called before calling this API
+ *
+ * @warning  This API is Not thread safe
+ *
+ * @see dsGetFPState()
+ *
+ */
+dsError_t dsSetFPState(dsFPDIndicator_t eIndicator, dsFPDState_t state)
+{
+	hal_info("invoked.\n");
+
+	if (!dsFPDIndicator_isValid(eIndicator) || state < dsFPD_STATE_OFF || state >= dsFPD_STATE_MAX) {
+		hal_err("Invalid parameter, eIndicator: %d, state: %d.\n", eIndicator, state);
+		return dsERR_INVALID_PARAM;
+	}
+
+	if (!isIndicatorSupported(eIndicator)) {
+		hal_err("SetFPState rejected: unsupported indicator eIndicator=%d.\n", eIndicator);
+		return dsERR_OPERATION_NOT_SUPPORTED;
+	}
+
+	FPD_MUTEX_LOCK();
+	if (!gFPDCtx.isFPDInitialized) {
+		FPD_MUTEX_UNLOCK();
+		hal_err("Module not initialized.\n");
+		return dsERR_NOT_INITIALIZED;
+	}
+
+	gFPDCtx.fpState = state;
+	hal_info("SetFPState applied: eIndicator=%d state=%d.\n", eIndicator, state);
+	if (state == dsFPD_STATE_OFF) {
+		/* Turning an indicator OFF should stop any in-progress custom blink. */
+		gFPDCtx.customBlinkActive = false;
+	}
+
+	pthread_cond_signal(&gFPDCtx.ledPatternCond);
+	FPD_MUTEX_UNLOCK();
+
+	return dsERR_NONE;
+}
+
+/**
+ * @brief Gets the indicator state of specified discrete Front Panel Display LED
+ *
+ *
+ * @param[in]  eIndicator - FPD indicator index. Please refer ::dsFPDIndicator_t
+ * @param[out] state      - current state of the specified indicator. Please refer ::dsFPDState_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre dsFPInit() must be called before calling this API
+ *
+ * @warning  This API is Not thread safe
+ *
+ * @see dsSetFPState()
+ *
+ */
+dsError_t dsGetFPState(dsFPDIndicator_t eIndicator, dsFPDState_t* state)
+{
+	hal_info("invoked.\n");
+
+	if (!dsFPDIndicator_isValid(eIndicator) || state == NULL) {
+		hal_err("Invalid parameter, eIndicator: %d, state: %p.\n", eIndicator, state);
+		return dsERR_INVALID_PARAM;
+	}
+
+	if (!isIndicatorSupported(eIndicator)) {
+		hal_err("Unsupported indicator, eIndicator: %d.\n", eIndicator);
+		return dsERR_OPERATION_NOT_SUPPORTED;
+	}
+
+	FPD_MUTEX_LOCK();
+	if (!gFPDCtx.isFPDInitialized) {
+		FPD_MUTEX_UNLOCK();
+		hal_err("Module not initialized.\n");
+		return dsERR_NOT_INITIALIZED;
+	}
+
+	*state = gFPDCtx.fpState;
+	FPD_MUTEX_UNLOCK();
+
+	return dsERR_NONE;
 }
 
 /**
@@ -330,7 +1719,7 @@ dsError_t dsGetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t *pBri
  * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported/FP State is "OFF". Please refer ::dsFPDState_t
  * @retval dsERR_GENERAL                  -  Underlying undefined platform error
  *
- * @pre dsFPInit() must be called and FP State must be "ON" before calling this API
+ * @pre dsFPInit() and dsSetFPState() must be called and FP State must be "ON" before calling this API
  *
  * @warning  This API is Not thread safe
  *
@@ -339,16 +1728,67 @@ dsError_t dsGetFPBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t *pBri
  */
 dsError_t dsSetFPColor(dsFPDIndicator_t eIndicator, dsFPDColor_t eColor)
 {
-    hal_info("invoked.\n");
-    if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX
-            || eColor >= dsFPD_COLOR_MAX) {
-        hal_err("Invalid parameter, eIndicator: %d, eColor: %d.\n", eIndicator, eColor);
-        return dsERR_INVALID_PARAM;
-    }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+	hal_info("invoked.\n");
+
+	if (!isInitialized()) {
+		hal_err("Module not initialized.\n");
+		return dsERR_NOT_INITIALIZED;
+	}
+
+	if (!dsFPDIndicator_isValid(eIndicator) || eColor >= dsFPD_COLOR_MAX) {
+		hal_err("Invalid parameter, eIndicator: %d, eColor: %d.\n", eIndicator, eColor);
+		return dsERR_INVALID_PARAM;
+	}
+
+	hal_err("No Hardware support for multi-color.\n");
+	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
+ * @brief  Gets the color of specified Front Panel Display LED
+ *
+ * This function gets the color of the specified Front Panel Indicator LED, if the
+ * indicator supports it (i.e. is multi-colored). It must return
+ * dsERR_OPERATION_NOT_SUPPORTED if the indicator is single-colored or if the FP State is "OFF".
+ *
+ * @param[in] eIndicator - FPD indicator index. Please refer ::dsFPDIndicator_t
+ * @param[out] pColor    - current color value of the specified indicator. Please refer ::dsFPDColor_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported/FP State is "OFF". Please refer ::dsFPDState_t
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre dsFPInit() and dsSetFPState() must be called and FP State must be "ON" before calling this API
+ *
+ * @warning  This API is Not thread safe
+ *
+ * @see dsSetFPColor()
+ *
+ */
+dsError_t dsGetFPColor(dsFPDIndicator_t eIndicator, dsFPDColor_t *pColor)
+{
+	hal_info("invoked.\n");
+
+	if (!isInitialized()) {
+		hal_err("Module not initialized.\n");
+		return dsERR_NOT_INITIALIZED;
+	}
+
+	if (!dsFPDIndicator_isValid(eIndicator) || pColor == NULL) {
+		hal_err("Invalid parameter, eIndicator: %d, pColor: %p.\n", eIndicator, pColor);
+		return dsERR_INVALID_PARAM;
+	}
+
+	hal_err("No Hardware support for multi-color.\n");
+	return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+/**
+ * @note This API is deprecated.
+ *
  * @brief Sets the time on 7-Segment Front Panel Display LEDs
  *
  * This function sets the 7-segment display LEDs to show the time in specified format.
@@ -379,15 +1819,27 @@ dsError_t dsSetFPColor(dsFPDIndicator_t eIndicator, dsFPDColor_t eColor)
  */
 dsError_t dsSetFPTime(dsFPDTimeFormat_t eTimeFormat, const unsigned int uHour, const unsigned int uMinutes)
 {
-    hal_info("invoked.\n");
-    if (eTimeFormat != dsFPD_TIME_12_HOUR && eTimeFormat != dsFPD_TIME_24_HOUR) {
-        hal_err("Invalid parameter, eTimeFormat: %d (HH:MM %d:%d).\n", eTimeFormat, uHour, uMinutes);
-        return dsERR_INVALID_PARAM;
-    }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+	hal_info("invoked.\n");
+
+	if (!isInitialized()) {
+		hal_err("Module not initialized.\n");
+		return dsERR_NOT_INITIALIZED;
+	}
+
+	if (eTimeFormat < dsFPD_TIME_12_HOUR || eTimeFormat >= dsFPD_TIME_MAX || uMinutes >= 60
+			|| (eTimeFormat == dsFPD_TIME_12_HOUR ? (uHour < 1 || uHour > 12) : (uHour > 23))) {
+		hal_err("Invalid parameter, eTimeFormat: %d, uHour: %u, uMinutes: %u.\n",
+				eTimeFormat, uHour, uMinutes);
+		return dsERR_INVALID_PARAM;
+	}
+
+	hal_err("No Hardware support for setting time.\n");
+	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
+ * @note This API is deprecated.
+ *
  * @brief Displays the specified text on 7-segment Front Panel Display LEDs
  *
  * This function is used to set the 7-segment display LEDs to show the given text.
@@ -415,54 +1867,26 @@ dsError_t dsSetFPTime(dsFPDTimeFormat_t eTimeFormat, const unsigned int uHour, c
  */
 dsError_t dsSetFPText(const char* pText)
 {
-    hal_info("invoked.\n");
-    if (pText == NULL || strlen(pText) > 10) {
-        hal_err("Invalid parameter, pText: %p or length %d.\n", pText, (pText == NULL) ? 0 : strlen(pText));
-        return dsERR_INVALID_PARAM;
-    }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+	hal_info("invoked.\n");
+
+	if (!isInitialized()) {
+		hal_err("Module not initialized.\n");
+		return dsERR_NOT_INITIALIZED;
+	}
+
+	if (pText == NULL || strlen(pText) > (size_t)dsFPD_TEXTDISP_MAX) {
+		hal_err("Invalid parameter, pText: %p or length %zu.\n",
+				pText, (pText != NULL) ? strlen(pText) : (size_t)0);
+		return dsERR_INVALID_PARAM;
+	}
+
+	hal_err("No Hardware support for setting text.\n");
+	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
- * @brief Enables Text Scrolling on 7-segment Front Panel Display LEDs
+ * @note This API is deprecated.
  *
- * This function scrolls the text in the 7-segment display LEDs for the given number of iterations.
- * If there are no 7-segment display LEDs present or if the FP State is "OFF" then
- * dsERR_OPERATION_NOT_SUPPORTED must be returned.
- * Horizontal and Vertical scroll cannot work at the same time. If both values are non-zero values
- * it should return dsERR_OPERATION_NOT_SUPPORTED.
- *
- * @note Whether this device has a 7-Segment display LEDs should be within the dsFPDSettings_template file.
- *
- * @param[in] uScrollHoldOnDur       - Duration in ms to hold each char before scrolling to the next position
- *                                       during one scroll iteration
- * @param[in] uHorzScrollIterations  - Number of iterations to scroll horizontally
- * @param[in] uVertScrollIterations  - Number of iterations to scroll vertically
- *
- * @return dsError_t                      -  Status
- * @retval dsERR_NONE                     -  Success
- * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
- * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
- * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported/FP State is "OFF". Please refer ::dsFPDState_t
- * @retval dsERR_GENERAL                  -  Underlying undefined platform error
- *
- * @pre dsFPInit() must be called and FP State must be "ON" before calling this API
- *
- * @warning  This API is Not thread safe
- *
- */
-dsError_t dsSetFPScroll(unsigned int uScrollHoldOnDur, unsigned int uHorzScrollIterations, unsigned int uVertScrollIterations)
-{
-    hal_info("invoked.\n");
-    if (uScrollHoldOnDur == 0 || (uHorzScrollIterations == 0 && uVertScrollIterations == 0)) {
-        hal_err("Invalid parameter, uScrollHoldOnDur: %d, uHorzScrollIterations: %d, uVertScrollIterations: %d.\n",
-                uScrollHoldOnDur, uHorzScrollIterations, uVertScrollIterations);
-        return dsERR_INVALID_PARAM;
-    }
-    return dsERR_OPERATION_NOT_SUPPORTED;
-}
-
-/**
  * @brief Sets the brightness level of 7-segment Front Panel Display LEDs
  *
  * This function will set the brightness of the specified 7-segment display LEDs on the Front
@@ -492,22 +1916,32 @@ dsError_t dsSetFPScroll(unsigned int uScrollHoldOnDur, unsigned int uHorzScrollI
  */
 dsError_t dsSetFPTextBrightness(dsFPDTextDisplay_t eIndicator, dsFPDBrightness_t eBrightness)
 {
-    hal_info("invoked.\n");
-    if (!dsFPDTextDisplay_isValid(eIndicator) || eBrightness > 100) {
-        hal_err("Invalid parameter, eIndicator: %d, eBrightness: %d.\n", eIndicator, eBrightness);
-        return dsERR_INVALID_PARAM;
-    }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+	hal_info("invoked.\n");
+
+	if (!isInitialized()) {
+		hal_err("Module not initialized.\n");
+		return dsERR_NOT_INITIALIZED;
+	}
+
+	if (!dsFPDTextDisplay_isValid(eIndicator) || eBrightness > dsFPD_BRIGHTNESS_MAX) {
+		hal_err("Invalid parameter, eIndicator: %d, eBrightness: %u.\n", eIndicator, eBrightness);
+		return dsERR_INVALID_PARAM;
+	}
+
+	hal_err("No Hardware support for setting text brightness.\n");
+	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
+ * @note This API is deprecated.
+ *
  * @brief Gets the brightness of 7-segment Front Panel Display LEDs
  *
  * This function will get the brightness of the specified 7-segment display LEDs on the Front
  * Panel Text Display. If there are no 7-segment display LEDs present or if the FP State is "OFF"
  * then dsERR_OPERATION_NOT_SUPPORTED must be returned.
  * The FP Display Mode must be dsFPD_MODE_CLOCK/dsFPD_MODE_ANY. Please refer ::dsFPDMode_t
- *  *
+ *
  * @note Whether this device has a 7-Segment display LEDs should be within the dsFPDSettings_template file.
  *
  * @param[in] eIndicator    - FPD Text indicator index. Please refer ::dsFPDTextDisplay_t
@@ -527,17 +1961,27 @@ dsError_t dsSetFPTextBrightness(dsFPDTextDisplay_t eIndicator, dsFPDBrightness_t
  * @see dsSetFPTextBrightness()
  *
  */
-dsError_t dsGetFPTextBrightnes(dsFPDTextDisplay_t eIndicator, dsFPDBrightness_t *pBrightness)
+dsError_t dsGetFPTextBrightness(dsFPDTextDisplay_t eIndicator, dsFPDBrightness_t *eBrightness)
 {
-    hal_info("invoked.\n");
-    if (!dsFPDTextDisplay_isValid(eIndicator) || pBrightness == NULL) {
-        hal_err("Invalid parameter, eIndicator: %d, pBrightness: %p.\n", eIndicator, pBrightness);
-        return dsERR_INVALID_PARAM;
-    }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+	hal_info("invoked.\n");
+
+	if (!isInitialized()) {
+		hal_err("Module not initialized.\n");
+		return dsERR_NOT_INITIALIZED;
+	}
+
+	if (!dsFPDTextDisplay_isValid(eIndicator) || eBrightness == NULL) {
+		hal_err("Invalid parameter, eIndicator: %d, eBrightness: %p.\n", eIndicator, eBrightness);
+		return dsERR_INVALID_PARAM;
+	}
+
+	hal_err("No Hardware support for getting text brightness.\n");
+	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
+ * @note This API is deprecated.
+ *
  * @brief Enables/Disables the clock display of Front Panel Display LEDs
  *
  * This function will enable or disable displaying of clock. It will return dsERR_OPERATION_NOT_SUPPORTED
@@ -562,60 +2006,39 @@ dsError_t dsGetFPTextBrightnes(dsFPDTextDisplay_t eIndicator, dsFPDBrightness_t 
  */
 dsError_t dsFPEnableCLockDisplay(int enable)
 {
-    hal_info("invoked.\n");
-    if (enable != 0 && enable != 1) {
-        hal_err("Invalid parameter, enable: %d.\n", enable);
-        return dsERR_INVALID_PARAM;
-    }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+	hal_info("invoked.\n");
+
+	if (!isInitialized()) {
+		hal_err("Module not initialized.\n");
+		return dsERR_NOT_INITIALIZED;
+	}
+
+	if (enable != 0 && enable != 1) {
+		hal_err("Invalid parameter, enable: %d.\n", enable);
+		return dsERR_INVALID_PARAM;
+	}
+
+	hal_err("No Hardware support for clock display.\n");
+	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
- * @brief Sets the indicator state of specified discrete Front Panel Display LED
+ * @note This API is deprecated.
  *
- * It must return
- * dsERR_OPERATION_NOT_SUPPORTED if the indicator is single-colored or if the FP State is "OFF".
+ * @brief Enables Text Scrolling on 7-segment Front Panel Display LEDs
  *
- * @param[in] eIndicator - FPD indicator index. Please refer ::dsFPDIndicator_t
- * @param[in] state      - Indicates the state of the indicator to be set. Please refer ::dsFPDState_t
+ * This function scrolls the text in the 7-segment display LEDs for the given number of iterations.
+ * If there are no 7-segment display LEDs present or if the FP State is "OFF" then
+ * dsERR_OPERATION_NOT_SUPPORTED must be returned.
+ * Horizontal and Vertical scroll cannot work at the same time. If both values are non-zero values
+ * it should return dsERR_OPERATION_NOT_SUPPORTED.
  *
- * @return dsError_t                      -  Status
- * @retval dsERR_NONE                     -  Success
- * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
- * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
- * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
- * @retval dsERR_GENERAL                  -  Underlying undefined platform error
- *
- * @pre dsFPInit() must be called before calling this API
- *
- * @warning  This API is Not thread safe
- *
- * @see dsGetFPState()
- *
- */
-dsError_t dsSetFPState(dsFPDIndicator_t eIndicator, dsFPDState_t state)
-{
-    hal_info("invoked.\n");
-    if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX
-            || state < dsFPD_STATE_OFF || state >= dsFPD_STATE_MAX) {
-        hal_err("Invalid parameter, eIndicator: %d, state: %d.\n", eIndicator, state);
-        return dsERR_INVALID_PARAM;
-    }
-    return dsERR_OPERATION_NOT_SUPPORTED;
-}
-
-/**
- * @brief Gets the brightness of 7-segment Front Panel Display LEDs
- *
- * This function will get the brightness of the specified 7-segment display LEDs on the Front
- * Panel Text Display. If there are no 7-segment display LEDs present or if the FP State is "OFF"
- * then dsERR_OPERATION_NOT_SUPPORTED must be returned.
- * The FP Display Mode must be dsFPD_MODE_CLOCK/dsFPD_MODE_ANY. Please refer ::dsFPDMode_t
- *  *
  * @note Whether this device has a 7-Segment display LEDs should be within the dsFPDSettings_template file.
  *
- * @param[in] eIndicator    - FPD Text indicator index. Please refer ::dsFPDTextDisplay_t
- * @param[out] eBrightness  - Brightness value. Valid range is from 0 to 100. Please refer ::dsFPDBrightness_t.
+ * @param[in] uScrollHoldOnDur       - Duration in ms to hold each char before scrolling to the next position
+ *                                       during one scroll iteration
+ * @param[in] uHorzScrollIterations  - Number of iterations to scroll horizontally
+ * @param[in] uVertScrollIterations  - Number of iterations to scroll vertically
  *
  * @return dsError_t                      -  Status
  * @retval dsERR_NONE                     -  Success
@@ -628,113 +2051,119 @@ dsError_t dsSetFPState(dsFPDIndicator_t eIndicator, dsFPDState_t state)
  *
  * @warning  This API is Not thread safe
  *
- * @see dsSetFPTextBrightness()
- *
  */
-dsError_t dsGetFPTextBrightness(dsFPDTextDisplay_t eIndicator, dsFPDBrightness_t *pBrightness)
+dsError_t dsSetFPScroll(unsigned int uScrollHoldOnDur, unsigned int uHorzScrollIterations, unsigned int uVertScrollIterations)
 {
-    hal_info("invoked.\n");
-    if (!dsFPDTextDisplay_isValid(eIndicator) || pBrightness == NULL) {
-        hal_err("Invalid parameter, eIndicator: %d, pBrightness: %p.\n", eIndicator, pBrightness);
-        return dsERR_INVALID_PARAM;
-    }
-    return dsERR_OPERATION_NOT_SUPPORTED;
-}
+	hal_info("invoked.\n");
 
-dsError_t dsSetFPDBrightness(dsFPDIndicator_t eIndicator, dsFPDBrightness_t eBrightness, bool toPersist)
-{
-    hal_info("invoked with toPersist %d.\n", toPersist);
-    if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX
-            || eBrightness > dsFPD_BRIGHTNESS_MAX)
-    {
-        hal_err("Invalid parameter, eIndicator: %d, eBrightness: %d.\n", eIndicator, eBrightness);
-        return dsERR_INVALID_PARAM;
-    }
-    return dsERR_OPERATION_NOT_SUPPORTED;
-}
-dsError_t dsSetFPDColor(dsFPDIndicator_t eIndicator, dsFPDColor_t eColor, bool toPersist)
-{
-    hal_info("invoked with toPersist %d.\n", toPersist);
-    if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX
-            || (eColor != dsFPD_COLOR_BLUE && eColor != dsFPD_COLOR_GREEN && eColor != dsFPD_COLOR_RED
-                && eColor != dsFPD_COLOR_YELLOW && eColor != dsFPD_COLOR_ORANGE && eColor != dsFPD_COLOR_WHITE))
-    {
-        hal_err("Invalid parameter, eIndicator: %d, eColor: %d.\n", eIndicator, eColor);
-        return dsERR_INVALID_PARAM;
-    }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+	if (!isInitialized()) {
+		hal_err("Module not initialized.\n");
+		return dsERR_NOT_INITIALIZED;
+	}
+
+	if (uScrollHoldOnDur == 0 || (uHorzScrollIterations == 0 && uVertScrollIterations == 0)) {
+		hal_err("Invalid parameter, uScrollHoldOnDur: %u, uHorzScrollIterations: %u, uVertScrollIterations: %u.\n",
+				uScrollHoldOnDur, uHorzScrollIterations, uVertScrollIterations);
+		return dsERR_INVALID_PARAM;
+	}
+
+	hal_err("No Hardware support for text scrolling.\n");
+	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
- * @brief  Gets the color of specified Front Panel Display LED
+ * @brief Terminates the Front Panel Display sub-module
  *
- * This function gets the color of the specified Front Panel Indicator LED, if the
- * indicator supports it (i.e. is multi-colored). It must return
- * dsERR_OPERATION_NOT_SUPPORTED if the indicator is single-colored or if the FP State is "OFF".
- *
- * @param[in] eIndicator - FPD indicator index. Please refer ::dsFPDIndicator_t
- * @param[out] pColor    - current color value of the specified indicator. Please refer ::dsFPDColor_t
+ * This function resets any data structures used within Front Panel sub-module,
+ * and releases all the resources allocated during the init function.
  *
  * @return dsError_t                      -  Status
  * @retval dsERR_NONE                     -  Success
  * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
- * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
- * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported/FP State is "OFF". Please refer ::dsFPDState_t
- * @retval dsERR_GENERAL                  -  Underlying undefined platform error
- *
- * @pre dsFPInit() must be called and FP State must be "ON" before calling this API
- *
- * @warning  This API is Not thread safe
- *
- * @see dsSetFPColor()
- *
- */
-dsError_t dsGetFPColor(dsFPDIndicator_t eIndicator, dsFPDColor_t *pColor)
-{
-    hal_info("invoked.\n");
-    if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX
-            || pColor == NULL) {
-        hal_err("Invalid parameter, eIndicator: %d, pColor: %p.\n", eIndicator, pColor);
-        return dsERR_INVALID_PARAM;
-    }
-    return dsERR_OPERATION_NOT_SUPPORTED;
-}
-
-/**
- * @brief Gets the indicator state of specified discrete Front Panel Display LED
- *
- * It must return
- * dsERR_OPERATION_NOT_SUPPORTED if the indicator is single-colored or if the FP State is "OFF".
- *
- * @param[in]  eIndicator - FPD indicator index. Please refer ::dsFPDIndicator_t
- * @param[out] state      - current state of the specified indicator. Please refer ::dsFPDState_t
- *
- * @return dsError_t                      -  Status
- * @retval dsERR_NONE                     -  Success
- * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
- * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
  * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
  * @retval dsERR_GENERAL                  -  Underlying undefined platform error
  *
  * @pre dsFPInit() must be called before calling this API
  *
- * @warning  This API is Not thread safe
+ * @warning This API is Not thread safe
  *
- * @see dsSetFPState()
+ * @see dsFPInit()
  *
  */
-dsError_t dsGetFPState(dsFPDIndicator_t eIndicator, dsFPDState_t* state)
+dsError_t dsFPTerm(void)
 {
-    hal_info("invoked.\n");
-    if (eIndicator < dsFPD_INDICATOR_MESSAGE || eIndicator >= dsFPD_INDICATOR_MAX
-            || state == NULL) {
-        hal_err("Invalid parameter, eIndicator: %d, state: %p.\n", eIndicator, state);
-        return dsERR_INVALID_PARAM;
-    }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+	hal_info("invoked.\n");
+	pthread_t threadToJoin;
+	bool shouldJoin = false;
+
+	FPD_MUTEX_LOCK();
+	if (!gFPDCtx.isFPDInitialized) {
+		FPD_MUTEX_UNLOCK();
+		hal_err("Module not initialized.\n");
+		return dsERR_NOT_INITIALIZED;
+	}
+
+	gFPDCtx.ledPatternThreadStop = true;
+	pthread_cond_signal(&gFPDCtx.ledPatternCond);
+	if (gFPDCtx.ledPatternThreadRunning) {
+		threadToJoin = gFPDCtx.ledPatternThread;
+		gFPDCtx.ledPatternThreadRunning = false;
+		shouldJoin = true;
+	}
+	gFPDCtx.isFPDInitialized = false;
+	FPD_MUTEX_UNLOCK();
+
+	if (shouldJoin) {
+		(void)pthread_join(threadToJoin, NULL);
+	}
+
+	FPD_MUTEX_LOCK();
+
+	(void)writeLedBrightnessRaw(0);
+	if (gFPDCtx.previousTrigger[0] == '\0') {
+		(void)loadTriggerBackup(gFPDCtx.previousTrigger, sizeof(gFPDCtx.previousTrigger));
+	}
+	if (gFPDCtx.previousTrigger[0] != '\0') {
+		if (setLedTrigger(gFPDCtx.previousTrigger) != dsERR_NONE) {
+			hal_err("Unable to restore previous LED trigger '%s'.\n", gFPDCtx.previousTrigger);
+		} else {
+			hal_info("LED trigger restored to pre-init value: %s\n", gFPDCtx.previousTrigger);
+			clearTriggerBackup();
+		}
+	}
+
+	gFPDCtx.currentLEDState = dsFPD_LED_DEVICE_NONE;
+	gFPDCtx.currentBrightness = dsFPD_BRIGHTNESS_MAX;
+	gFPDCtx.fpState = dsFPD_STATE_OFF;
+	gFPDCtx.customBlinkActive = false;
+	gFPDCtx.customBlinkDurationMs = 0;
+	gFPDCtx.customBlinkIterations = 0;
+	gFPDCtx.customBlinkRequestId = 0;
+	gFPDCtx.customBlinkResumeState = dsFPD_LED_DEVICE_ACTIVE;
+	gFPDCtx.ledMaxBrightness = 1;
+	gFPDCtx.ledSysfsPath[0] = '\0';
+	gFPDCtx.previousTrigger[0] = '\0';
+	gFPDCtx.ledPatternThreadStop = false;
+	if (gFPDCtx.condVarReady) {
+		int rc = pthread_cond_destroy(&gFPDCtx.ledPatternCond);
+		if (rc != 0) {
+			hal_err("pthread_cond_destroy failed: %s\n", strerror(rc));
+		} else {
+			gFPDCtx.condVarReady = false;
+		}
+	}
+
+#ifdef DSFPD_ENABLE_MULTI_PROCESS_GUARD
+	releaseProcessLock();
+#endif
+	FPD_MUTEX_UNLOCK();
+
+	return dsERR_NONE;
 }
 
 /**
+ * @note This API is deprecated.
+ *
  * @brief Sets the current time format on the 7-segment Front Panel Display LEDs
  *
  * This function sets the 7-segment display LEDs to show the
@@ -764,15 +2193,25 @@ dsError_t dsGetFPState(dsFPDIndicator_t eIndicator, dsFPDState_t* state)
  */
 dsError_t dsSetFPTimeFormat(dsFPDTimeFormat_t eTimeFormat)
 {
-    hal_info("invoked.\n");
-    if (eTimeFormat != dsFPD_TIME_12_HOUR && eTimeFormat != dsFPD_TIME_24_HOUR) {
-        hal_err("Invalid parameter, eTimeFormat: %d.\n", eTimeFormat);
-        return dsERR_INVALID_PARAM;
-    }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+	hal_info("invoked.\n");
+
+	if (!isInitialized()) {
+		hal_err("Module not initialized.\n");
+		return dsERR_NOT_INITIALIZED;
+	}
+
+	if (eTimeFormat < dsFPD_TIME_12_HOUR || eTimeFormat >= dsFPD_TIME_MAX) {
+		hal_err("Invalid parameter, eTimeFormat: %d.\n", eTimeFormat);
+		return dsERR_INVALID_PARAM;
+	}
+
+	hal_err("No Hardware support for setting time format.\n");
+	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
-/**
+ /**
+ * @note This API is deprecated.
+ *
  * @brief Gets the current time format on the 7-segment Front Panel Display LEDs
  *
  * This function gets the current time format set on 7-segment display LEDs panel.
@@ -800,15 +2239,25 @@ dsError_t dsSetFPTimeFormat(dsFPDTimeFormat_t eTimeFormat)
  */
 dsError_t dsGetFPTimeFormat(dsFPDTimeFormat_t *pTimeFormat)
 {
-    hal_info("invoked.\n");
-    if (pTimeFormat == NULL) {
-        hal_err("Invalid parameter, pTimeFormat: %p.\n", pTimeFormat);
-        return dsERR_INVALID_PARAM;
-    }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+	hal_info("invoked.\n");
+
+	if (!isInitialized()) {
+		hal_err("Module not initialized.\n");
+		return dsERR_NOT_INITIALIZED;
+	}
+
+	if (pTimeFormat == NULL) {
+		hal_err("Invalid parameter, pTimeFormat: %p.\n", pTimeFormat);
+		return dsERR_INVALID_PARAM;
+	}
+
+	hal_err("No Hardware support for getting time format.\n");
+	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
+ * @note This API is deprecated.
+ *
  * @brief Sets the display mode of the Front Panel Display LEDs
  *
  * This function sets the display mode (clock or text or both) for FPD.
@@ -833,12 +2282,20 @@ dsError_t dsGetFPTimeFormat(dsFPDTimeFormat_t *pTimeFormat)
  */
 dsError_t dsSetFPDMode(dsFPDMode_t eMode)
 {
-    hal_info("invoked.\n");
-    if (eMode != dsFPD_MODE_CLOCK && eMode != dsFPD_MODE_TEXT && eMode != dsFPD_MODE_ANY) {
-        hal_err("Invalid parameter, eMode: %d.\n", eMode);
-        return dsERR_INVALID_PARAM;
-    }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+	hal_info("invoked.\n");
+
+	if (!isInitialized()) {
+		hal_err("Module not initialized.\n");
+		return dsERR_NOT_INITIALIZED;
+	}
+
+	if (eMode < dsFPD_MODE_ANY || eMode >= dsFPD_MODE_MAX) {
+		hal_err("Invalid parameter, eMode: %d.\n", eMode);
+		return dsERR_INVALID_PARAM;
+	}
+
+	hal_err("No Hardware support for setting display mode.\n");
+	return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
@@ -863,25 +2320,35 @@ dsError_t dsSetFPDMode(dsFPDMode_t eMode)
  */
 dsError_t dsFPGetLEDState(dsFPDLedState_t* state)
 {
-    dsError_t   enErrorCode = dsERR_NONE;
+	hal_info("invoked.\n");
 
-    hal_info("invoked.\n");
+	if (state == NULL) {
+		hal_err("Invalid parameter, state: %p.\n", state);
+		return dsERR_INVALID_PARAM;
+	}
 
-    if ( state != NULL )
-    {
-        DS_HAL_Lock();
+	FPD_MUTEX_LOCK();
+	if (!gFPDCtx.isFPDInitialized) {
+		FPD_MUTEX_UNLOCK();
+		hal_err("Module not initialized.\n");
+		return dsERR_NOT_INITIALIZED;
+	}
 
-        *state = enCurrentLedState;
+	if (gFPDCtx.currentLEDState <= dsFPD_LED_DEVICE_NONE || gFPDCtx.currentLEDState >= dsFPD_LED_DEVICE_MAX) {
+		FPD_MUTEX_UNLOCK();
+		hal_err("Current LED state: %d is out of valid range.\n", gFPDCtx.currentLEDState);
+		return dsERR_GENERAL;
+	}
 
-        DS_HAL_Unlock();
-    }
-    else
-    {
-        hal_err("Invalid parameter, state: %p.\n", state);
-        enErrorCode = dsERR_INVALID_PARAM;
-    }
+	if (((1u << gFPDCtx.currentLEDState) & gSupportedLEDStates) == 0u) {
+		FPD_MUTEX_UNLOCK();
+		hal_err("Current LED state: %d is unsupported.\n", gFPDCtx.currentLEDState);
+		return dsERR_GENERAL;
+	}
 
-    return enErrorCode;
+	*state = gFPDCtx.currentLEDState;
+	FPD_MUTEX_UNLOCK();
+	return dsERR_NONE;
 }
 
 /**
@@ -904,55 +2371,40 @@ dsError_t dsFPGetLEDState(dsFPDLedState_t* state)
  *
  * @see dsFPGetLEDState()
  */
-dsError_t dsFPSetLEDState( dsFPDLedState_t state )
+dsError_t dsFPSetLEDState(dsFPDLedState_t state)
 {
-    dsError_t   enErrorCode = dsERR_NONE;
+	hal_info("invoked.\n");
+	dsFPDState_t queuedFpState;
 
-    hal_info("invoked.\n");
+	if (state <= dsFPD_LED_DEVICE_NONE || state >= dsFPD_LED_DEVICE_MAX) {
+		hal_err("Invalid parameter, state: %d.\n", state);
+		return dsERR_INVALID_PARAM;
+	}
 
-    DS_HAL_Lock();
+	FPD_MUTEX_LOCK();
+	if (!gFPDCtx.isFPDInitialized) {
+		FPD_MUTEX_UNLOCK();
+		hal_err("Module not initialized.\n");
+		return dsERR_NOT_INITIALIZED;
+	}
 
-    stop_led_blink ();
+	if (((1u << state) & gSupportedLEDStates) == 0u) {
+		FPD_MUTEX_UNLOCK();
+		hal_err("Requested LED state: %d is unsupported.\n", state);
+		return dsERR_OPERATION_NOT_SUPPORTED;
+	}
 
-    switch( ( int )state )
-    {
-        case dsFPD_LED_DEVICE_ACTIVE:
-        {
-            enErrorCode = GreenLedOnAndOff( LED_OFF );
-        }
-            break;  /* dsFPD_LED_DEVICE_ACTIVE */
+	/* API contract: dsFPSetLEDState should stop an in-progress indicator blink. */
+	gFPDCtx.customBlinkActive = false;
 
-        case dsFPD_LED_DEVICE_STANDBY:
-        {
-            enErrorCode = GreenLedOnAndOff( LED_ON );
-        }
-            break; /* dsFPD_LED_DEVICE_STANDBY */
-
-        case dsFPD_LED_DEVICE_WPS_CONNECTING:
-		case dsFPD_LED_DEVICE_WPS_CONNECTED:
-		case dsFPD_LED_DEVICE_WPS_ERROR:
-		case dsFPD_LED_DEVICE_FACTORY_RESET:
-		case dsFPD_LED_DEVICE_USB_UPGRADE:
-		case dsFPD_LED_DEVICE_SOFTWARE_DOWNLOAD_ERROR:
-        {
-            start_led_blink( );
-        }
-            break;
-
-        default:
-        {
-            enErrorCode = dsERR_INVALID_PARAM;
-        }
-    }
-
-    if( enErrorCode != dsERR_INVALID_PARAM )
-    {
-        enCurrentLedState = state;
-    }
-
-    DS_HAL_Unlock();
-
-    return enErrorCode;
+	if (applyLedStateLocked(state) != dsERR_NONE) {
+		FPD_MUTEX_UNLOCK();
+		return dsERR_GENERAL;
+	}
+	queuedFpState = gFPDCtx.fpState;
+	FPD_MUTEX_UNLOCK();
+	hal_info("[LED_REQ] queued state=%d fpState=%d\n", state, queuedFpState);
+	return dsERR_NONE;
 }
 
 /**
@@ -976,108 +2428,17 @@ dsError_t dsFPSetLEDState( dsFPDLedState_t state )
  */
 dsError_t dsFPGetSupportedLEDStates(unsigned int* states)
 {
-    dsError_t   enErrorCode = dsERR_NONE;
-
-    hal_info("invoked.\n");
-
-    if (states != NULL)
-    {
-        *states = ((1<<dsFPD_LED_DEVICE_ACTIVE)|\
-				(1<<dsFPD_LED_DEVICE_STANDBY)|\
-				(1<<dsFPD_LED_DEVICE_WPS_CONNECTING)|\
-				(1<<dsFPD_LED_DEVICE_WPS_CONNECTED)|\
-				(1<<dsFPD_LED_DEVICE_WPS_ERROR)|\
-				(1<<dsFPD_LED_DEVICE_FACTORY_RESET)|\
-				(1<<dsFPD_LED_DEVICE_USB_UPGRADE)|\
-				(1<<dsFPD_LED_DEVICE_SOFTWARE_DOWNLOAD_ERROR));
-    }
-    else 
-    {
-        hal_err("Invalid parameter, states: %p.\n", states);
-        enErrorCode = dsERR_INVALID_PARAM;
+	hal_info("invoked.\n");
+	if (states == NULL) {
+		hal_err("Invalid parameter, states: %p.\n", states);
+		return dsERR_INVALID_PARAM;
 	}
 
-	return enErrorCode;
-}
-
-void* led_blink_thread( void *arg )
-{
-    struct timespec ts = { 0 };
-    dsError_t   enErrorCode = dsERR_NONE;
-    int index = 0;
-
-    while( isledBlinkThreadEnabled )
-    {
-        enErrorCode = GreenLedOnAndOff( LED_ON );
-
-        if( !enErrorCode )
-        {
-            index = LED_TIME_INTERVAL;
-
-            while ( index && isledBlinkThreadEnabled )
-            {
-                if ( index > DS_HAL_FP_HUNDREDMS )
-                {
-                    ts.tv_sec = 0;
-                    ts.tv_nsec = DS_HAL_FP_HUNDREDMS * 1000 * 1000;
-                    nanosleep(&ts, NULL);
-                    index -= DS_HAL_FP_HUNDREDMS;
-                }
-                else
-                {
-                    ts.tv_sec = 0;
-                    ts.tv_nsec = index * 1000 * 1000;
-                    nanosleep(&ts, NULL);
-                    index = 0;
-                }
-            }
-        }
-		enErrorCode = GreenLedOnAndOff( LED_OFF );
-
-        if( !enErrorCode )
-        {
-            int index = LED_TIME_INTERVAL;
-
-            while ( index && isledBlinkThreadEnabled )
-            {
-                if ( index > DS_HAL_FP_HUNDREDMS )
-                {
-                    ts.tv_sec = 0;
-                    ts.tv_nsec = DS_HAL_FP_HUNDREDMS * 1000 * 1000;
-                    nanosleep(&ts, NULL);
-                    index -= DS_HAL_FP_HUNDREDMS;
-                } else
-                {
-                    ts.tv_sec = 0;
-                    ts.tv_nsec = index * 1000 * 1000;
-                    index = 0;
-                }
-            }
-        }
+	if (!isInitialized()) {
+		hal_err("Module not initialized.\n");
+		return dsERR_NOT_INITIALIZED;
 	}
-
-    pthread_exit(NULL);
-
-    return NULL;
-}
-
-int start_led_blink ( void )
-{
-	isledBlinkThreadEnabled = true;
-
-	int err = pthread_create ( &ledBlinkThreadId, NULL, led_blink_thread, NULL );
-	if(err) {
-		printf("DSHAL :%s, Failed to Ceate led_blink_thread thread....\r\n",  __func__);
-	}
-	return err;
-}
-
-void stop_led_blink( void )
-{
-	//stop the existing blink pattern
-	isledBlinkThreadEnabled = false;
-	if (ledBlinkThreadId){
-	    pthread_join(ledBlinkThreadId, NULL);
-	}
-	ledBlinkThreadId = 0;
+	hal_info("Supported LED states: 0x%X\n", gSupportedLEDStates);
+	*states = gSupportedLEDStates;
+	return dsERR_NONE;
 }
