@@ -541,3 +541,37 @@ int tvsvc_client_hdmi_power_on_preferred(void)
     if (r.status != 0) return r.status;
     return r.result;
 }
+
+int tvsvc_client_get_free_graphics_memory(uint64_t *memory)
+{
+    if (!memory)
+        return -EINVAL;
+
+    tvsvc_resp_gfx_mem_t r;
+    memset(&r, 0, sizeof(r));
+    int rc = do_rpc(TVSVC_CMD_GET_FREE_GFX_MEM, NULL, 0, &r, sizeof(r));
+    if (rc < 0 || (size_t)rc < sizeof(r))
+        return (rc < 0) ? rc : -EIO;
+    if (r.status != 0)
+        return r.status;
+
+    *memory = r.memory;
+    return 0;
+}
+
+int tvsvc_client_get_total_graphics_memory(uint64_t *memory)
+{
+    if (!memory)
+        return -EINVAL;
+
+    tvsvc_resp_gfx_mem_t r;
+    memset(&r, 0, sizeof(r));
+    int rc = do_rpc(TVSVC_CMD_GET_TOTAL_GFX_MEM, NULL, 0, &r, sizeof(r));
+    if (rc < 0 || (size_t)rc < sizeof(r))
+        return (rc < 0) ? rc : -EIO;
+    if (r.status != 0)
+        return r.status;
+
+    *memory = r.memory;
+    return 0;
+}

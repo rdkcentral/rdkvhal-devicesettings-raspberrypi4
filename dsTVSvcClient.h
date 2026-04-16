@@ -119,6 +119,12 @@ int tvsvc_client_tv_power_off(void);
 /** Mirrors vc_tv_hdmi_power_on_preferred().  Returns 0 on success. */
 int tvsvc_client_hdmi_power_on_preferred(void);
 
+/** Returns free graphics memory in the same units as vc_gencmd get_mem reloc. */
+int tvsvc_client_get_free_graphics_memory(uint64_t *memory);
+
+/** Returns total graphics memory in the same units as vc_gencmd get_mem reloc_total. */
+int tvsvc_client_get_total_graphics_memory(uint64_t *memory);
+
 #ifdef __cplusplus
 }
 #endif

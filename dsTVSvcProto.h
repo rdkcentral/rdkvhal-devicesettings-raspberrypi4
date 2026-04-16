@@ -56,6 +56,8 @@
 #define TVSVC_CMD_HDMI_POWER_ON_PREFERRED  0x07U
 #define TVSVC_CMD_SUBSCRIBE_EVENTS         0x08U
 #define TVSVC_CMD_UNSUBSCRIBE_EVENTS       0x09U
+#define TVSVC_CMD_GET_FREE_GFX_MEM         0x0AU
+#define TVSVC_CMD_GET_TOTAL_GFX_MEM        0x0BU
 
 /* ---- Response flag OR'd into cmd field of replies ---- */
 #define TVSVC_RESP_FLAG                    0x40U
@@ -128,6 +130,12 @@ typedef struct {
     int32_t status;
     int32_t result;
 } tvsvc_resp_simple_t;
+
+/* GET_*_GFX_MEM response */
+typedef struct {
+    int32_t  status;
+    uint64_t memory;
+} tvsvc_resp_gfx_mem_t;
 
 /* GET_DISPLAY_STATE response */
 typedef struct {

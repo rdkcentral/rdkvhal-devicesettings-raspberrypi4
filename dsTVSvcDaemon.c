@@ -51,6 +51,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#include "interface/vmcs_host/vc_vchi_gencmd.h"
 #include "dshalLogger.h"
 #include "dshalUtils.h"     /* vchi_tv_init / vchi_tv_uninit */
 #include "dsTVSvcProto.h"
@@ -285,6 +286,50 @@ static void handle_request(int fd, const tvsvc_msg_hdr_t *hdr,
     case TVSVC_CMD_HDMI_POWER_ON_PREFERRED: {
         int result = vc_tv_hdmi_power_on_preferred();
         send_resp_simple(fd, hdr->cmd, hdr->req_id, 0, result);
+        break;
+    }
+
+    /* ---- GET_FREE_GFX_MEM --------------------------------------- */
+    case TVSVC_CMD_GET_FREE_GFX_MEM: {
+        char buffer[64] = {0};
+        tvsvc_resp_gfx_mem_t r = { .status = 0, .memory = 0 };
+        if (vc_gencmd(buffer, sizeof(buffer), "get_mem reloc") != 0) {
+            r.status = -EIO;
+        } else {
+            buffer[sizeof(buffer) - 1] = '\0';
+            char *equal = strchr(buffer, '=');
+            r.memory = (uint64_t)strtoull(equal ? (equal + 1) : buffer, NULL, 10);
+        }
+        tvsvc_msg_hdr_t rhdr = {
+            TVSVC_VERSION,
+            (uint8_t)(hdr->cmd | TVSVC_RESP_FLAG),
+            hdr->req_id,
+            (uint16_t)sizeof(r)
+        };
+        (void)send_all(fd, &rhdr, sizeof(rhdr));
+        (void)send_all(fd, &r, sizeof(r));
+        break;
+    }
+
+    /* ---- GET_TOTAL_GFX_MEM -------------------------------------- */
+    case TVSVC_CMD_GET_TOTAL_GFX_MEM: {
+        char buffer[64] = {0};
+        tvsvc_resp_gfx_mem_t r = { .status = 0, .memory = 0 };
+        if (vc_gencmd(buffer, sizeof(buffer), "get_mem reloc_total") != 0) {
+            r.status = -EIO;
+        } else {
+            buffer[sizeof(buffer) - 1] = '\0';
+            char *equal = strchr(buffer, '=');
+            r.memory = (uint64_t)strtoull(equal ? (equal + 1) : buffer, NULL, 10);
+        }
+        tvsvc_msg_hdr_t rhdr = {
+            TVSVC_VERSION,
+            (uint8_t)(hdr->cmd | TVSVC_RESP_FLAG),
+            hdr->req_id,
+            (uint16_t)sizeof(r)
+        };
+        (void)send_all(fd, &rhdr, sizeof(rhdr));
+        (void)send_all(fd, &r, sizeof(r));
         break;
     }
 

@@ -26,6 +26,7 @@
 #include "dsError.h"
 #include "dsHost.h"
 #include "dshalLogger.h"
+#include "dsTVSvcClient.h"
 #include "interface/vmcs_host/vc_vchi_gencmd.h"
 
 static uint32_t version_num = 0x10000;
@@ -291,6 +292,13 @@ dsError_t dsGetFreeSystemGraphicsMemory(uint64_t *memory)
 		hal_err("Invalid parameter, memory(%p)\n", memory);
 		return dsERR_INVALID_PARAM;
 	}
+#ifdef TVSVC_IPC_ENABLED
+    if (tvsvc_client_get_free_graphics_memory(memory) != 0) {
+        hal_err("Failed to get free GPU memory via daemon\n");
+        return dsERR_GENERAL;
+    }
+    return dsERR_NONE;
+#else
     char buffer[BUFFER_SIZE] = {0};
 
     if (vc_gencmd(buffer, sizeof(buffer), "get_mem reloc") != 0) {
@@ -311,6 +319,7 @@ dsError_t dsGetFreeSystemGraphicsMemory(uint64_t *memory)
     hal_dbg("Free GPU memory is %lld\n", *memory);
 
     return dsERR_NONE;
+#endif
 }
 
 dsError_t dsGetTotalSystemGraphicsMemory(uint64_t *memory)
@@ -320,6 +329,13 @@ dsError_t dsGetTotalSystemGraphicsMemory(uint64_t *memory)
 		hal_err("Invalid parameter, memory(%p)\n", memory);
 		return dsERR_INVALID_PARAM;
 	}
+#ifdef TVSVC_IPC_ENABLED
+    if (tvsvc_client_get_total_graphics_memory(memory) != 0) {
+        hal_err("Failed to get total GPU memory via daemon\n");
+        return dsERR_GENERAL;
+    }
+    return dsERR_NONE;
+#else
     char buffer[BUFFER_SIZE] = {0};
 
     if (vc_gencmd(buffer, sizeof(buffer), "get_mem reloc_total") != 0) {
@@ -340,4 +356,5 @@ dsError_t dsGetTotalSystemGraphicsMemory(uint64_t *memory)
     hal_dbg("Total GPU memory is %lld\n", *memory);
 
     return dsERR_NONE;
+#endif
 }
