@@ -110,8 +110,6 @@ if (ENABLE_TVSVC_DAEMON)
 	)
 	target_link_libraries(dshal-tvsvc-daemon vchostif vchiq_arm vcos pthread)
 	install(TARGETS dshal-tvsvc-daemon RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-	install(FILES ${CMAKE_SOURCE_DIR}/systemd/dshal-tvsvc.service
-	        DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/systemd/system)
 endif()
 
 # Installation

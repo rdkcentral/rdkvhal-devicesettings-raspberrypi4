@@ -23,7 +23,8 @@ Before=wpeframework.service dsmgr.service
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/dshal-tvsvc-daemon
+RuntimeDirectory=dshal-tvsvc
+ExecStart=/usr/bin/flock -n /run/dshal-tvsvc/daemon.lock /usr/bin/dshal-tvsvc-daemon
 Restart=on-failure
 RestartSec=2
 StandardOutput=journal
