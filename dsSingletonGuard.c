@@ -84,10 +84,18 @@ static void acquireSingletonLock(void)
 		_exit(EXIT_FAILURE);
 	}
 
-	(void)ftruncate(fd, 0);
+	if (ftruncate(fd, 0) != 0) {
+		(void)fprintf(stderr, "[DSHAL] Failed to truncate singleton lock file '%s': %s\n",
+			DSHAL_SINGLETON_LOCK_FILE, strerror(errno));
+	}
 	len = snprintf(pidText, sizeof(pidText), "%ld\n", (long)getpid());
 	if (len > 0) {
-		(void)write(fd, pidText, (size_t)len);
+		ssize_t bytesWritten = write(fd, pidText, (size_t)len);
+		if (bytesWritten < 0 || bytesWritten != (ssize_t)len) {
+			(void)fprintf(stderr, "[DSHAL] Failed to write PID to singleton lock file '%s': %s\n",
+				DSHAL_SINGLETON_LOCK_FILE,
+				(bytesWritten < 0) ? strerror(errno) : "short write");
+		}
 	}
 
 	gDSHALSingletonLockFd = fd;
