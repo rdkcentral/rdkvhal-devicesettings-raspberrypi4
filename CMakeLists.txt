@@ -6,6 +6,7 @@ project(ds-hal VERSION 0.0.0 LANGUAGES C)
 # Set the library name
 set(LIBNAME "dshal" CACHE STRING "Name of the HAL library")
 option(ENABLE_FPD_MULTI_PROCESS_GUARD "Enable inter-process LED ownership guard" OFF)
+option(ENABLE_DSHAL_SINGLETON_GUARD "Enable process-wide singleton guard for dshal library" ON)
 
 set(DEFAULT_BUILD_TYPE "Release")
 
@@ -37,6 +38,13 @@ if (ENABLE_FPD_MULTI_PROCESS_GUARD)
 	add_definitions(-DDSFPD_ENABLE_MULTI_PROCESS_GUARD)
 else()
 	message(STATUS "ENABLE_FPD_MULTI_PROCESS_GUARD is OFF")
+endif()
+
+if (ENABLE_DSHAL_SINGLETON_GUARD)
+	message(STATUS "ENABLE_DSHAL_SINGLETON_GUARD is ON")
+	add_definitions(-DDSHAL_ENABLE_SINGLETON_GUARD)
+else()
+	message(STATUS "ENABLE_DSHAL_SINGLETON_GUARD is OFF")
 endif()
 
 # Add GIT version to the compile flags
