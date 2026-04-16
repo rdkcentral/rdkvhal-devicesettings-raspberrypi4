@@ -135,7 +135,7 @@ dsError_t dsDisplayInit()
         return dsERR_GENERAL;
     }
     // Register callback for HDMI hotplug
-    vc_tv_register_callback(&tvservice_callback, &_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0]);
+    tvsvc_client_register_callback((tvsvc_client_cb_t)tvservice_callback, &_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0]);
     /*Query the HDMI Resolution */
     dsQueryHdmiResolution();
     _bDisplayInited = true;
@@ -191,7 +191,7 @@ dsError_t dsGetDisplayAspectRatio(intptr_t handle, dsVideoAspectRatio_t *aspect)
         return dsERR_INVALID_PARAM;
     }
 
-    if (vc_tv_get_display_state(&tvstate) == 0) {
+    if (tvsvc_client_get_display_state(&tvstate) == 0) {
         if (vDispHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
             hal_info("PortType:HDMI, aspect ratio is %d\n", tvstate.display.hdmi.aspect_ratio);
             switch (tvstate.display.hdmi.aspect_ratio) {
@@ -504,7 +504,7 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
         return dsERR_INVALID_PARAM;
     }
 
-    if (vc_tv_get_display_state(&tvstate) != 0) {
+    if (tvsvc_client_get_display_state(&tvstate) != 0) {
 	    return dsERR_NONE;
     }
 
@@ -621,7 +621,7 @@ static dsError_t dsQueryHdmiResolution()
     int num_of_modes;
     memset(modeSupported, 0, sizeof(modeSupported));
 
-    num_of_modes = vc_tv_hdmi_get_supported_modes_new(HDMI_RES_GROUP_CEA, modeSupported,
+    num_of_modes = tvsvc_client_get_supported_modes(HDMI_RES_GROUP_CEA, modeSupported,
             vcos_countof(modeSupported),
             &group,
             &mode);
@@ -780,12 +780,12 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
         return dsERR_INVALID_PARAM;
     }
 
-    if (vc_tv_get_display_state(&tvstate) != 0) {
+    if (tvsvc_client_get_display_state(&tvstate) != 0) {
             return dsERR_NONE;
     }
 
     *length = 0;
-    int siz = vc_tv_hdmi_ddc_read(offset, sizeof (buffer), buffer);
+    int siz = tvsvc_client_ddc_read(offset, sizeof(buffer), buffer);
     if (siz <= 0) {
         hal_err("vc_tv_hdmi_ddc_read returned %d.\n", siz);
         return dsERR_GENERAL;
@@ -796,7 +796,7 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
     /* First block always exist */
     for (i = 0; i < extensions; i++, offset += sizeof( buffer)) {
         memset(buffer, 0, sizeof(buffer));
-        siz = vc_tv_hdmi_ddc_read(offset, sizeof(buffer), buffer);
+        siz = tvsvc_client_ddc_read(offset, sizeof(buffer), buffer);
         if (siz <= 0) {
             hal_err("subsequent vc_tv_hdmi_ddc_read returned %d.\n", siz);
             return dsERR_GENERAL;

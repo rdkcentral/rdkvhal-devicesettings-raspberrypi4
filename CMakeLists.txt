@@ -8,6 +8,8 @@ set(LIBNAME "dshal" CACHE STRING "Name of the HAL library")
 option(ENABLE_FPD_MULTI_PROCESS_GUARD "Enable inter-process LED ownership guard" OFF)
 option(ENABLE_DSHAL_SINGLETON_GUARD "Enable process-wide singleton guard for dshal library" ON)
 
+option(ENABLE_TVSVC_DAEMON "Build TVService broker daemon and use IPC in HAL library" ON)
+
 set(DEFAULT_BUILD_TYPE "Release")
 
 option(DRI_CARD "Path to the dri device" "/dev/dri/card0")
@@ -20,8 +22,10 @@ endif()
 
 include(GNUInstallDirs)
 
-# All source files
-file(GLOB SOURCES "*.c")
+# All source files — exclude the daemon executable source from the shared library
+file(GLOB ALL_SOURCES "*.c")
+list(REMOVE_ITEM ALL_SOURCES "${CMAKE_SOURCE_DIR}/dsTVSvcDaemon.c")
+set(SOURCES ${ALL_SOURCES})
 
 include_directories(/usr/include/interface/vmcs_host/linux)
 
@@ -38,6 +42,13 @@ if (ENABLE_FPD_MULTI_PROCESS_GUARD)
 	add_definitions(-DDSFPD_ENABLE_MULTI_PROCESS_GUARD)
 else()
 	message(STATUS "ENABLE_FPD_MULTI_PROCESS_GUARD is OFF")
+endif()
+
+if (ENABLE_TVSVC_DAEMON)
+	message(STATUS "ENABLE_TVSVC_DAEMON is ON: HAL library uses IPC; daemon owns VCHI")
+	add_definitions(-DTVSVC_IPC_ENABLED)
+else()
+	message(STATUS "ENABLE_TVSVC_DAEMON is OFF")
 endif()
 
 if (ENABLE_DSHAL_SINGLETON_GUARD)
@@ -73,7 +84,25 @@ set_target_properties(${LIBNAME} PROPERTIES
 	VERSION ${PROJECT_VERSION}
 	SOVERSION ${PROJECT_VERSION_MAJOR}
 )
-target_link_libraries(${LIBNAME} vchostif vchiq_arm vcos asound)
+target_link_libraries(${LIBNAME} vchostif vchiq_arm vcos asound pthread)
+
+# TVService broker daemon — separate executable, sole owner of VCHI
+if (ENABLE_TVSVC_DAEMON)
+	add_executable(dshal-tvsvc-daemon
+		dsTVSvcDaemon.c
+		dshalUtils.c
+		dshalLogger.c
+	)
+	target_include_directories(dshal-tvsvc-daemon PRIVATE
+		${CMAKE_SOURCE_DIR}
+		/usr/include/interface/vmcs_host/linux
+	)
+	target_compile_options(dshal-tvsvc-daemon PRIVATE
+		-std=c11 -g -fPIE -D_REENTRANT -Werror -Wall -Wextra
+	)
+	target_link_libraries(dshal-tvsvc-daemon vchostif vchiq_arm vcos pthread)
+	install(TARGETS dshal-tvsvc-daemon RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
 
 # Installation
 install(TARGETS ${LIBNAME} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})

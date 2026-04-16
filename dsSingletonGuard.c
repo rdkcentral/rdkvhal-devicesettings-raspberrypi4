@@ -32,11 +32,24 @@
 #include <unistd.h>
 
 #define DSHAL_SINGLETON_LOCK_FILE "/run/lock/dshal_singleton.lock"
+#define DSHAL_SINGLETON_ENABLE_FILE "/opt/.dshal_enable_singleton_guard"
 
 static int gDSHALSingletonLockFd = -1;
 
+bool isSingletonEnabled()
+{
+	struct stat st;
+	if (stat(DSHAL_SINGLETON_ENABLE_FILE, &st) == 0 && S_ISREG(st.st_mode)) {
+		return true;
+	}
+	return false;
+}
+
 static void releaseSingletonLock(void)
 {
+	if (!isSingletonEnabled()) {
+		return;
+	}
 	if (gDSHALSingletonLockFd >= 0) {
 		struct flock lock = {0};
 		lock.l_type = F_UNLCK;
@@ -50,6 +63,9 @@ static void releaseSingletonLock(void)
 __attribute__((constructor))
 static void acquireSingletonLock(void)
 {
+	if (!isSingletonEnabled()) {
+		return;
+	}
 	int fd;
 	int len;
 	char pidText[32];

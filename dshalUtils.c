@@ -213,49 +213,21 @@ int vchi_tv_uninit()
     return res;
 }
 
-/* TVService lifecycle refcount wrapper for multi-module safety */
-static int tvsvc_refcount = 0;
-static pthread_mutex_t tvsvc_lock = PTHREAD_MUTEX_INITIALIZER;
-
+/*
+ * TVService lifecycle — Phase 2: delegate to IPC client.
+ * vchi_tv_init/uninit are now owned exclusively by dsTVSvcDaemon.
+ * Multiple processes can call tvsvc_acquire/release safely because
+ * tvsvc_client_connect/disconnect are idempotent.
+ */
 int tvsvc_acquire(void)
 {
-    int res = 0;
-    pthread_mutex_lock(&tvsvc_lock);
-
-    if (tvsvc_refcount == 0) {
-        hal_info("[TVService] First acquire: initializing VCHI\n");
-        res = vchi_tv_init();
-        if (res == 0) {
-            tvsvc_refcount++;
-        }
-    } else {
-        tvsvc_refcount++;
-        hal_dbg("[TVService] Acquire refcount now %d\n", tvsvc_refcount);
-    }
-
-    pthread_mutex_unlock(&tvsvc_lock);
-    return res;
+    return tvsvc_client_connect();
 }
 
 int tvsvc_release(void)
 {
-    int res = 0;
-    pthread_mutex_lock(&tvsvc_lock);
-
-    if (tvsvc_refcount > 0) {
-        tvsvc_refcount--;
-        hal_dbg("[TVService] Release refcount now %d\n", tvsvc_refcount);
-
-        if (tvsvc_refcount == 0) {
-            hal_info("[TVService] Last release: uninitializing VCHI\n");
-            res = vchi_tv_uninit();
-        }
-    } else {
-        hal_warn("[TVService] Release called but refcount is 0\n");
-    }
-
-    pthread_mutex_unlock(&tvsvc_lock);
-    return res;
+    tvsvc_client_disconnect();
+    return 0;
 }
 
 static int detailedBlock(unsigned char *x, int extension, dsDisplayEDID_t *displayEdidInfo)

@@ -197,7 +197,7 @@ dsError_t dsAudioPortInit()
     }
 
     /* Add listener for HDMI status changes - for connected audio status update. */
-    vc_tv_register_callback(&tvservice_hdmiaudio_callback, &_AOPHandles[dsAUDIOPORT_TYPE_HDMI][0]);
+    tvsvc_client_register_callback((tvsvc_client_cb_t)tvservice_hdmiaudio_callback, &_AOPHandles[dsAUDIOPORT_TYPE_HDMI][0]);
 
     dsGetdBRange();
     _bIsAudioInitialized = true;
@@ -886,7 +886,7 @@ bool dsCheckSurroundSupport()
     bool status = false;
     int num_channels = 0;
     for (int i=1; i<=8; i++) {
-        if (vc_tv_hdmi_audio_supported(EDID_AudioFormat_eAC3, i, EDID_AudioSampleRate_e44KHz, EDID_AudioSampleSize_16bit) == 0)
+        if (tvsvc_client_audio_supported(EDID_AudioFormat_eAC3, i, EDID_AudioSampleRate_e44KHz, EDID_AudioSampleSize_16bit) == 0)
             num_channels = i;
     }
 

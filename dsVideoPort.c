@@ -216,7 +216,8 @@ dsError_t  dsVideoPortInit()
     /*
      *  Register callback for HDCP Auth
      */
-    vc_tv_register_callback(&tvservice_hdcp_callback, &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0]);
+    tvsvc_client_register_callback((tvsvc_client_cb_t)tvservice_hdcp_callback,
+                                    &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0]);
 
     _bIsVideoPortInitialized = true;
 
@@ -389,13 +390,13 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_BB) {
         SDTV_OPTIONS_T options = { .aspect = SDTV_ASPECT_16_9 };
         if (enabled) {
-            res = vc_tv_sdtv_power_on(SDTV_MODE_NTSC, &options);
+            res = tvsvc_client_sdtv_power_on(SDTV_MODE_NTSC, &options);
             if (res != 0) {
                 hal_err("Failed to enable composite video port\n");
                 return dsERR_GENERAL;
             }
         } else {
-            res = vc_tv_power_off();
+            res = tvsvc_client_tv_power_off();
             if (res != 0) {
                 hal_err("Failed to disable composite video port\n");
                 return dsERR_GENERAL;
@@ -420,14 +421,14 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
             hal_err("Failed to run '%s', got response '%s'\n", cmd, resp);
             // RDKShell might not have started westeros.
             if (enabled) {
-                res = vc_tv_hdmi_power_on_preferred();
+                res = tvsvc_client_hdmi_power_on_preferred();
                 if (res != 0) {
                     hal_err("Failed to power on HDMI with preferred settings\n");
                     return dsERR_GENERAL;
                 }
             } else {
                 sleep(1);
-                res = vc_tv_power_off();
+                res = tvsvc_client_tv_power_off();
                 if (res != 0) {
                     hal_err("Failed to disable HDMI video port\n");
                     return dsERR_GENERAL;
@@ -491,7 +492,7 @@ dsError_t dsIsDisplayConnected(intptr_t handle, bool *connected)
 
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
         hal_dbg("Isdisplayconnected HDMI port\n");
-        int ret = vc_tv_get_display_state(&tvstate);
+        int ret = tvsvc_client_get_display_state(&tvstate);
         if (ret == 0) {
             hal_dbg("vc_tv_get_display_state: 0x%x\n", tvstate.state);
             if (tvstate.state & VC_HDMI_UNPLUGGED) {
@@ -499,7 +500,7 @@ dsError_t dsIsDisplayConnected(intptr_t handle, bool *connected)
                 *connected = false;
             } else if (tvstate.state & (VC_HDMI_ATTACHED | VC_HDMI_DVI | VC_HDMI_HDMI)) {
                 uint8_t edid[EDID_BLOCK_SIZE] = {0};
-                int readLen = vc_tv_hdmi_ddc_read(0, sizeof(edid), edid);
+                int readLen = tvsvc_client_ddc_read(0, sizeof(edid), edid);
                 if (readLen == (int)sizeof(edid)) {
                     hal_dbg("HDMI is connected\n");
                     *connected = true;
@@ -738,7 +739,7 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         hal_err("handle(%p) is invalid or resolution(%p) is NULL.\n", handle, resolution);
         return dsERR_INVALID_PARAM;
     }
-    if (vc_tv_get_display_state(&tvstate) == 0) {
+    if (tvsvc_client_get_display_state(&tvstate) == 0) {
         hal_dbg("vc_tv_get_display_state: 0x%X\n", tvstate.state);
         if (tvstate.state & VC_HDMI_ATTACHED) {
             hal_dbg("  Width: %d\n", tvstate.display.hdmi.width);
@@ -990,10 +991,10 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         options.aspect = SDTV_ASPECT_16_9;
         if (!strncmp(resolution->name, "480i", strlen("480i"))) {
             hal_dbg("Setting SDTV default resolution SDTV_MODE_NTSC\n");
-            res = vc_tv_sdtv_power_on(SDTV_MODE_NTSC, &options);
+            res = tvsvc_client_sdtv_power_on(SDTV_MODE_NTSC, &options);
         } else {
             hal_dbg("Setting SDTV resolution SDTV_MODE_PAL\n");
-            res = vc_tv_sdtv_power_on(SDTV_MODE_PAL, &options);
+            res = tvsvc_client_sdtv_power_on(SDTV_MODE_PAL, &options);
         }
 
 	if (res != 0) {
@@ -1099,7 +1100,7 @@ dsError_t dsIsVideoPortActive(intptr_t handle, bool *active)
     *active = false;
 
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
-        if (vc_tv_get_display_state( &tvstate ) == 0) {
+        if (tvsvc_client_get_display_state( &tvstate ) == 0) {
             hal_dbg("vc_tv_get_display_state: 0x%x\n", tvstate.state);
             if (tvstate.state & VC_HDMI_HDMI)
                 *active = true;
@@ -1215,7 +1216,7 @@ dsError_t dsGetTVHDRCapabilities(intptr_t handle, int *capabilities)
 
     uint8_t edid[EDID_BUFFER_SIZE]={0};
 
-    int readLen = vc_tv_hdmi_ddc_read(0, EDID_BLOCK_SIZE, edid);
+    int readLen = tvsvc_client_ddc_read(0, EDID_BLOCK_SIZE, edid);
     if (readLen != EDID_BLOCK_SIZE) {
         hal_warn("Failed to read EDID base block, len=%d; reporting default SDR capability.\n", readLen);
         return dsERR_NONE;
@@ -1226,7 +1227,7 @@ dsError_t dsGetTVHDRCapabilities(intptr_t handle, int *capabilities)
     size_t blocksRead = 1;
 
     for (size_t ext = 1; ext <= numExtensions && ext <= maxExtensions; ++ext) {
-        readLen = vc_tv_hdmi_ddc_read((uint32_t)(ext * EDID_BLOCK_SIZE), EDID_BLOCK_SIZE, edid + (ext * EDID_BLOCK_SIZE));
+        readLen = tvsvc_client_ddc_read((uint32_t)(ext * EDID_BLOCK_SIZE), EDID_BLOCK_SIZE, edid + (ext * EDID_BLOCK_SIZE));
         if (readLen != EDID_BLOCK_SIZE) {
             hal_warn("Failed to read EDID extension block %zu, len=%d\n", ext, readLen);
             break;
@@ -1341,7 +1342,7 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
         int num_of_modes;
         int i;
         const dsTVResolution_t *TVVideoResolution = NULL;
-        num_of_modes = vc_tv_hdmi_get_supported_modes_new(HDMI_RES_GROUP_CEA, modeSupported,
+        num_of_modes = tvsvc_client_get_supported_modes(HDMI_RES_GROUP_CEA, modeSupported,
                 vcos_countof(modeSupported),
                 &group,
                 &mode);
