@@ -90,6 +90,7 @@ target_link_libraries(${LIBNAME} vchostif vchiq_arm vcos asound pthread)
 if (ENABLE_TVSVC_DAEMON)
 	add_executable(dshal-tvsvc-daemon
 		dsTVSvcDaemon.c
+		dsTVSvcClient.c
 		dshalUtils.c
 		dshalLogger.c
 	)
