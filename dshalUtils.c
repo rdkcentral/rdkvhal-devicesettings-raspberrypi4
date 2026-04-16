@@ -164,6 +164,10 @@ const VicMapEntry vicMapTable[] = {
 #define VIC_MAP_TABLE_SIZE (sizeof(vicMapTable) / sizeof(VicMapEntry))
 
 static uint16_t initialised = 0;
+
+#ifndef TVSVC_IPC_ENABLED
+/* Full VCHI implementation — compiled only when the daemon is NOT used
+ * (i.e. the library itself owns the VCHI connection). */
 VCHI_INSTANCE_T vchi_instance;
 VCHI_CONNECTION_T *vchi_connection;
 
@@ -212,6 +216,7 @@ int vchi_tv_uninit()
     }
     return res;
 }
+#endif /* !TVSVC_IPC_ENABLED */
 
 /*
  * TVService lifecycle — Phase 2: delegate to IPC client.

@@ -46,7 +46,7 @@ endif()
 
 if (ENABLE_TVSVC_DAEMON)
 	message(STATUS "ENABLE_TVSVC_DAEMON is ON: HAL library uses IPC; daemon owns VCHI")
-	add_definitions(-DTVSVC_IPC_ENABLED)
+	# Applied to library target only (see target_compile_definitions below)
 else()
 	message(STATUS "ENABLE_TVSVC_DAEMON is OFF")
 endif()
@@ -85,6 +85,10 @@ set_target_properties(${LIBNAME} PROPERTIES
 	SOVERSION ${PROJECT_VERSION_MAJOR}
 )
 target_link_libraries(${LIBNAME} asound pthread)
+if (ENABLE_TVSVC_DAEMON)
+	# Library uses IPC; no direct VCHI calls in libds-hal.so
+	target_compile_definitions(${LIBNAME} PRIVATE TVSVC_IPC_ENABLED)
+endif()
 
 # TVService broker daemon — separate executable, sole owner of VCHI
 if (ENABLE_TVSVC_DAEMON)
@@ -103,6 +107,8 @@ if (ENABLE_TVSVC_DAEMON)
 	)
 	target_link_libraries(dshal-tvsvc-daemon vchostif vchiq_arm vcos pthread)
 	install(TARGETS dshal-tvsvc-daemon RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+	install(FILES ${CMAKE_SOURCE_DIR}/systemd/dshal-tvsvc.service
+	        DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/systemd/system)
 endif()
 
 # Installation
