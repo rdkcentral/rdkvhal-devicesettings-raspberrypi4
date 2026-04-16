@@ -25,6 +25,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <limits.h>
+#include <pthread.h>
 
 #include "dshalUtils.h"
 #include "dshalLogger.h"
@@ -209,6 +210,51 @@ int vchi_tv_uninit()
         vchi_disconnect(vchi_instance);
         initialised = 0;
     }
+    return res;
+}
+
+/* TVService lifecycle refcount wrapper for multi-module safety */
+static int tvsvc_refcount = 0;
+static pthread_mutex_t tvsvc_lock = PTHREAD_MUTEX_INITIALIZER;
+
+int tvsvc_acquire(void)
+{
+    int res = 0;
+    pthread_mutex_lock(&tvsvc_lock);
+
+    if (tvsvc_refcount == 0) {
+        hal_info("[TVService] First acquire: initializing VCHI\n");
+        res = vchi_tv_init();
+        if (res == 0) {
+            tvsvc_refcount++;
+        }
+    } else {
+        tvsvc_refcount++;
+        hal_dbg("[TVService] Acquire refcount now %d\n", tvsvc_refcount);
+    }
+
+    pthread_mutex_unlock(&tvsvc_lock);
+    return res;
+}
+
+int tvsvc_release(void)
+{
+    int res = 0;
+    pthread_mutex_lock(&tvsvc_lock);
+
+    if (tvsvc_refcount > 0) {
+        tvsvc_refcount--;
+        hal_dbg("[TVService] Release refcount now %d\n", tvsvc_refcount);
+
+        if (tvsvc_refcount == 0) {
+            hal_info("[TVService] Last release: uninitializing VCHI\n");
+            res = vchi_tv_uninit();
+        }
+    } else {
+        hal_warn("[TVService] Release called but refcount is 0\n");
+    }
+
+    pthread_mutex_unlock(&tvsvc_lock);
     return res;
 }
 

@@ -75,13 +75,14 @@ static void acquireSingletonLock(void)
 	if (fcntl(fd, F_SETLK, &lock) != 0) {
 		if (errno == EACCES || errno == EAGAIN) {
 			(void)fprintf(stderr,
-				"[DSHAL] Library singleton guard: '%s' is already loaded by another process.\n",
+				"[DSHAL] Library singleton guard: '%s' is already loaded by another process. Allowing multi-instance mode.\n",
 				DSHAL_SINGLETON_LOCK_FILE);
 		} else {
 			(void)fprintf(stderr, "[DSHAL] Failed to acquire singleton lock: %s\n", strerror(errno));
 		}
 		(void)close(fd);
-		_exit(EXIT_FAILURE);
+		/* Phase 1: Allow multi-instance; continue without holding lock */
+		return;
 	}
 
 	if (ftruncate(fd, 0) != 0) {

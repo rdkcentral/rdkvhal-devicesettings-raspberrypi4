@@ -208,9 +208,9 @@ dsError_t  dsVideoPortInit()
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_index = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_index);
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_isEnabled = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_isEnabled);
     _resolution = kResolutions[kDefaultResIndex];
-    int rc = vchi_tv_init();
+    int rc = tvsvc_acquire();
     if (rc != 0) {
-        hal_err("Failed to initialise tv service\n");
+        hal_err("Failed to acquire TVService\n");
         return dsERR_GENERAL;
     }
     /*
@@ -1030,7 +1030,7 @@ dsError_t  dsVideoPortTerm()
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    vchi_tv_uninit();
+    tvsvc_release();
     _halhdcpcallback = NULL;
     _bIsVideoPortInitialized = false;
     return dsERR_NONE;

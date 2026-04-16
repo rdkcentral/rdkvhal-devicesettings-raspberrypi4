@@ -61,6 +61,11 @@ extern const size_t noOfItemsInResolutionMap;
 
 int vchi_tv_init();
 int vchi_tv_uninit();
+
+/* TVService lifecycle management with refcounting for multi-module safety */
+int tvsvc_acquire(void);
+int tvsvc_release(void);
+
 int fill_edid_struct(unsigned char *edid, dsDisplayEDID_t *display, int size);
 void parse_edid(const uint8_t *edid, EDID_t *parsed_edid);
 void print_edid(const EDID_t *parsed_edid);

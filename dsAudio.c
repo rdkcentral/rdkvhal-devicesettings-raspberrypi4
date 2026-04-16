@@ -189,6 +189,13 @@ dsError_t dsAudioPortInit()
     hal_info("Audio SPDIF m_index: %d\n", _AOPHandles[dsAUDIOPORT_TYPE_SPDIF][0].m_index);
     hal_info("Audio SPDIF m_IsEnabled: %d\n", _AOPHandles[dsAUDIOPORT_TYPE_SPDIF][0].m_IsEnabled);
 
+    /* Acquire TVService for HDMI audio callbacks */
+    int rc = tvsvc_acquire();
+    if (rc != 0) {
+        hal_err("Failed to acquire TVService: %d\n", rc);
+        return dsERR_GENERAL;
+    }
+
     /* Add listener for HDMI status changes - for connected audio status update. */
     vc_tv_register_callback(&tvservice_hdmiaudio_callback, &_AOPHandles[dsAUDIOPORT_TYPE_HDMI][0]);
 
@@ -866,6 +873,8 @@ dsError_t dsAudioPortTerm()
     {
         return dsERR_NOT_INITIALIZED;
     }
+    /* Release TVService now that audio callbacks are no longer needed */
+    tvsvc_release();
     _halhdmiaudioCB = NULL;
     _bIsAudioInitialized = false;
     return ret;

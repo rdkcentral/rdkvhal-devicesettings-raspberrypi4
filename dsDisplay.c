@@ -128,9 +128,10 @@ dsError_t dsDisplayInit()
     _VDispHandles[dsVIDEOPORT_TYPE_COMPONENT][0].m_vType  = dsVIDEOPORT_TYPE_BB;
     _VDispHandles[dsVIDEOPORT_TYPE_COMPONENT][0].m_nativeHandle = dsVIDEOPORT_TYPE_BB;
     _VDispHandles[dsVIDEOPORT_TYPE_COMPONENT][0].m_index = 0;
-    int32_t res = vchi_tv_init();
+
+    int32_t res = tvsvc_acquire();
     if (res != 0) {
-        hal_err("vchi_tv_init failed.\n");
+        hal_err("Failed to acquire TVService: %d\n", res);
         return dsERR_GENERAL;
     }
     // Register callback for HDMI hotplug
@@ -246,7 +247,7 @@ dsError_t dsSetAllmEnabled (intptr_t  handle, bool enabled)
         hal_err("Invalid params, handle %p \n", vDispHandle );
         return dsERR_INVALID_PARAM;
     }
-    
+
     /*
      * ALLM (Auto Low Latency Mode) is a feature defined in HDMI 2.1.
      * It allows a source device to signal a connected display to automatically switch to a low-latency, low-lag mode — often called "Game Mode".
@@ -273,7 +274,7 @@ dsError_t dsGetAllmEnabled (intptr_t  handle, bool *enabled)
 {
     hal_info("invoked.\n");
     VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
-    
+
     if (!dsIsValidVDispHandle((intptr_t)vDispHandle) || NULL == enabled ) {
         hal_err("Invalid params, handle %p enabled %p\n", vDispHandle, enabled );
         return dsERR_INVALID_PARAM;
@@ -337,7 +338,7 @@ dsError_t dsGetAVIContentType(intptr_t handle, dsAviContentType_t* contentType)
 {
     hal_info("invoked.\n");
     VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
-    
+
     if (!dsIsValidVDispHandle((intptr_t)vDispHandle) || NULL == contentType ) {
         hal_err("Invalid params, handle %p contentType %p\n", vDispHandle, contentType );
         return dsERR_INVALID_PARAM;
@@ -569,7 +570,7 @@ dsError_t dsDisplayTerm()
     if (false == _bDisplayInited) {
         return dsERR_NOT_INITIALIZED;
     }
-    vchi_tv_uninit();
+    tvsvc_release();
     if (HdmiSupportedResolution) {
         free(HdmiSupportedResolution);
         HdmiSupportedResolution = NULL;
