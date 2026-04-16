@@ -488,10 +488,10 @@ int tvsvc_client_ddc_read(uint32_t offset, uint32_t length, void *buffer)
     return actual; /* matches vc_tv_hdmi_ddc_read return convention */
 }
 
-int tvsvc_client_audio_supported(EDID_AudioFormat_t     format,
+int tvsvc_client_audio_supported(EDID_AudioFormat     format,
                                  int                    num_channels,
-                                 EDID_AudioSampleRate_t sample_rate,
-                                 EDID_AudioSampleSize_t sample_size)
+                                 EDID_AudioSampleRate  sample_rate,
+                                 EDID_AudioSampleSize  sample_size)
 {
     tvsvc_req_audio_supported_t req = {
         (uint32_t)format,

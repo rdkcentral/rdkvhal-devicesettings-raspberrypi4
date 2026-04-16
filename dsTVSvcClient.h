@@ -105,10 +105,10 @@ int tvsvc_client_ddc_read(uint32_t offset, uint32_t length, void *buffer);
  * Mirrors vc_tv_hdmi_audio_supported().
  * Returns 0 if the format/channel/rate combination is supported.
  */
-int tvsvc_client_audio_supported(EDID_AudioFormat_t    format,
+int tvsvc_client_audio_supported(EDID_AudioFormat    format,
                                  int                   num_channels,
-                                 EDID_AudioSampleRate_t sample_rate,
-                                 EDID_AudioSampleSize_t sample_size);
+                                 EDID_AudioSampleRate sample_rate,
+                                 EDID_AudioSampleSize sample_size);
 
 /** Mirrors vc_tv_sdtv_power_on().  Returns 0 on success. */
 int tvsvc_client_sdtv_power_on(SDTV_MODE_T mode, const SDTV_OPTIONS_T *options);

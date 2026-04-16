@@ -111,10 +111,10 @@ typedef struct {
 
 /* AUDIO_SUPPORTED request */
 typedef struct {
-    uint32_t format;        /* EDID_AudioFormat_t */
+    uint32_t format;        /* EDID_AudioFormat */
     uint32_t num_channels;
-    uint32_t sample_rate;   /* EDID_AudioSampleRate_t */
-    uint32_t sample_size;   /* EDID_AudioSampleSize_t */
+    uint32_t sample_rate;   /* EDID_AudioSampleRate */
+    uint32_t sample_size;   /* EDID_AudioSampleSize */
 } tvsvc_req_audio_supported_t;
 
 /* SDTV_POWER_ON request */
