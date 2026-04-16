@@ -84,10 +84,13 @@ set_target_properties(${LIBNAME} PROPERTIES
 	VERSION ${PROJECT_VERSION}
 	SOVERSION ${PROJECT_VERSION_MAJOR}
 )
-target_link_libraries(${LIBNAME} asound pthread)
 if (ENABLE_TVSVC_DAEMON)
+	target_link_libraries(${LIBNAME} asound pthread)
 	# Library uses IPC; no direct VCHI calls in libds-hal.so
 	target_compile_definitions(${LIBNAME} PRIVATE TVSVC_IPC_ENABLED)
+else()
+	# Library owns VCHI directly in legacy mode
+	target_link_libraries(${LIBNAME} vchostif vchiq_arm vcos asound pthread)
 endif()
 
 # TVService broker daemon — separate executable, sole owner of VCHI
