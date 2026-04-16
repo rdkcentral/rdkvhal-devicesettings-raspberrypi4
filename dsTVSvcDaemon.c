@@ -251,10 +251,10 @@ static void handle_request(int fd, const tvsvc_msg_hdr_t *hdr,
         const tvsvc_req_audio_supported_t *req =
             (const tvsvc_req_audio_supported_t *)payload;
         int result = vc_tv_hdmi_audio_supported(
-                         (EDID_AudioFormat_t)req->format,
+                         (EDID_AudioFormat)req->format,
                          (int)req->num_channels,
-                         (EDID_AudioSampleRate_t)req->sample_rate,
-                         (EDID_AudioSampleSize_t)req->sample_size);
+                         (EDID_AudioSampleRate)req->sample_rate,
+                         (EDID_AudioSampleSize)req->sample_size);
         send_resp_simple(fd, hdr->cmd, hdr->req_id, 0, result);
         break;
     }
