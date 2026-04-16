@@ -125,14 +125,24 @@ static void dispatch_event(const tvsvc_msg_hdr_t *hdr, const uint8_t *payload)
     const tvsvc_evt_tv_callback_t *evt =
         (const tvsvc_evt_tv_callback_t *)payload;
 
+    tvsvc_client_cb_t callbacks[MAX_CB_SLOTS] = {0};
+    void *userdatas[MAX_CB_SLOTS] = {0};
+    int count = 0;
+
+    /* Copy callback table under lock, then invoke without holding the lock. */
     pthread_mutex_lock(&gCbMutex);
     for (int i = 0; i < MAX_CB_SLOTS; i++) {
         if (gCallbacks[i].cb) {
-            gCallbacks[i].cb(gCallbacks[i].userdata,
-                             evt->reason, evt->param1, evt->param2);
+            callbacks[count] = gCallbacks[i].cb;
+            userdatas[count] = gCallbacks[i].userdata;
+            count++;
         }
     }
     pthread_mutex_unlock(&gCbMutex);
+
+    for (int i = 0; i < count; i++) {
+        callbacks[i](userdatas[i], evt->reason, evt->param1, evt->param2);
+    }
 }
 
 /* ------------------------------------------------------------------ *

@@ -413,21 +413,28 @@ static void sig_handler(int sig)
  * ------------------------------------------------------------------ */
 int main(void)
 {
+    int exit_code = EXIT_FAILURE;
+    bool tv_inited = false;
+    bool cb_registered = false;
+
     fprintf(stderr, "[dsTVSvcDaemon] starting\n");
 
     /* Sole owner of VCHI / TVService. */
     if (vchi_tv_init() != 0) {
         fprintf(stderr, "[dsTVSvcDaemon] vchi_tv_init failed\n");
-        return EXIT_FAILURE;
+        goto cleanup;
     }
+    tv_inited = true;
+
     vc_tv_register_callback(daemon_tv_callback, NULL);
+    cb_registered = true;
 
     /* Create Unix domain socket. */
     (void)unlink(TVSVC_SOCK_PATH);
     gListenFd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (gListenFd < 0) {
         fprintf(stderr, "[dsTVSvcDaemon] socket: %s\n", strerror(errno));
-        return EXIT_FAILURE;
+        goto cleanup;
     }
 
     struct sockaddr_un addr;
@@ -437,13 +444,13 @@ int main(void)
 
     if (bind(gListenFd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
         fprintf(stderr, "[dsTVSvcDaemon] bind: %s\n", strerror(errno));
-        return EXIT_FAILURE;
+        goto cleanup;
     }
     (void)chmod(TVSVC_SOCK_PATH, 0660);
 
     if (listen(gListenFd, 8) != 0) {
         fprintf(stderr, "[dsTVSvcDaemon] listen: %s\n", strerror(errno));
-        return EXIT_FAILURE;
+        goto cleanup;
     }
 
     for (int i = 0; i < TVSVC_MAX_CLIENTS; i++) {
@@ -545,10 +552,16 @@ int main(void)
         }
     }
 
+    exit_code = EXIT_SUCCESS;
+
+cleanup:
     fprintf(stderr, "[dsTVSvcDaemon] shutting down\n");
-    vc_tv_unregister_callback(daemon_tv_callback);
-    vchi_tv_uninit();
-    (void)close(gListenFd);
+    if (cb_registered)
+        vc_tv_unregister_callback(daemon_tv_callback);
+    if (tv_inited)
+        vchi_tv_uninit();
+    if (gListenFd >= 0)
+        (void)close(gListenFd);
     (void)unlink(TVSVC_SOCK_PATH);
-    return EXIT_SUCCESS;
+    return exit_code;
 }
