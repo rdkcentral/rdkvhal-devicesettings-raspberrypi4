@@ -550,11 +550,8 @@ int main(void)
         goto cleanup;
     }
 
-    /* Ensure socket is readable/writable by group (for cross-user/cross-process access). */
-    if (chown(TVSVC_SOCK_PATH, (uid_t)-1, getegid()) != 0) {
-        hal_warn("[dsTVSvcDaemon] chown socket group: %s\n", strerror(errno));
-    }
-    if (chmod(TVSVC_SOCK_PATH, 0660) != 0) {
+    /* Restrict the control socket to the daemon owner only. */
+    if (chmod(TVSVC_SOCK_PATH, 0600) != 0) {
         hal_err("[dsTVSvcDaemon] chmod socket: %s\n", strerror(errno));
         goto cleanup;
     }

@@ -501,6 +501,37 @@ int tvsvc_client_connect(void)
                 return -ETIMEDOUT;
             }
         }
+
+        int sub_status = 0;
+        if (gRespLen < sizeof(tvsvc_resp_simple_t)) {
+            hal_err("[TVSvcClient] invalid SUBSCRIBE_EVENTS ack length=%u\n",
+                    (unsigned)gRespLen);
+            sub_status = -EIO;
+        } else {
+            const tvsvc_resp_simple_t *sub_resp =
+                (const tvsvc_resp_simple_t *)(gRespBuf + sizeof(tvsvc_msg_hdr_t));
+            sub_status = sub_resp->status;
+            if (sub_status != 0) {
+                hal_err("[TVSvcClient] SUBSCRIBE_EVENTS failed: status=%d\n",
+                        sub_status);
+            }
+        }
+
+        if (sub_status != 0) {
+            gRpcPending = false;
+            gRespReady  = false;
+            pthread_mutex_unlock(&gRpcMutex);
+            atomic_store(&gReaderStop, true);
+            (void)shutdown(fd, SHUT_RDWR);
+            if (atomic_load(&gReaderRunning)) {
+                (void)pthread_join(gReaderThread, NULL);
+                atomic_store(&gReaderRunning, false);
+                /* Reader thread already closes fd in its exit path. */
+            }
+            stop_event_thread();
+            return sub_status;
+        }
+
         gRpcPending = false;
         gRespReady  = false;
 
