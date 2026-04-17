@@ -64,10 +64,10 @@ static void acquireSingletonLock(void)
 	}
 
 	if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
-		(void)fprintf(stderr, "[DSHAL] Singleton lock path is not a regular file: %s\n",
+		(void)fprintf(stderr, "[DSHAL] Singleton lock path is not a regular file: %s; disabling guard\n",
 			DSHAL_SINGLETON_LOCK_FILE);
 		(void)close(fd);
-		_exit(EXIT_FAILURE);
+		return;
 	}
 
 	lock.l_type = F_WRLCK;
