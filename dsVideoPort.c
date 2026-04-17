@@ -721,7 +721,7 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         return dsERR_INVALID_PARAM;
     }
     if (tvsvc_client_get_display_state(&tvstate) == 0) {
-        hal_dbg("vc_tv_get_display_state: 0x%X\n", tvstate.state);
+        hal_dbg("tvsvc_client_get_display_state: 0x%X\n", tvstate.state);
         if (tvstate.state & VC_HDMI_ATTACHED) {
             hal_dbg("  Width: %d\n", tvstate.display.hdmi.width);
             hal_dbg("  Height: %d\n", tvstate.display.hdmi.height);

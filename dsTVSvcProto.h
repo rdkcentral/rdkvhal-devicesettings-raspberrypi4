@@ -73,13 +73,21 @@
 /* ================================================================
  * Wire message header — 6 bytes, explicitly packed, no padding.
  * All multi-byte fields are little-endian (native on RPi ARM).
+ *
+ * Keep the wire layout packed, but require 2-byte alignment so the
+ * uint16_t fields can be accessed safely on strict-alignment targets.
  * ================================================================ */
-typedef struct __attribute__((packed)) {
+typedef struct __attribute__((packed, aligned(2))) {
     uint8_t  version;
     uint8_t  cmd;
     uint16_t req_id;
     uint16_t len;       /* byte count of payload that follows */
 } tvsvc_msg_hdr_t;
+
+_Static_assert(sizeof(tvsvc_msg_hdr_t) == 6U,
+               "tvsvc_msg_hdr_t must remain a 6-byte wire header");
+_Static_assert(__alignof__(tvsvc_msg_hdr_t) >= 2U,
+               "tvsvc_msg_hdr_t must be at least 2-byte aligned");
 
 /* ================================================================
  * Payload structs — regular alignment (same ABI on both sides).

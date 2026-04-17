@@ -204,7 +204,8 @@ static void *reader_thread(void *arg)
             if (hdr.len > 4096U) {
                 hal_warn("[TVSvcClient] reader: oversized payload %u; disconnecting\n",
                          (unsigned)hdr.len);
-                (void)shutdown(fd, SHUT_RDWR);
+                if (!atomic_load(&gReaderStop))
+                    reader_disconnect_fd(fd, true);
                 break;
             }
             payload = (uint8_t *)malloc(hdr.len);
@@ -264,6 +265,20 @@ static void *reader_thread(void *arg)
 
         free(payload);
     }
+
+    /* Clean up thread state on exit to prevent leaks on reconnect. */
+    pthread_mutex_lock(&gRpcMutex);
+    if (gConnFd == fd)
+        gConnFd = -1;
+    if (gRpcPending) {
+        /* Wake a blocked do_rpc() immediately on connection loss. */
+        gRespLen = 0;
+        gRespReady = true;
+        pthread_cond_signal(&gRpcCond);
+    }
+    pthread_mutex_unlock(&gRpcMutex);
+    atomic_store(&gReaderRunning, false);
+    (void)close(fd);
 
     hal_dbg("[TVSvcClient] reader thread exiting\n");
     return NULL;
@@ -341,9 +356,10 @@ int tvsvc_client_connect(void)
             pthread_mutex_unlock(&gRpcMutex);
             hal_err("[TVSvcClient] failed to send SUBSCRIBE_EVENTS\n");
             atomic_store(&gReaderStop, true);
-            (void)close(fd);
+            (void)shutdown(fd, SHUT_RDWR);
             if (atomic_load(&gReaderRunning)) {
                 (void)pthread_join(gReaderThread, NULL);
+                (void)close(fd);
                 atomic_store(&gReaderRunning, false);
             }
             return -EIO;
@@ -357,9 +373,10 @@ int tvsvc_client_connect(void)
                 pthread_mutex_unlock(&gRpcMutex);
                 hal_err("[TVSvcClient] timeout waiting for SUBSCRIBE_EVENTS ack\n");
                 atomic_store(&gReaderStop, true);
-                (void)close(fd);
+                (void)shutdown(fd, SHUT_RDWR);
                 if (atomic_load(&gReaderRunning)) {
                     (void)pthread_join(gReaderThread, NULL);
+                    (void)close(fd);
                     atomic_store(&gReaderRunning, false);
                 }
                 return -ETIMEDOUT;
@@ -610,7 +627,8 @@ int tvsvc_client_audio_supported(EDID_AudioFormat     format,
     tvsvc_resp_simple_t r = {0};
     int rc = do_rpc(TVSVC_CMD_AUDIO_SUPPORTED, &req, (uint16_t)sizeof(req),
                     &r, sizeof(r));
-    if (rc < 0) return rc;
+    if (rc < 0 || (size_t)rc < sizeof(r))
+        return -ENOTCONN;
     if (r.status != 0) return r.status;
     return r.result;
 }
@@ -626,7 +644,8 @@ int tvsvc_client_sdtv_power_on(SDTV_MODE_T mode, const SDTV_OPTIONS_T *options)
     tvsvc_resp_simple_t r = {0};
     int rc = do_rpc(TVSVC_CMD_SDTV_POWER_ON, &req, (uint16_t)sizeof(req),
                     &r, sizeof(r));
-    if (rc < 0) return rc;
+    if (rc < 0 || (size_t)rc < sizeof(r))
+        return -ENOTCONN;
     if (r.status != 0) return r.status;
     return r.result;
 }
@@ -635,7 +654,8 @@ int tvsvc_client_tv_power_off(void)
 {
     tvsvc_resp_simple_t r = {0};
     int rc = do_rpc(TVSVC_CMD_TV_POWER_OFF, NULL, 0, &r, sizeof(r));
-    if (rc < 0) return rc;
+    if (rc < 0 || (size_t)rc < sizeof(r))
+        return -ENOTCONN;
     if (r.status != 0) return r.status;
     return r.result;
 }
@@ -644,7 +664,8 @@ int tvsvc_client_hdmi_power_on_preferred(void)
 {
     tvsvc_resp_simple_t r = {0};
     int rc = do_rpc(TVSVC_CMD_HDMI_POWER_ON_PREFERRED, NULL, 0, &r, sizeof(r));
-    if (rc < 0) return rc;
+    if (rc < 0 || (size_t)rc < sizeof(r))
+        return -ENOTCONN;
     if (r.status != 0) return r.status;
     return r.result;
 }

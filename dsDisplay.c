@@ -783,7 +783,7 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
     *length = 0;
     int siz = tvsvc_client_ddc_read(offset, sizeof(buffer), buffer);
     if (siz <= 0) {
-        hal_err("vc_tv_hdmi_ddc_read returned %d.\n", siz);
+        hal_err("tvsvc_client_ddc_read returned %d.\n", siz);
         return dsERR_GENERAL;
     }
     offset += sizeof( buffer);
@@ -794,7 +794,7 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
         memset(buffer, 0, sizeof(buffer));
         siz = tvsvc_client_ddc_read(offset, sizeof(buffer), buffer);
         if (siz <= 0) {
-            hal_err("subsequent vc_tv_hdmi_ddc_read returned %d.\n", siz);
+            hal_err("subsequent tvsvc_client_ddc_read returned %d.\n", siz);
             return dsERR_GENERAL;
         }
         memcpy(edid + offset, buffer, sizeof(buffer));
