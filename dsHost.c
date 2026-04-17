@@ -26,6 +26,7 @@
 #include "dsError.h"
 #include "dsHost.h"
 #include "dshalLogger.h"
+#include "dshalUtils.h"
 #include "dsTVSvcClient.h"
 #include "interface/vmcs_host/vc_vchi_gencmd.h"
 

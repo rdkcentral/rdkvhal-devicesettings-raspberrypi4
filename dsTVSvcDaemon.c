@@ -144,7 +144,10 @@ static void daemon_tv_callback(void *userdata,
         /* Signal main loop via eventfd. */
         if (gEventFd >= 0) {
             uint64_t add = 1;
-            (void)write(gEventFd, &add, sizeof(add));
+            ssize_t wr = write(gEventFd, &add, sizeof(add));
+            if (wr < 0 && errno != EAGAIN) {
+                fprintf(stderr, "[dsTVSvcDaemon] eventfd write failed: %s\n", strerror(errno));
+            }
         }
     } else {
         fprintf(stderr, "[dsTVSvcDaemon] event queue overflow; dropping event\n");
@@ -569,7 +572,10 @@ int main(void)
         /* Pending callback events? */
         if (pfds[1].revents & POLLIN) {
             uint64_t val;
-            (void)read(gEventFd, &val, sizeof(val));  /* drain eventfd */
+            ssize_t rd = read(gEventFd, &val, sizeof(val));  /* drain eventfd */
+            if (rd < 0 && errno != EAGAIN) {
+                fprintf(stderr, "[dsTVSvcDaemon] eventfd read failed: %s\n", strerror(errno));
+            }
             process_pending_events();
         }
 
