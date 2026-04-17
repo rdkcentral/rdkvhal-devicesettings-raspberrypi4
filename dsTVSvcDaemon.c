@@ -57,7 +57,6 @@
 #include "interface/vmcs_host/vc_vchi_gencmd.h"
 #include "interface/vmcs_host/vc_tvservice.h"
 #include "dshalLogger.h"
-#include "dshalUtils.h"
 #include "dsTVSvcProto.h"
 
 /* ------------------------------------------------------------------ */

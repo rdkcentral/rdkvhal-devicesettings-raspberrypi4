@@ -279,7 +279,6 @@ static void reader_disconnect_fd(int fd, bool wake_rpc)
     }
     pthread_mutex_unlock(&gRpcMutex);
     (void)shutdown(fd, SHUT_RDWR);
-    (void)close(fd);
 }
 
 /* ------------------------------------------------------------------ *
@@ -431,9 +430,6 @@ int tvsvc_client_connect(void)
         return -err;
     }
 
-    pthread_mutex_lock(&gCbMutex);
-    memset(gCallbacks, 0, sizeof(gCallbacks));
-    pthread_mutex_unlock(&gCbMutex);
     gRespReady = false;
     atomic_store(&gReaderStop, false);
     /* Keep gConnFd = -1 until reader thread is running and subscription succeeds. */
