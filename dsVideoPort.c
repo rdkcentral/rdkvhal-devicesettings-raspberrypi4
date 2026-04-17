@@ -261,6 +261,10 @@ dsError_t dsGetVideoPort(dsVideoPortType_t type, int index, intptr_t *handle)
         hal_err("index = %d, type = %d, handle = %p\n", index, type, handle);
         return dsERR_INVALID_PARAM;
     }
+    if (type != dsVIDEOPORT_TYPE_HDMI) {
+        hal_err("unsupported port type %d\n", type);
+        return dsERR_OPERATION_NOT_SUPPORTED;
+    }
     *handle = (intptr_t)&_vopHandles[type][index];
     hal_dbg("*handle = %p\n", *handle);
     return dsERR_NONE;

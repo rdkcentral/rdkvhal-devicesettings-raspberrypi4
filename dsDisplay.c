@@ -164,7 +164,10 @@ dsError_t dsGetDisplay(dsVideoPortType_t m_vType, int index, intptr_t *handle)
         hal_err("Invalid params, index %d, m_vType %d, handle %p\n", index, m_vType, handle);
         return dsERR_INVALID_PARAM;
     }
-
+    if (m_vType != dsVIDEOPORT_TYPE_HDMI) {
+        hal_err("unsupported display type %d\n", m_vType);
+        return dsERR_OPERATION_NOT_SUPPORTED;
+    }
     *handle = (intptr_t)&_VDispHandles[m_vType][index];
 
     return dsERR_NONE;

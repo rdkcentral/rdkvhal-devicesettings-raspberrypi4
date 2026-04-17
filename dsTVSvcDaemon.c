@@ -78,7 +78,8 @@ typedef struct {
 } pending_event_t;
 
 static pending_event_t     gPendingEvents[MAX_PENDING_EVENTS];
-static int                 gPendingCount = 0;
+static int                 gPendingHead  = 0; /* ring-buffer read index  */
+static int                 gPendingCount = 0; /* number of filled slots  */
 static pthread_mutex_t     gEventsMutex = PTHREAD_MUTEX_INITIALIZER;
 
 /* VCHI instance — sole owner of TVService RTOS connection */
@@ -145,13 +146,17 @@ static void daemon_tv_callback(void *userdata,
 {
     (void)userdata;
 
-    /* Enqueue event for main thread to process. */
-    pthread_mutex_lock(&gEventsMutex);
+    /* Enqueue event for main thread to process.
+     * Use trylock — blocking here would stall the RTOS callback thread. */
+    if (pthread_mutex_trylock(&gEventsMutex) != 0) {
+        fprintf(stderr, "[dsTVSvcDaemon] callback: events mutex busy, dropping event\n");
+        return;
+    }
     if (gPendingCount < MAX_PENDING_EVENTS) {
-        pending_event_t *evt = &gPendingEvents[gPendingCount];
-        evt->evt.reason = reason;
-        evt->evt.param1 = param1;
-        evt->evt.param2 = param2;
+        int tail = (gPendingHead + gPendingCount) % MAX_PENDING_EVENTS;
+        gPendingEvents[tail].evt.reason = reason;
+        gPendingEvents[tail].evt.param1 = param1;
+        gPendingEvents[tail].evt.param2 = param2;
         gPendingCount++;
 
         /* Signal main loop via eventfd. */
@@ -430,12 +435,9 @@ static void process_pending_events(void)
 {
     pthread_mutex_lock(&gEventsMutex);
     while (gPendingCount > 0) {
-        pending_event_t pending = gPendingEvents[0];
+        pending_event_t pending = gPendingEvents[gPendingHead];
+        gPendingHead = (gPendingHead + 1) % MAX_PENDING_EVENTS;
         gPendingCount--;
-        if (gPendingCount > 0) {
-            memmove(&gPendingEvents[0], &gPendingEvents[1],
-                    (size_t)gPendingCount * sizeof(pending_event_t));
-        }
         pthread_mutex_unlock(&gEventsMutex);
 
         /* Broadcast to all subscribed clients (outside event lock). */
@@ -481,6 +483,7 @@ int main(void)
 {
     int exit_code = EXIT_FAILURE;
     bool tv_inited = false;
+    bool gencmd_inited = false;
     bool cb_registered = false;
 
     /* Initialize VCOS — required before VCHI/TVService */
@@ -504,6 +507,10 @@ int main(void)
         goto cleanup;
     }
     tv_inited = true;
+
+    /* Initialise gencmd service — required for GET_FREE/TOTAL_GFX_MEM. */
+    vc_vchi_gencmd_init(gVchiInstance, &gVchiConnection, 1);
+    gencmd_inited = true;
 
     vc_tv_register_callback(daemon_tv_callback, NULL);
     cb_registered = true;
@@ -584,6 +591,11 @@ int main(void)
         if (pfds[0].revents & POLLIN) {
             int cfd = accept4(gListenFd, NULL, NULL, SOCK_CLOEXEC);
             if (cfd >= 0) {
+                /* Apply a short send timeout so a slow/non-reading client
+                 * cannot block the main event loop indefinitely. */
+                struct timeval snd_tv = { .tv_sec = 1, .tv_usec = 0 };
+                (void)setsockopt(cfd, SOL_SOCKET, SO_SNDTIMEO,
+                                 &snd_tv, sizeof(snd_tv));
                 if (add_client(cfd) != 0) {
                     fprintf(stderr,
                         "[dsTVSvcDaemon] client table full; rejecting fd=%d\n", cfd);
@@ -658,6 +670,8 @@ cleanup:
     fprintf(stderr, "[dsTVSvcDaemon] shutting down\n");
     if (cb_registered)
         vc_tv_unregister_callback(daemon_tv_callback);
+    if (gencmd_inited)
+        vc_gencmd_stop();
     if (tv_inited)
         vc_vchi_tv_stop();
     if (gVchiInstance != NULL)

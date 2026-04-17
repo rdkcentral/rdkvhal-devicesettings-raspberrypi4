@@ -71,8 +71,8 @@ static uint16_t        gRespLen    = 0;
 
 /* Reader thread */
 static pthread_t       gReaderThread;
-static bool            gReaderRunning = false;
-static volatile bool   gReaderStop    = false;
+static atomic_bool     gReaderRunning = ATOMIC_VAR_INIT(false);
+static atomic_bool     gReaderStop    = ATOMIC_VAR_INIT(false);
 
 /* Registered event callbacks */
 typedef struct {
@@ -172,21 +172,27 @@ static void *reader_thread(void *arg)
     int fd = (int)(intptr_t)arg;
     hal_dbg("[TVSvcClient] reader thread started\n");
 
-    while (!gReaderStop) {
+    while (!atomic_load(&gReaderStop)) {
 
         tvsvc_msg_hdr_t hdr;
         if (recv_all(fd, &hdr, sizeof(hdr)) != 0) {
-            if (!gReaderStop)
+            if (!atomic_load(&gReaderStop))
                 hal_warn("[TVSvcClient] reader: connection lost\n");
             break;
         }
 
         uint8_t *payload = NULL;
         if (hdr.len > 0) {
+            if (hdr.len > 4096U) {
+                hal_warn("[TVSvcClient] reader: oversized payload %u; disconnecting\n",
+                         (unsigned)hdr.len);
+                (void)shutdown(fd, SHUT_RDWR);
+                break;
+            }
             payload = (uint8_t *)malloc(hdr.len);
             if (!payload || recv_all(fd, payload, hdr.len) != 0) {
                 free(payload);
-                if (!gReaderStop)
+                if (!atomic_load(&gReaderStop))
                     hal_warn("[TVSvcClient] reader: payload recv failed\n");
                 break;
             }
@@ -194,7 +200,7 @@ static void *reader_thread(void *arg)
 
         /* Validate protocol version before processing message. */
         if (hdr.version != TVSVC_VERSION) {
-            if (!gReaderStop)
+            if (!atomic_load(&gReaderStop))
                 hal_warn("[TVSvcClient] reader: protocol version mismatch "
                          "(got %u, expected %u); disconnecting\n",
                          (unsigned int)hdr.version,
@@ -217,7 +223,8 @@ static void *reader_thread(void *arg)
              * A response whose req_id doesn't match the current in-flight RPC
              * is a stale reply from a previously timed-out request; discard it. */
             pthread_mutex_lock(&gRpcMutex);
-            if (gRpcPending && hdr.req_id == gExpectedReqId) {
+            if (gRpcPending && hdr.req_id == gExpectedReqId &&
+                hdr.cmd == (uint8_t)(gExpectedCmd | TVSVC_RESP_FLAG)) {
                 size_t copy = (hdr.len < RESP_BUF_SIZE) ? hdr.len : RESP_BUF_SIZE;
                 memcpy(gRespBuf, &hdr, sizeof(hdr));
                 if (payload && copy > 0)
@@ -276,7 +283,7 @@ int tvsvc_client_connect(void)
 
     memset(gCallbacks, 0, sizeof(gCallbacks));
     gRespReady = false;
-    gReaderStop = false;
+    atomic_store(&gReaderStop, false);
     /* Keep gConnFd = -1 until reader thread is running and subscription succeeds. */
     pthread_mutex_unlock(&gRpcMutex);
 
@@ -287,7 +294,7 @@ int tvsvc_client_connect(void)
         (void)close(fd);
         return -errno;
     }
-    gReaderRunning = true;
+    atomic_store(&gReaderRunning, true);
 
     /*
      * Subscribe to events: send SUBSCRIBE_EVENTS and wait for the ack.
@@ -309,11 +316,11 @@ int tvsvc_client_connect(void)
             gRpcPending = false;
             pthread_mutex_unlock(&gRpcMutex);
             hal_err("[TVSvcClient] failed to send SUBSCRIBE_EVENTS\n");
-            gReaderStop = true;
+            atomic_store(&gReaderStop, true);
             (void)close(fd);
-            if (gReaderRunning) {
+            if (atomic_load(&gReaderRunning)) {
                 (void)pthread_join(gReaderThread, NULL);
-                gReaderRunning = false;
+                atomic_store(&gReaderRunning, false);
             }
             return -EIO;
         }
@@ -325,11 +332,11 @@ int tvsvc_client_connect(void)
                 gRpcPending = false;
                 pthread_mutex_unlock(&gRpcMutex);
                 hal_err("[TVSvcClient] timeout waiting for SUBSCRIBE_EVENTS ack\n");
-                gReaderStop = true;
+                atomic_store(&gReaderStop, true);
                 (void)close(fd);
-                if (gReaderRunning) {
+                if (atomic_load(&gReaderRunning)) {
                     (void)pthread_join(gReaderThread, NULL);
-                    gReaderRunning = false;
+                    atomic_store(&gReaderRunning, false);
                 }
                 return -ETIMEDOUT;
             }
@@ -350,7 +357,7 @@ int tvsvc_client_connect(void)
 void tvsvc_client_disconnect(void)
 {
     /* Signal reader thread to stop and unblock its recv(). */
-    gReaderStop = true;
+    atomic_store(&gReaderStop, true);
 
     pthread_mutex_lock(&gRpcMutex);
     if (gConnFd >= 0) {
@@ -358,9 +365,9 @@ void tvsvc_client_disconnect(void)
     }
     pthread_mutex_unlock(&gRpcMutex);
 
-    if (gReaderRunning) {
+    if (atomic_load(&gReaderRunning)) {
         (void)pthread_join(gReaderThread, NULL);
-        gReaderRunning = false;
+        atomic_store(&gReaderRunning, false);
     }
 
     pthread_mutex_lock(&gRpcMutex);
@@ -368,7 +375,7 @@ void tvsvc_client_disconnect(void)
         (void)close(gConnFd);
         gConnFd = -1;
     }
-    gReaderStop = false;
+    atomic_store(&gReaderStop, false);
     pthread_mutex_unlock(&gRpcMutex);
 
     hal_info("[TVSvcClient] disconnected\n");
@@ -471,6 +478,8 @@ static int do_rpc(uint8_t cmd,
 
 int tvsvc_client_get_display_state(TV_DISPLAY_STATE_T *state)
 {
+    if (!state)
+        return -EINVAL;
     tvsvc_resp_display_state_t r;
     memset(&r, 0, sizeof(r));
     int rc = do_rpc(TVSVC_CMD_GET_DISPLAY_STATE, NULL, 0, &r, sizeof(r));
