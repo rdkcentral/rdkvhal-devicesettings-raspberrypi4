@@ -1313,7 +1313,7 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
                 &group,
                 &mode);
         if (num_of_modes < 0) {
-            hal_err("Failed to get modes vc_tv_hdmi_get_supported_modes_new\n");
+            hal_err("Failed to get modes tvsvc_client_get_supported_modes\n");
             return dsERR_GENERAL;
         }
         hal_info("num_of_modes = %d\n", num_of_modes);

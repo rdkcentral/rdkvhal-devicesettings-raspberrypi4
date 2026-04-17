@@ -242,11 +242,14 @@ static void *reader_thread(void *arg)
             if (gRpcPending && hdr.req_id == gExpectedReqId &&
                 hdr.cmd == (uint8_t)(gExpectedCmd | TVSVC_RESP_FLAG)) {
                 if (hdr.len > RESP_BUF_SIZE) {
-                    hal_warn("[TVSvcClient] discarding oversized response "
-                             "req_id=%u len=%u (max %u)\n",
-                             (unsigned)hdr.req_id,
-                             (unsigned)hdr.len,
-                             (unsigned)RESP_BUF_SIZE);
+                    hal_err("[TVSvcClient] oversized response "
+                            "req_id=%u len=%u (max %u) — waking waiter with error\n",
+                            (unsigned)hdr.req_id,
+                            (unsigned)hdr.len,
+                            (unsigned)RESP_BUF_SIZE);
+                    gRespLen   = 0;
+                    gRespReady = true;
+                    pthread_cond_signal(&gRpcCond);
                 } else {
                     memcpy(gRespBuf, &hdr, sizeof(hdr));
                     if (payload && hdr.len > 0)

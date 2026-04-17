@@ -514,15 +514,16 @@ int main(void)
     vc_vchi_gencmd_init(gVchiInstance, &gVchiConnection, 1);
     gencmd_inited = true;
 
-    vc_tv_register_callback(daemon_tv_callback, NULL);
-    cb_registered = true;
-
-    /* Create eventfd for non-blocking callback fanout. */
+    /* Create eventfd before registering the firmware callback so any early
+     * callback can signal the main loop rather than being lost to gEventFd==-1. */
     gEventFd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     if (gEventFd < 0) {
         hal_err("[dsTVSvcDaemon] eventfd: %s\n", strerror(errno));
         goto cleanup;
     }
+
+    vc_tv_register_callback(daemon_tv_callback, NULL);
+    cb_registered = true;
 
     /* Create Unix domain socket. */
     (void)unlink(TVSVC_SOCK_PATH);
