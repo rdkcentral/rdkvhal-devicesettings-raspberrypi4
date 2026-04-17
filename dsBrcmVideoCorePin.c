@@ -56,15 +56,20 @@ static void *g_libvcosHandle = NULL;
 __attribute__((constructor))
 static void dshal_broadcom_init(void)
 {
+    const char *dlError = NULL;
+
     // Pin libvcos.so to prevent TLS destructor crashes
     // RTLD_NODELETE ensures the library cannot be unloaded via dlclose()
+    dlerror(); // Clear any stale dynamic loader error state
     g_libvcosHandle = dlopen("libvcos.so", RTLD_LAZY | RTLD_NODELETE);
     
     if (g_libvcosHandle) {
         hal_info("[Constructor] libvcos.so pinned successfully (handle=%p)\n", 
                  (void*)g_libvcosHandle);
     } else {
-        hal_err("[Constructor] Failed to pin libvcos.so: %s\n", dlerror());
+        dlError = dlerror();
+        hal_err("[Constructor] Failed to pin libvcos.so: %s\n",
+                dlError ? dlError : "unknown dlopen error");
     }
 }
 
