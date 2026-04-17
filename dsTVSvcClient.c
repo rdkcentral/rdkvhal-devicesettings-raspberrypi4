@@ -483,10 +483,10 @@ int tvsvc_client_connect(void)
             return -EIO;
         }
         struct timespec ts;
-        (void)clock_gettime(CLOCK_REALTIME, &ts);
+        (void)clock_gettime(CLOCK_MONOTONIC, &ts);
         ts.tv_sec += RPC_TIMEOUT_S;
         while (!gRespReady) {
-            if (pthread_cond_timedwait(&gRpcCond, &gRpcMutex, &ts) == ETIMEDOUT) {
+            if (pthread_cond_clockwait(&gRpcCond, &gRpcMutex, CLOCK_MONOTONIC, &ts) == ETIMEDOUT) {
                 gRpcPending = false;
                 pthread_mutex_unlock(&gRpcMutex);
                 hal_err("[TVSvcClient] timeout waiting for SUBSCRIBE_EVENTS ack\n");
@@ -612,11 +612,11 @@ static int do_rpc(uint8_t cmd,
     }
 
     struct timespec ts;
-    (void)clock_gettime(CLOCK_REALTIME, &ts);
+    (void)clock_gettime(CLOCK_MONOTONIC, &ts);
     ts.tv_sec += RPC_TIMEOUT_S;
 
     while (!gRespReady) {
-        int rc = pthread_cond_timedwait(&gRpcCond, &gRpcMutex, &ts);
+        int rc = pthread_cond_clockwait(&gRpcCond, &gRpcMutex, CLOCK_MONOTONIC, &ts);
         if (rc == ETIMEDOUT) {
             gRpcPending = false;
             pthread_mutex_unlock(&gRpcMutex);
