@@ -39,6 +39,14 @@ else()
 	message(STATUS "ENABLE_FPD_MULTI_PROCESS_GUARD is OFF")
 endif()
 
+if (ENABLE_BROADCOM_VCOS_PIN)
+    message(STATUS "ENABLE_BROADCOM_VCOS_PIN is ON - libvcos.so will be pinned")
+    add_definitions(-DDSHAL_ENABLE_VCOS_PIN)
+else()
+    message(STATUS "ENABLE_BROADCOM_VCOS_PIN is OFF")
+    list(REMOVE_ITEM SOURCES "${CMAKE_SOURCE_DIR}/dsBrcmVideoCorePin.c")
+endif()
+
 # Add GIT version to the compile flags
 execute_process(
 	COMMAND git rev-parse --short HEAD
