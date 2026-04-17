@@ -118,7 +118,7 @@ dsError_t dsSetDFC(intptr_t handle, dsVideoZoom_t dfc)
         return dsERR_NOT_INITIALIZED;
     }
     if (!dsIsValidVDHandle(handle) || !dsVideoPortDFC_isValid(dfc)) {
-		hal_err("Invalid parameter, handle: %p or dfc: %d\n", handle, dfc);
+        hal_err("Invalid parameter, handle: %p or dfc: %d\n", handle, dfc);
         return dsERR_INVALID_PARAM;
     }
     return dsERR_OPERATION_NOT_SUPPORTED;
@@ -279,7 +279,7 @@ dsError_t dsGetVideoCodecInfo(intptr_t handle, dsVideoCodingFormat_t codec, dsVi
         return dsERR_NOT_INITIALIZED;
     }
     if (info == NULL || !dsIsValidVDHandle(handle) || codec <= dsVIDEO_CODEC_MPEGHPART2 || codec >= dsVIDEO_CODEC_MAX) {
-		hal_err("Invalid parameter, handle: %p or info: %p or codec: %d\n", handle, info, codec);
+        hal_err("Invalid parameter, handle: %p or info: %p or codec: %d\n", handle, info, codec);
         return dsERR_INVALID_PARAM;
     }
     return dsERR_OPERATION_NOT_SUPPORTED;
@@ -311,10 +311,10 @@ dsError_t dsForceDisableHDRSupport(intptr_t handle, bool disable)
         return dsERR_NOT_INITIALIZED;
     }
     if (!dsIsValidVDHandle(handle)) {
-		hal_err("Invalid parameter, handle: %p\n", handle);
+        hal_err("Invalid parameter, handle: %p\n", handle);
         return dsERR_INVALID_PARAM;
     }
-	hal_dbg("Force disable HDR support is not supported, can't set to %d\n", disable);
+    hal_dbg("Force disable HDR support is not supported, can't set to %d\n", disable);
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -478,10 +478,10 @@ dsError_t dsRegisterFrameratePreChangeCB(dsRegisterFrameratePreChangeCB_t CBFunc
     if (false == _bVideoDeviceInited) {
         return dsERR_NOT_INITIALIZED;
     }
-	if (CBFunc == NULL) {
-		hal_err("Invalid parameter, CBFunc: %p\n", CBFunc);
-		return dsERR_INVALID_PARAM;
-	}
+    if (CBFunc == NULL) {
+        hal_err("Invalid parameter, CBFunc: %p\n", CBFunc);
+        return dsERR_INVALID_PARAM;
+    }
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -511,9 +511,9 @@ dsError_t dsRegisterFrameratePostChangeCB(dsRegisterFrameratePostChangeCB_t CBFu
     if (false == _bVideoDeviceInited) {
         return dsERR_NOT_INITIALIZED;
     }
-	if (CBFunc == NULL) {
-		hal_err("Invalid parameter, CBFunc: %p\n", CBFunc);
-		return dsERR_INVALID_PARAM;
-	}
+    if (CBFunc == NULL) {
+        hal_err("Invalid parameter, CBFunc: %p\n", CBFunc);
+        return dsERR_INVALID_PARAM;
+    }
     return dsERR_OPERATION_NOT_SUPPORTED;
 }

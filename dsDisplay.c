@@ -125,17 +125,19 @@ dsError_t dsDisplayInit()
     _VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle = dsVIDEOPORT_TYPE_HDMI;
     _VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index = 0;
 
-    _VDispHandles[dsVIDEOPORT_TYPE_COMPONENT][0].m_vType  = dsVIDEOPORT_TYPE_BB;
-    _VDispHandles[dsVIDEOPORT_TYPE_COMPONENT][0].m_nativeHandle = dsVIDEOPORT_TYPE_BB;
-    _VDispHandles[dsVIDEOPORT_TYPE_COMPONENT][0].m_index = 0;
-
     int32_t res = tvsvc_acquire();
     if (res != 0) {
         hal_err("Failed to acquire TVService: %d\n", res);
         return dsERR_GENERAL;
     }
-    // Register callback for HDMI hotplug
-    tvsvc_client_register_callback((tvsvc_client_cb_t)tvservice_callback, &_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0]);
+    /* Register callback for HDMI hotplug */
+    res = tvsvc_client_register_callback((tvsvc_client_cb_t)tvservice_callback,
+                                          &_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0]);
+    if (res != 0) {
+        hal_err("Failed to register HDMI hotplug callback: %d\n", res);
+        tvsvc_release();
+        return dsERR_GENERAL;
+    }
     /*Query the HDMI Resolution */
     dsQueryHdmiResolution();
     _bDisplayInited = true;
@@ -205,19 +207,9 @@ dsError_t dsGetDisplayAspectRatio(intptr_t handle, dsVideoAspectRatio_t *aspect)
                     *aspect = dsVIDEO_ASPECT_RATIO_4x3;
                     break;
             }
-        } else if (vDispHandle->m_vType == dsVIDEOPORT_TYPE_BB) {
-            hal_info("PortType:BB, aspect ratio is %d\n", tvstate.display.sdtv.display_options.aspect);
-            switch (tvstate.display.sdtv.display_options.aspect) {
-                case SDTV_ASPECT_4_3:
-                    *aspect = dsVIDEO_ASPECT_RATIO_4x3;
-                    break;
-                case SDTV_ASPECT_16_9:
-                    *aspect = dsVIDEO_ASPECT_RATIO_16x9;
-                    break;
-                default:
-                    *aspect = dsVIDEO_ASPECT_RATIO_4x3;
-                    break;
-            }
+        } else {
+            hal_err("Unsupported video port type %d\n", vDispHandle->m_vType);
+            return dsERR_OPERATION_NOT_SUPPORTED;
         }
     } else {
         hal_err("Error getting current display state\n");

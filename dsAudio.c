@@ -197,7 +197,13 @@ dsError_t dsAudioPortInit()
     }
 
     /* Add listener for HDMI status changes - for connected audio status update. */
-    tvsvc_client_register_callback((tvsvc_client_cb_t)tvservice_hdmiaudio_callback, &_AOPHandles[dsAUDIOPORT_TYPE_HDMI][0]);
+    rc = tvsvc_client_register_callback((tvsvc_client_cb_t)tvservice_hdmiaudio_callback,
+                                         &_AOPHandles[dsAUDIOPORT_TYPE_HDMI][0]);
+    if (rc != 0) {
+        hal_err("Failed to register HDMI audio callback with TVService: %d\n", rc);
+        tvsvc_release();
+        return dsERR_GENERAL;
+    }
 
     dsGetdBRange();
     _bIsAudioInitialized = true;
@@ -206,7 +212,6 @@ dsError_t dsAudioPortInit()
 
 static void dsGetdBRange()
 {
-#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
     hal_info("invoked.\n");
     long min_dB_value, max_dB_value;
     const char *s_card = ALSA_CARD_NAME;
@@ -223,9 +228,6 @@ static void dsGetdBRange()
     } else {
         hal_err("snd_mixer_selem_get_playback_dB_range failed.\n");
     }
-#else // !ALSA_AUDIO_MASTER_CONTROL_ENABLE
-    hal_err("ALSA_AUDIO_MASTER_CONTROL_ENABLE is not defined.\n");
-#endif // !ALSA_AUDIO_MASTER_CONTROL_ENABLE
 }
 
 dsError_t dsGetAudioPort(dsAudioPortType_t type, int index, intptr_t *handle)
@@ -315,7 +317,6 @@ dsError_t dsGetStereoAuto (intptr_t handle, int *autoMode)
 
 dsError_t dsIsAudioMute(intptr_t handle, bool *muted)
 {
-#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
     hal_info("invoked.\n");
     if (false == _bIsAudioInitialized) {
         return dsERR_NOT_INITIALIZED;
@@ -345,15 +346,10 @@ dsError_t dsIsAudioMute(intptr_t handle, bool *muted)
         return dsERR_GENERAL;
     }
     return dsERR_NONE;
-#else // !ALSA_AUDIO_MASTER_CONTROL_ENABLE
-    hal_err("ALSA_AUDIO_MASTER_CONTROL_ENABLE is not defined.\n");
-    return dsERR_OPERATION_NOT_SUPPORTED;
-#endif // !ALSA_AUDIO_MASTER_CONTROL_ENABLE
 }
 
 dsError_t dsSetAudioMute(intptr_t handle, bool mute)
 {
-#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
     hal_info("invoked.\n");
     if (false == _bIsAudioInitialized)
     {
@@ -382,10 +378,6 @@ dsError_t dsSetAudioMute(intptr_t handle, bool mute)
     }
     hal_err("snd_mixer_selem_has_playback_switch failed\n");
     return dsERR_GENERAL;
-#else // !ALSA_AUDIO_MASTER_CONTROL_ENABLE
-    hal_err("ALSA_AUDIO_MASTER_CONTROL_ENABLE is not defined.\n");
-    return dsERR_OPERATION_NOT_SUPPORTED;
-#endif // !ALSA_AUDIO_MASTER_CONTROL_ENABLE
 }
 
 dsError_t dsIsAudioPortEnabled(intptr_t handle, bool *enabled)
@@ -428,7 +420,6 @@ dsError_t dsEnableAudioPort(intptr_t handle, bool enabled)
 
 dsError_t dsGetAudioGain(intptr_t handle, float *gain)
 {
-#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
     hal_info("invoked.\n");
     if (false == _bIsAudioInitialized)
     {
@@ -476,15 +467,10 @@ dsError_t dsGetAudioGain(intptr_t handle, float *gain)
     }
     hal_err("snd_mixer_selem_get_playback_dB error.\n");
     return dsERR_GENERAL;
-#else // !ALSA_AUDIO_MASTER_CONTROL_ENABLE
-    hal_err("ALSA_AUDIO_MASTER_CONTROL_ENABLE is not defined.\n");
-    return dsERR_OPERATION_NOT_SUPPORTED;
-#endif // !ALSA_AUDIO_MASTER_CONTROL_ENABLE
 }
 
 dsError_t dsGetAudioDB(intptr_t handle, float *db)
 {
-#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
     hal_info("invoked.\n");
     if (false == _bIsAudioInitialized)
     {
@@ -513,15 +499,10 @@ dsError_t dsGetAudioDB(intptr_t handle, float *db)
     }
     hal_err("snd_mixer_selem_get_playback_dB failed.\n");
     return dsERR_GENERAL;
-#else // !ALSA_AUDIO_MASTER_CONTROL_ENABLE
-    hal_err("ALSA_AUDIO_MASTER_CONTROL_ENABLE is not defined.\n");
-    return dsERR_OPERATION_NOT_SUPPORTED;
-#endif // !ALSA_AUDIO_MASTER_CONTROL_ENABLE
 }
 
 dsError_t dsGetAudioLevel(intptr_t handle, float *level)
 {
-#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
     hal_info("invoked.\n");
     if (false == _bIsAudioInitialized)
     {
@@ -552,10 +533,6 @@ dsError_t dsGetAudioLevel(intptr_t handle, float *level)
     }
     hal_err("snd_mixer_selem_get_playback_volume failed.\n");
     return dsERR_GENERAL;
-#else // !ALSA_AUDIO_MASTER_CONTROL_ENABLE
-    hal_err("ALSA_AUDIO_MASTER_CONTROL_ENABLE is not defined.\n");
-    return dsERR_OPERATION_NOT_SUPPORTED;
-#endif // !ALSA_AUDIO_MASTER_CONTROL_ENABLE
 }
 
 dsError_t dsGetAudioMaxDB(intptr_t handle, float *maxDb)
@@ -717,7 +694,6 @@ dsError_t dsSetStereoAuto (intptr_t handle, int autoMode)
 
 dsError_t dsSetAudioGain(intptr_t handle, float gain)
 {
-#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
     hal_info("invoked.\n");
     if (!_bIsAudioInitialized) {
         return dsERR_NOT_INITIALIZED;
@@ -767,15 +743,10 @@ dsError_t dsSetAudioGain(intptr_t handle, float gain)
     }
 
     return dsERR_NONE;
-#else // !ALSA_AUDIO_MASTER_CONTROL_ENABLE
-    hal_err("ALSA_AUDIO_MASTER_CONTROL_ENABLE is not defined.\n");
-    return dsERR_OPERATION_NOT_SUPPORTED;
-#endif // !ALSA_AUDIO_MASTER_CONTROL_ENABLE
 }
 
 dsError_t dsSetAudioDB(intptr_t handle, float db)
 {
-#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
     hal_info("invoked.\n");
     if (!_bIsAudioInitialized) {
         return dsERR_NOT_INITIALIZED;
@@ -803,15 +774,10 @@ dsError_t dsSetAudioDB(intptr_t handle, float db)
 
     hal_err("snd_mixer_selem_set_playback_dB_all failed.\n");
     return dsERR_GENERAL;
-#else // !ALSA_AUDIO_MASTER_CONTROL_ENABLE
-    hal_err("ALSA_AUDIO_MASTER_CONTROL_ENABLE is not defined.\n");
-    return dsERR_OPERATION_NOT_SUPPORTED;
-#endif // !ALSA_AUDIO_MASTER_CONTROL_ENABLE
 }
 
 dsError_t dsSetAudioLevel(intptr_t handle, float level)
 {
-#ifdef ALSA_AUDIO_MASTER_CONTROL_ENABLE
     hal_info("invoked.\n");
     if (!_bIsAudioInitialized) {
         return dsERR_NOT_INITIALIZED;
@@ -845,10 +811,6 @@ dsError_t dsSetAudioLevel(intptr_t handle, float level)
     }
 
     return dsERR_NONE;
-#else // !ALSA_AUDIO_MASTER_CONTROL_ENABLE
-    hal_err("ALSA_AUDIO_MASTER_CONTROL_ENABLE is not defined.\n");
-    return dsERR_OPERATION_NOT_SUPPORTED;
-#endif // !ALSA_AUDIO_MASTER_CONTROL_ENABLE
 }
 
 dsError_t dsEnableLoopThru(intptr_t handle, bool loopThru)

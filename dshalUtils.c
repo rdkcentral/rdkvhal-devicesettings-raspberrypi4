@@ -163,75 +163,53 @@ const VicMapEntry vicMapTable[] = {
 
 #define VIC_MAP_TABLE_SIZE (sizeof(vicMapTable) / sizeof(VicMapEntry))
 
-#ifndef TVSVC_IPC_ENABLED
-/* Full VCHI implementation — compiled only when the daemon is NOT used
- * (i.e. the library itself owns the VCHI connection). */
-static uint16_t initialised = 0;
-VCHI_INSTANCE_T vchi_instance;
-VCHI_CONNECTION_T *vchi_connection;
-
-int vchi_tv_init()
-{
-    hal_info("invoked.\n");
-    int res = 0;
-    if (!initialised)
-    {
-        vcos_init();
-        res = vchi_initialise(&vchi_instance);
-        if (res != 0)
-        {
-            hal_err("Failed to initialize VCHI (res=%d)\n", res);
-            return res;
-        }
-
-        res = vchi_connect(NULL, 0, vchi_instance);
-        if (res != 0)
-        {
-            hal_err("Failed to create VCHI connection (ret=%d)\n", res);
-            return res;
-        }
-
-        // Initialize the tvservice
-        vc_vchi_tv_init(vchi_instance, &vchi_connection, 1);
-        // Initialize the gencmd
-        vc_vchi_gencmd_init(vchi_instance, &vchi_connection, 1);
-        initialised = 1;
-    }
-    return res;
-}
-
-int vchi_tv_uninit()
-{
-    hal_info("invoked.\n");
-    int res = 0;
-    if (initialised)
-    {
-        // Stop the tvservice
-        vc_vchi_tv_stop();
-        vc_gencmd_stop();
-        // Disconnect the VCHI connection
-        vchi_disconnect(vchi_instance);
-        initialised = 0;
-    }
-    return res;
-}
-#endif /* !TVSVC_IPC_ENABLED */
-
 /*
  * TVService lifecycle — Phase 2: delegate to IPC client.
  * vchi_tv_init/uninit are now owned exclusively by dsTVSvcDaemon.
- * Multiple processes can call tvsvc_acquire/release safely because
- * tvsvc_client_connect/disconnect are idempotent.
+ *
+ * Multiple modules in the same process may share the IPC connection, so
+ * keep a process-wide refcount here and only connect on 0->1 and
+ * disconnect on 1->0.
  */
+static pthread_mutex_t tvsvc_client_lock = PTHREAD_MUTEX_INITIALIZER;
+static unsigned int tvsvc_client_refcount = 0;
+
 int tvsvc_acquire(void)
 {
-    return tvsvc_client_connect();
+    int res = 0;
+    pthread_mutex_lock(&tvsvc_client_lock);
+    if (tvsvc_client_refcount == 0)
+    {
+        res = tvsvc_client_connect();
+        if (res == 0)
+        {
+            tvsvc_client_refcount = 1;
+        }
+    }
+    else
+    {
+        tvsvc_client_refcount++;
+    }
+    pthread_mutex_unlock(&tvsvc_client_lock);
+    return res;
 }
 
 int tvsvc_release(void)
 {
-    tvsvc_client_disconnect();
-    return 0;
+    int res = 0;
+    pthread_mutex_lock(&tvsvc_client_lock);
+    if (tvsvc_client_refcount == 0)
+    {
+        pthread_mutex_unlock(&tvsvc_client_lock);
+        return 0;
+    }
+    tvsvc_client_refcount--;
+    if (tvsvc_client_refcount == 0)
+    {
+        tvsvc_client_disconnect();
+    }
+    pthread_mutex_unlock(&tvsvc_client_lock);
+    return res;
 }
 
 static int detailedBlock(unsigned char *x, int extension, dsDisplayEDID_t *displayEdidInfo)

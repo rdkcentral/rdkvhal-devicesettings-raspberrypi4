@@ -234,10 +234,10 @@ dsError_t dsGetHostEDID(unsigned char *edid, int *length)
         return dsERR_NOT_INITIALIZED;
     }
     if (edid == NULL || length == NULL) {
-		hal_err("Invalid parameter, edid(%p), length(%p)\n", edid, length);
+        hal_err("Invalid parameter, edid(%p), length(%p)\n", edid, length);
         return dsERR_INVALID_PARAM;
     }
-	// RPi does not have HDMI-In feature
+    // RPi does not have HDMI-In feature
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -245,9 +245,9 @@ dsError_t dsSetHostPowerMode(int newPower)
 {
     hal_warn("invoked; deprecated ?.\n");
     if (newPower < dsPOWER_ON || newPower >= dsPOWER_MAX) {
-		hal_err("Invalid power mode %d\n", newPower);
-		return dsERR_INVALID_PARAM;
-	}
+        hal_err("Invalid power mode %d\n", newPower);
+        return dsERR_INVALID_PARAM;
+    }
     /* Raspberry pi doesn't have anykind of power management It is either
      * plugged in or not.*/
     return dsERR_OPERATION_NOT_SUPPORTED;
@@ -257,9 +257,9 @@ dsError_t dsGetHostPowerMode(int *currPower)
 {
     hal_warn("invoked; deprecated ?.\n");
     if (currPower == NULL) {
-		hal_err("Invalid parameter, currPower(%p)\n", currPower);
-		return dsERR_INVALID_PARAM;
-	}
+        hal_err("Invalid parameter, currPower(%p)\n", currPower);
+        return dsERR_INVALID_PARAM;
+    }
     /* Raspberry pi doesn't have anykind of power management It is either
      * plugged in or not.*/
     return dsERR_OPERATION_NOT_SUPPORTED;
@@ -288,73 +288,47 @@ dsError_t dsSetVersion(uint32_t versionNumber)
 dsError_t dsGetFreeSystemGraphicsMemory(uint64_t *memory)
 {
     hal_warn("invoked; deprecated ?.\n");
-	if (memory == NULL) {
-		hal_err("Invalid parameter, memory(%p)\n", memory);
-		return dsERR_INVALID_PARAM;
-	}
-#ifdef TVSVC_IPC_ENABLED
-    if (tvsvc_client_get_free_graphics_memory(memory) != 0) {
-        hal_err("Failed to get free GPU memory via daemon\n");
-        return dsERR_GENERAL;
+    if (memory == NULL) {
+        hal_err("Invalid parameter, memory(%p)\n", memory);
+        return dsERR_INVALID_PARAM;
     }
-    return dsERR_NONE;
-#else
-    char buffer[BUFFER_SIZE] = {0};
-
-    if (vc_gencmd(buffer, sizeof(buffer), "get_mem reloc") != 0) {
-        hal_err("Failed to get free GPU memory\n");
+    /* Ensure IPC connection is established before querying. */
+    int res = tvsvc_acquire();
+    if (res != 0) {
+        hal_err("Failed to acquire TVService: %d\n", res);
         return dsERR_GENERAL;
     }
 
-    buffer[sizeof(buffer) - 1] = '\0';
-    /* Extract response after = */
-    char *equal = strchr(buffer, '=');
-    if (equal != NULL) {
-        equal++;
-    } else {
-        equal = buffer;
+    res = tvsvc_client_get_free_graphics_memory(memory);
+    (void)tvsvc_release();  /* Always release; ignore errors */
+
+    if (res != 0) {
+        hal_err("Failed to get free GPU memory via daemon: %d\n", res);
+        return dsERR_GENERAL;
     }
-
-    *memory = strtol(equal, (char **)NULL, 10);
-    hal_dbg("Free GPU memory is %lld\n", *memory);
-
     return dsERR_NONE;
-#endif
 }
 
 dsError_t dsGetTotalSystemGraphicsMemory(uint64_t *memory)
 {
     hal_warn("invoked; deprecated ?.\n");
-	if (memory == NULL) {
-		hal_err("Invalid parameter, memory(%p)\n", memory);
-		return dsERR_INVALID_PARAM;
-	}
-#ifdef TVSVC_IPC_ENABLED
-    if (tvsvc_client_get_total_graphics_memory(memory) != 0) {
-        hal_err("Failed to get total GPU memory via daemon\n");
-        return dsERR_GENERAL;
+    if (memory == NULL) {
+        hal_err("Invalid parameter, memory(%p)\n", memory);
+        return dsERR_INVALID_PARAM;
     }
-    return dsERR_NONE;
-#else
-    char buffer[BUFFER_SIZE] = {0};
-
-    if (vc_gencmd(buffer, sizeof(buffer), "get_mem reloc_total") != 0) {
-        hal_err("Failed to get total GPU memory\n");
+    /* Ensure IPC connection is established before querying. */
+    int res = tvsvc_acquire();
+    if (res != 0) {
+        hal_err("Failed to acquire TVService: %d\n", res);
         return dsERR_GENERAL;
     }
 
-    buffer[sizeof(buffer) - 1] = '\0';
-    /* Extract response after = */
-    char *equal = strchr(buffer, '=');
-    if (equal != NULL) {
-        equal++;
-    } else {
-        equal = buffer;
+    res = tvsvc_client_get_total_graphics_memory(memory);
+    (void)tvsvc_release();  /* Always release; ignore errors */
+
+    if (res != 0) {
+        hal_err("Failed to get total GPU memory via daemon: %d\n", res);
+        return dsERR_GENERAL;
     }
-
-    *memory = strtol(equal, (char **)NULL, 10);
-    hal_dbg("Total GPU memory is %lld\n", *memory);
-
     return dsERR_NONE;
-#endif
 }

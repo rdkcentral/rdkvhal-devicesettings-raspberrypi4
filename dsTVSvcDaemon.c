@@ -46,6 +46,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/eventfd.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
@@ -66,7 +67,18 @@ typedef struct {
 static client_slot_t       gClients[TVSVC_MAX_CLIENTS];
 static pthread_mutex_t     gClientsMutex = PTHREAD_MUTEX_INITIALIZER;
 static int                 gListenFd     = -1;
+static int                 gEventFd      = -1;
 static volatile sig_atomic_t gRunning    = 1;
+
+/* Event queue for non-blocking callback fanout */
+#define MAX_PENDING_EVENTS  16
+typedef struct {
+    tvsvc_evt_tv_callback_t evt;
+} pending_event_t;
+
+static pending_event_t     gPendingEvents[MAX_PENDING_EVENTS];
+static int                 gPendingCount = 0;
+static pthread_mutex_t     gEventsMutex = PTHREAD_MUTEX_INITIALIZER;
 
 /* ------------------------------------------------------------------ *
  * I/O helpers
@@ -110,7 +122,8 @@ static void send_resp_simple(int fd, uint8_t cmd, uint16_t req_id,
 }
 
 /* ------------------------------------------------------------------ *
- * TV callback — fires on the RTOS thread; broadcast to subscribers.
+ * TV callback — fires on the RTOS thread; enqueue event and signal.
+ * No blocking I/O allowed here. Main thread will process the queue.
  * ------------------------------------------------------------------ */
 static void daemon_tv_callback(void *userdata,
                                uint32_t reason,
@@ -119,27 +132,24 @@ static void daemon_tv_callback(void *userdata,
 {
     (void)userdata;
 
-    tvsvc_evt_tv_callback_t evt = { reason, param1, param2 };
-    tvsvc_msg_hdr_t hdr = {
-        .version = TVSVC_VERSION,
-        .cmd     = TVSVC_EVT_TV_CALLBACK,
-        .req_id  = 0,
-        .len     = (uint16_t)sizeof(evt)
-    };
+    /* Enqueue event for main thread to process. */
+    pthread_mutex_lock(&gEventsMutex);
+    if (gPendingCount < MAX_PENDING_EVENTS) {
+        pending_event_t *evt = &gPendingEvents[gPendingCount];
+        evt->evt.reason = reason;
+        evt->evt.param1 = param1;
+        evt->evt.param2 = param2;
+        gPendingCount++;
 
-    pthread_mutex_lock(&gClientsMutex);
-    for (int i = 0; i < TVSVC_MAX_CLIENTS; i++) {
-        if (gClients[i].fd < 0 || !gClients[i].subscribed)
-            continue;
-        if (send_all(gClients[i].fd, &hdr, sizeof(hdr)) != 0 ||
-            send_all(gClients[i].fd, &evt, sizeof(evt))  != 0) {
-            /* Client gone — evict it. */
-            (void)close(gClients[i].fd);
-            gClients[i].fd         = -1;
-            gClients[i].subscribed = false;
+        /* Signal main loop via eventfd. */
+        if (gEventFd >= 0) {
+            uint64_t add = 1;
+            (void)write(gEventFd, &add, sizeof(add));
         }
+    } else {
+        fprintf(stderr, "[dsTVSvcDaemon] event queue overflow; dropping event\n");
     }
-    pthread_mutex_unlock(&gClientsMutex);
+    pthread_mutex_unlock(&gEventsMutex);
 }
 
 /* ------------------------------------------------------------------ *
@@ -399,6 +409,46 @@ static void remove_client(int fd)
     (void)close(fd);
 }
 
+/* ---- Process pending callback events from main thread. ---- */
+static void process_pending_events(void)
+{
+    pthread_mutex_lock(&gEventsMutex);
+    while (gPendingCount > 0) {
+        pending_event_t pending = gPendingEvents[0];
+        gPendingCount--;
+        if (gPendingCount > 0) {
+            memmove(&gPendingEvents[0], &gPendingEvents[1],
+                    (size_t)gPendingCount * sizeof(pending_event_t));
+        }
+        pthread_mutex_unlock(&gEventsMutex);
+
+        /* Broadcast to all subscribed clients (outside event lock). */
+        tvsvc_msg_hdr_t hdr = {
+            .version = TVSVC_VERSION,
+            .cmd     = TVSVC_EVT_TV_CALLBACK,
+            .req_id  = 0,
+            .len     = (uint16_t)sizeof(pending.evt)
+        };
+
+        pthread_mutex_lock(&gClientsMutex);
+        for (int i = 0; i < TVSVC_MAX_CLIENTS; i++) {
+            if (gClients[i].fd < 0 || !gClients[i].subscribed)
+                continue;
+            if (send_all(gClients[i].fd, &hdr, sizeof(hdr)) != 0 ||
+                send_all(gClients[i].fd, &pending.evt, sizeof(pending.evt)) != 0) {
+                /* Client gone — evict it. */
+                (void)close(gClients[i].fd);
+                gClients[i].fd         = -1;
+                gClients[i].subscribed = false;
+            }
+        }
+        pthread_mutex_unlock(&gClientsMutex);
+
+        pthread_mutex_lock(&gEventsMutex);
+    }
+    pthread_mutex_unlock(&gEventsMutex);
+}
+
 /* ------------------------------------------------------------------ *
  * Signal handler
  * ------------------------------------------------------------------ */
@@ -428,6 +478,13 @@ int main(void)
 
     vc_tv_register_callback(daemon_tv_callback, NULL);
     cb_registered = true;
+
+    /* Create eventfd for non-blocking callback fanout. */
+    gEventFd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    if (gEventFd < 0) {
+        fprintf(stderr, "[dsTVSvcDaemon] eventfd: %s\n", strerror(errno));
+        goto cleanup;
+    }
 
     /* Create Unix domain socket. */
     (void)unlink(TVSVC_SOCK_PATH);
@@ -465,11 +522,15 @@ int main(void)
     fprintf(stderr, "[dsTVSvcDaemon] listening on %s\n", TVSVC_SOCK_PATH);
 
     /* ---- Main event loop (poll-based, single thread). ---- */
-    struct pollfd pfds[1 + TVSVC_MAX_CLIENTS];
+    struct pollfd pfds[2 + TVSVC_MAX_CLIENTS];  /* listen fd, event fd, clients */
 
     while (gRunning) {
         int nfds = 0;
         pfds[nfds].fd     = gListenFd;
+        pfds[nfds].events = POLLIN;
+        nfds++;
+
+        pfds[nfds].fd     = gEventFd;
         pfds[nfds].events = POLLIN;
         nfds++;
 
@@ -505,8 +566,15 @@ int main(void)
             }
         }
 
+        /* Pending callback events? */
+        if (pfds[1].revents & POLLIN) {
+            uint64_t val;
+            (void)read(gEventFd, &val, sizeof(val));  /* drain eventfd */
+            process_pending_events();
+        }
+
         /* Client data / disconnect? */
-        for (int p = 1; p < nfds; p++) {
+        for (int p = 2; p < nfds; p++) {
             if (!(pfds[p].revents & (POLLIN | POLLHUP | POLLERR)))
                 continue;
 
@@ -560,6 +628,8 @@ cleanup:
         vc_tv_unregister_callback(daemon_tv_callback);
     if (tv_inited)
         vchi_tv_uninit();
+    if (gEventFd >= 0)
+        (void)close(gEventFd);
     if (gListenFd >= 0)
         (void)close(gListenFd);
     (void)unlink(TVSVC_SOCK_PATH);

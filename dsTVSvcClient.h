@@ -67,7 +67,7 @@ typedef void (*tvsvc_client_cb_t)(void *userdata,
 
 /**
  * Register a local event handler.  Replaces vc_tv_register_callback().
- * Returns 0 on success, -1 if the callback table is full.
+ * Returns 0 on success, -EINVAL if cb is NULL, -ENOMEM if callback table full.
  */
 int  tvsvc_client_register_callback(tvsvc_client_cb_t cb, void *userdata);
 

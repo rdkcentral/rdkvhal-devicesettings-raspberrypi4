@@ -193,20 +193,11 @@ dsError_t  dsVideoPortInit()
     _vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index = 0;
     _vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_isEnabled = true;
 
-    _vopHandles[dsVIDEOPORT_TYPE_BB][0].m_vType  = dsVIDEOPORT_TYPE_BB;
-    _vopHandles[dsVIDEOPORT_TYPE_BB][0].m_nativeHandle = dsVIDEOPORT_TYPE_BB;
-    _vopHandles[dsVIDEOPORT_TYPE_BB][0].m_index = 0;
-    _vopHandles[dsVIDEOPORT_TYPE_BB][0].m_isEnabled = false;
-
     hal_info("&_vopHandles = %p\n", &_vopHandles);
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_vType = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_vType);
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle);
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index);
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_isEnabled = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_isEnabled);
-    hal_info("&_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_vType = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_vType);
-    hal_info("&_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_nativeHandle = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_nativeHandle);
-    hal_info("&_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_index = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_index);
-    hal_info("&_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_isEnabled = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_isEnabled);
     _resolution = kResolutions[kDefaultResIndex];
     int rc = tvsvc_acquire();
     if (rc != 0) {
@@ -216,8 +207,13 @@ dsError_t  dsVideoPortInit()
     /*
      *  Register callback for HDCP Auth
      */
-    tvsvc_client_register_callback((tvsvc_client_cb_t)tvservice_hdcp_callback,
-                                    &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0]);
+    rc = tvsvc_client_register_callback((tvsvc_client_cb_t)tvservice_hdcp_callback,
+                                        &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0]);
+    if (rc != 0) {
+        hal_err("Failed to register TVService HDCP callback, rc=%d\n", rc);
+        tvsvc_release();
+        return dsERR_GENERAL;
+    }
 
     _bIsVideoPortInitialized = true;
 
@@ -387,22 +383,7 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
     VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
     int res = 0;
 
-    if (vopHandle->m_vType == dsVIDEOPORT_TYPE_BB) {
-        SDTV_OPTIONS_T options = { .aspect = SDTV_ASPECT_16_9 };
-        if (enabled) {
-            res = tvsvc_client_sdtv_power_on(SDTV_MODE_NTSC, &options);
-            if (res != 0) {
-                hal_err("Failed to enable composite video port\n");
-                return dsERR_GENERAL;
-            }
-        } else {
-            res = tvsvc_client_tv_power_off();
-            if (res != 0) {
-                hal_err("Failed to disable composite video port\n");
-                return dsERR_GENERAL;
-            }
-        }
-    } else if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
+    if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
         // Try westeros-gl-console first, if it fails, then use vc_tv_hdmi_power_on_preferred.
         // Until RPI stack is fully aligned to DRM/KMS, we need to use this workaround.
         char cmd[256] = {0};
@@ -436,6 +417,7 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
             }
         }
     } else {
+        hal_err("Unsupported video port type: %d\n", vopHandle->m_vType);
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
@@ -483,12 +465,6 @@ dsError_t dsIsDisplayConnected(intptr_t handle, bool *connected)
     }
     /*Default is false*/
     *connected = false;
-
-    if (vopHandle->m_vType == dsVIDEOPORT_TYPE_BB) {
-        hal_dbg("Port is BB, returning connected as TRUE\n");
-        *connected = true;
-        return dsERR_NONE;
-    }
 
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
         hal_dbg("Isdisplayconnected HDMI port\n");
@@ -787,21 +763,21 @@ static const char* dsVideoGetResolution(uint32_t hdmiMode)
 
     char output[128] = {'\0'};
     while (fgets(output, sizeof(output)-1, fp)) {
-	    int width=-1, height=-1, rate=60;
+        int width=-1, height=-1, rate=60;
 
         if (strstr(output, "Response: [0:")) {
 
             if (sscanf(output, "Response: [0: mode %dx%dp%d]", &width, &height, &rate) == 3) {
-				snprintf(resName, sizeof(resName), "%dp%d", height, rate);
+                snprintf(resName, sizeof(resName), "%dp%d", height, rate);
                 break;
             }
             else if (sscanf(output, "Response: [0: mode %dx%di%d]", &width, &height, &rate) == 3) {
-				snprintf(resName, sizeof(resName), "%di%d", height, rate);
+                snprintf(resName, sizeof(resName), "%di%d", height, rate);
                 break;
             }
             else if (sscanf(output, "Response: [0: mode %dx%d]", &width, &height) == 2) {
                 rate = 60; // default
-				snprintf(resName, sizeof(resName), "%dp%d", height, rate);
+                snprintf(resName, sizeof(resName), "%dp%d", height, rate);
                 break;
             }
         }
@@ -811,31 +787,31 @@ static const char* dsVideoGetResolution(uint32_t hdmiMode)
 
     hal_info("resName %s\n", resName);
 
-for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
-    const char *mapRes = resolutionMap[i].rdkRes;
+    for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
+        const char *mapRes = resolutionMap[i].rdkRes;
 
-    size_t len = strlen(mapRes);
-    int hasRate = (len > 0 && isdigit((unsigned char)mapRes[len-1]));
+        size_t len = strlen(mapRes);
+        int hasRate = (len > 0 && isdigit((unsigned char)mapRes[len-1]));
 
-    if (hasRate) {
-        if (strcmp(mapRes, resName) == 0) {
-            resolution_name = mapRes;
-            break;
-        }
-    } else {
-        char temp[32];
-        snprintf(temp,sizeof(temp), "%s60", mapRes);
+        if (hasRate) {
+            if (strcmp(mapRes, resName) == 0) {
+                resolution_name = mapRes;
+                break;
+            }
+        } else {
+            char temp[32];
+            snprintf(temp,sizeof(temp), "%s60", mapRes);
 
-        if (strcmp(temp, resName) == 0) {
-            resolution_name = mapRes;
-            break;
+            if (strcmp(temp, resName) == 0) {
+                resolution_name = mapRes;
+                break;
+            }
         }
     }
-}
 
- hal_info("resolution_name %s\n", resolution_name);
+    hal_info("resolution_name %s\n", resolution_name);
 
-   return resolution_name;
+    return resolution_name;
 }
 
 static uint32_t dsGetHdmiMode(dsVideoPortResolution_t *resolution)
@@ -903,106 +879,90 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
     }
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
         hal_dbg("Setting HDMI resolution '%s'\n", resolution->name);
-	char cmdBuf[512] = {'\0'};
-	int width = -1, height = -1;
-	int rate = 60;
-	char interlaced = 'n';
-	if (sscanf (resolution->name, "%dx%dp%d", &width, &height, &rate) == 3) {
-		interlaced = 'p';
-	}
-	else if (sscanf(resolution->name, "%dx%di%d", &width, &height, &rate ) == 3) {
-		interlaced = 'i';
-	}
-	else if (sscanf(resolution->name, "%dx%dx%d", &width, &height, &rate ) == 3) {
-		interlaced = 'p';
-	}
-	else if (sscanf(resolution->name, "%dx%d", &width, &height ) == 2) {
-		interlaced = 'p';
-	}
-	else if (sscanf(resolution->name, "%dp%d", &height, &rate ) == 2) {
-		interlaced = 'p';
-		width= -1;
+        char cmdBuf[512] = {'\0'};
+        int width = -1, height = -1;
+        int rate = 60;
+        char interlaced = 'n';
+        if (sscanf (resolution->name, "%dx%dp%d", &width, &height, &rate) == 3) {
+            interlaced = 'p';
         }
-	else if (sscanf(resolution->name, "%di%d", &height, &rate ) == 2) {
-		interlaced = 'i';
-		width= -1;
-	}
-	else if (sscanf(resolution->name, "%d%c", &height, &interlaced ) == 2) {
-		width= -1;
-		rate = 60;
-	}
+        else if (sscanf(resolution->name, "%dx%di%d", &width, &height, &rate ) == 3) {
+            interlaced = 'i';
+        }
+        else if (sscanf(resolution->name, "%dx%dx%d", &width, &height, &rate ) == 3) {
+            interlaced = 'p';
+        }
+        else if (sscanf(resolution->name, "%dx%d", &width, &height ) == 2) {
+            interlaced = 'p';
+        }
+        else if (sscanf(resolution->name, "%dp%d", &height, &rate ) == 2) {
+            interlaced = 'p';
+            width= -1;
+        }
+        else if (sscanf(resolution->name, "%di%d", &height, &rate ) == 2) {
+            interlaced = 'i';
+            width= -1;
+        }
+        else if (sscanf(resolution->name, "%d%c", &height, &interlaced ) == 2) {
+            width= -1;
+            rate = 60;
+        }
 
-	//if width is missing, set it manualy
-	if ( height > 0 ) {
-		if ( width < 0 ) {
-			switch ( height )
-			{
-			case 480:
-			case 576:
-				width= 720;
-				break;
-			case 720:
-				width= 1280;
-				break;
-			case 1080:
-				width= 1920;
-				break;
-			case 1440:
-				width= 2560;
-				break;
-			case 2160:
-				width= 3840;
-				break;
-			case 2880:
-				width= 5120;
-				break;
-			case 4320:
-				width= 7680;
-				break;
-			default:
-				break;
-			}
-                     }
-                 }
+        //if width is missing, set it manualy
+        if (height > 0) {
+            if (width < 0) {
+                switch (height)
+                {
+                    case 480:
+                    case 576:
+                        width= 720;
+                        break;
+                    case 720:
+                        width= 1280;
+                        break;
+                    case 1080:
+                        width= 1920;
+                        break;
+                    case 1440:
+                        width= 2560;
+                        break;
+                    case 2160:
+                        width= 3840;
+                        break;
+                    case 2880:
+                        width= 5120;
+                        break;
+                    case 4320:
+                        width= 7680;
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
         //extended command to make resolution setting more synchronous
         snprintf(cmdBuf, sizeof(cmdBuf)-1, "export XDG_RUNTIME_DIR=%s;westeros-gl-console set mode %dx%d%c%d && westeros-gl-console get mode | grep \"Response\"",
                 XDG_RUNTIME_DIR,width,height,interlaced,rate);
         hal_dbg("Executing '%s'\n", cmdBuf);
 
         FILE* fp = popen(cmdBuf, "r");
-	bool success = false;
+        bool success = false;
         if (NULL != fp) {
             char output[64] = {'\0'};
             while (fgets(output, sizeof(output)-1, fp)) {
                 if (strlen(output) && strstr(output, "[0: set")) {
-		     success = true;
-                     break;
-		}
+                    success = true;
+                    break;
+                }
             }
             pclose(fp);
             return success ? dsERR_NONE : dsERR_GENERAL;
         } else {
-            printf("DS_HAL: popen failed\n");
+            hal_err("DS_HAL: popen failed\n");
             return dsERR_GENERAL;
         }
-    } else if (vopHandle->m_vType == dsVIDEOPORT_TYPE_BB) {
-        SDTV_OPTIONS_T options;
-	int res = 0;
-        options.aspect = SDTV_ASPECT_16_9;
-        if (!strncmp(resolution->name, "480i", strlen("480i"))) {
-            hal_dbg("Setting SDTV default resolution SDTV_MODE_NTSC\n");
-            res = tvsvc_client_sdtv_power_on(SDTV_MODE_NTSC, &options);
-        } else {
-            hal_dbg("Setting SDTV resolution SDTV_MODE_PAL\n");
-            res = tvsvc_client_sdtv_power_on(SDTV_MODE_PAL, &options);
-        }
-
-	if (res != 0) {
-            hal_err("Failed to set SDTV resolution! Error code: %d\n", res);
-	    return dsERR_GENERAL;
-        }
     } else {
-        hal_err("Video port type not supported\n");
+        hal_err("Unsupported video port type: %d\n", vopHandle->m_vType);
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
     return dsERR_NONE;
@@ -1333,8 +1293,7 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
         return dsERR_INVALID_PARAM;
     }
 
-    hal_info("handle = %p\n", vopHandle);
-    hal_info("*handle = %p\n", *vopHandle);
+    hal_info("handle = %p and *handle = %p\n", vopHandle, *vopHandle);
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
         TV_SUPPORTED_MODE_NEW_T modeSupported[MAX_HDMI_MODE_ID];
         HDMI_RES_GROUP_T group;
@@ -1354,75 +1313,14 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
         for (i = 0; i < num_of_modes; i++) {
             hal_info("[%d] mode %u: %ux%u%s%uHz\n", i, modeSupported[i].code, modeSupported[i].width,
                     modeSupported[i].height, (modeSupported[i].scan_mode?"i":"p"), modeSupported[i].frame_rate);
-#if 0
-            switch (modeSupported[i].code) {
-                case HDMI_CEA_480p60:
-                case HDMI_CEA_480p60H:
-                case HDMI_CEA_480p60_2x:
-                case HDMI_CEA_480p60_2xH:
-                case HDMI_CEA_480p60_4x:
-                case HDMI_CEA_480p60_4xH:
-                    *resolutions |= dsTV_RESOLUTION_480p;
-                    break;
-                case HDMI_CEA_480i60:
-                case HDMI_CEA_480i60H:
-                case HDMI_CEA_480i60_4x:
-                case HDMI_CEA_480i60_4xH:
-                    *resolutions |= dsTV_RESOLUTION_480i;
-                    break;
-                case HDMI_CEA_576i50:
-                case HDMI_CEA_576i50H:
-                case HDMI_CEA_576i50_4x:
-                case HDMI_CEA_576i50_4xH:
-                    *resolutions |= dsTV_RESOLUTION_576i;
-                    break;
-                case HDMI_CEA_576p50:
-                case HDMI_CEA_576p50H:
-                case HDMI_CEA_576p50_2x:
-                case HDMI_CEA_576p50_2xH:
-                case HDMI_CEA_576p50_4x:
-                case HDMI_CEA_576p50_4xH:
-                    *resolutions |= dsTV_RESOLUTION_576p50;
-                    break;
-                case HDMI_CEA_720p50:
-                    *resolutions |= dsTV_RESOLUTION_720p50;
-                    break;
-                case HDMI_CEA_720p60:
-                    *resolutions |= dsTV_RESOLUTION_720p;
-                    break;
-                case HDMI_CEA_1080p50:
-                    *resolutions |= dsTV_RESOLUTION_1080p50;
-                    break;
-                case HDMI_CEA_1080p24:
-                    *resolutions |= dsTV_RESOLUTION_1080p24;
-                    break;
-                case HDMI_CEA_1080p25:
-                    *resolutions |= dsTV_RESOLUTION_1080p25;
-                    break;
-                case HDMI_CEA_1080p30:
-                    *resolutions |= dsTV_RESOLUTION_1080p30;
-                    break;
-                case HDMI_CEA_1080p60:
-                    *resolutions |= dsTV_RESOLUTION_1080p60;
-                    break;
-                case HDMI_CEA_1080i50:
-                    *resolutions |= dsTV_RESOLUTION_1080i50;
-                    break;
-                case HDMI_CEA_1080i60:
-                    *resolutions |= dsTV_RESOLUTION_1080i;
-                    break;
-                default:
-                    *resolutions |= dsTV_RESOLUTION_480p;
-                    break;
-            }
-#else
             // modeSupported[i].code is VIC
             TVVideoResolution = getResolutionFromVic(modeSupported[i].code);
             if (TVVideoResolution != NULL) {
                 hal_info("VIC %u TVVideoResolution = 0x%x\n", getVicFromResolution(*TVVideoResolution), *TVVideoResolution);
                 *resolutions |= *TVVideoResolution;
+            } else {
+                hal_warn("Unsupported VIC %u, skipping\n", modeSupported[i].code);
             }
-#endif  // Use Mode/VIC Map
         }
     } else {
         hal_err("Get supported resolution for TV on Non HDMI Port\n");

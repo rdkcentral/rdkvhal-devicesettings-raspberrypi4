@@ -41,7 +41,7 @@
 #include "interface/vmcs_host/vc_hdmi.h"
 
 /* ---- Socket path ---- */
-#define TVSVC_SOCK_PATH   "/run/dshal-tvsvc.sock"
+#define TVSVC_SOCK_PATH   "/run/dshal-tvsvc/daemon.sock"
 
 /* ---- Protocol version ---- */
 #define TVSVC_VERSION     1U

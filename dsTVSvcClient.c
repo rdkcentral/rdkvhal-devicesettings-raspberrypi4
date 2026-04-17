@@ -183,6 +183,23 @@ static void *reader_thread(void *arg)
             }
         }
 
+        /* Validate protocol version before processing message. */
+        if (hdr.version != TVSVC_VERSION) {
+            if (!gReaderStop)
+                hal_warn("[TVSvcClient] reader: protocol version mismatch "
+                         "(got %u, expected %u); disconnecting\n",
+                         (unsigned int)hdr.version,
+                         (unsigned int)TVSVC_VERSION);
+            free(payload);
+            (void)shutdown(fd, SHUT_RDWR);
+            (void)close(fd);
+            pthread_mutex_lock(&gRpcMutex);
+            if (gConnFd == fd)
+                gConnFd = -1;
+            pthread_mutex_unlock(&gRpcMutex);
+            break;
+        }
+
         if (hdr.cmd & 0x80U) {
             /* Asynchronous event push. */
             dispatch_event(&hdr, payload);
@@ -241,23 +258,22 @@ int tvsvc_client_connect(void)
     memset(gCallbacks, 0, sizeof(gCallbacks));
     gRespReady = false;
     gReaderStop = false;
-    gConnFd = fd;
+    /* Keep gConnFd = -1 until reader thread is running and subscription succeeds. */
     pthread_mutex_unlock(&gRpcMutex);
 
     /* Start reader thread. */
     if (pthread_create(&gReaderThread, NULL, reader_thread, NULL) != 0) {
         hal_err("[TVSvcClient] pthread_create: %s\n", strerror(errno));
-        pthread_mutex_lock(&gRpcMutex);
-        (void)close(gConnFd);
-        gConnFd = -1;
-        pthread_mutex_unlock(&gRpcMutex);
-        return -1;
+        (void)close(fd);
+        return -errno;
     }
     gReaderRunning = true;
 
     /*
      * Subscribe to events: send SUBSCRIBE_EVENTS and wait for the ack.
-     * gRpcMutex guards the send + wait sequence.
+     * Must hold temporary fd in local scope; only publish to gConnFd
+     * after subscription succeeds, preventing concurrent RPCs from happening
+     * before reader thread is ready.
      */
     pthread_mutex_lock(&gRpcMutex);
     {
@@ -265,11 +281,16 @@ int tvsvc_client_connect(void)
             TVSVC_VERSION, TVSVC_CMD_SUBSCRIBE_EVENTS,
             (uint16_t)atomic_fetch_add(&gReqId, 1U), 0
         };
-        if (send_all(gConnFd, &sub_hdr, sizeof(sub_hdr)) != 0) {
+        if (send_all(fd, &sub_hdr, sizeof(sub_hdr)) != 0) {
             pthread_mutex_unlock(&gRpcMutex);
             hal_err("[TVSvcClient] failed to send SUBSCRIBE_EVENTS\n");
-            tvsvc_client_disconnect();
-            return -1;
+            gReaderStop = true;
+            (void)close(fd);
+            if (gReaderRunning) {
+                (void)pthread_join(gReaderThread, NULL);
+                gReaderRunning = false;
+            }
+            return -EIO;
         }
         struct timespec ts;
         (void)clock_gettime(CLOCK_REALTIME, &ts);
@@ -278,11 +299,20 @@ int tvsvc_client_connect(void)
             if (pthread_cond_timedwait(&gRpcCond, &gRpcMutex, &ts) == ETIMEDOUT) {
                 pthread_mutex_unlock(&gRpcMutex);
                 hal_err("[TVSvcClient] timeout waiting for SUBSCRIBE_EVENTS ack\n");
-                tvsvc_client_disconnect();
-                return -1;
+                gReaderStop = true;
+                (void)close(fd);
+                if (gReaderRunning) {
+                    (void)pthread_join(gReaderThread, NULL);
+                    gReaderRunning = false;
+                }
+                return -ETIMEDOUT;
             }
         }
         gRespReady = false;
+
+        /* Only now publish the fd as connected, after reader thread is running
+         * and subscription handshake is complete. */
+        gConnFd = fd;
     }
     pthread_mutex_unlock(&gRpcMutex);
 
@@ -322,7 +352,7 @@ void tvsvc_client_disconnect(void)
  * ------------------------------------------------------------------ */
 int tvsvc_client_register_callback(tvsvc_client_cb_t cb, void *userdata)
 {
-    if (!cb) return -1;
+    if (!cb) return -EINVAL;
     pthread_mutex_lock(&gCbMutex);
     for (int i = 0; i < MAX_CB_SLOTS; i++) {
         if (!gCallbacks[i].cb) {
@@ -333,7 +363,7 @@ int tvsvc_client_register_callback(tvsvc_client_cb_t cb, void *userdata)
         }
     }
     pthread_mutex_unlock(&gCbMutex);
-    return -1; /* table full */
+    return -ENOMEM; /* table full */
 }
 
 void tvsvc_client_unregister_callback(tvsvc_client_cb_t cb)

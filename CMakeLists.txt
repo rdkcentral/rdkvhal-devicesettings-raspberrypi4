@@ -5,10 +5,9 @@ project(ds-hal VERSION 0.0.0 LANGUAGES C)
 
 # Set the library name
 set(LIBNAME "dshal" CACHE STRING "Name of the HAL library")
+set(DAEMON_NAME "dshal-tvsvc-daemon" CACHE STRING "Name of the TVService broker daemon executable")
 option(ENABLE_FPD_MULTI_PROCESS_GUARD "Enable inter-process LED ownership guard" OFF)
 option(ENABLE_DSHAL_SINGLETON_GUARD "Enable process-wide singleton guard for dshal library" ON)
-
-option(ENABLE_TVSVC_DAEMON "Build TVService broker daemon and use IPC in HAL library" ON)
 
 set(DEFAULT_BUILD_TYPE "Release")
 
@@ -44,13 +43,6 @@ else()
 	message(STATUS "ENABLE_FPD_MULTI_PROCESS_GUARD is OFF")
 endif()
 
-if (ENABLE_TVSVC_DAEMON)
-	message(STATUS "ENABLE_TVSVC_DAEMON is ON: HAL library uses IPC; daemon owns VCHI")
-	# Applied to library target only (see target_compile_definitions below)
-else()
-	message(STATUS "ENABLE_TVSVC_DAEMON is OFF")
-endif()
-
 if (ENABLE_DSHAL_SINGLETON_GUARD)
 	message(STATUS "ENABLE_DSHAL_SINGLETON_GUARD is ON")
 	add_definitions(-DDSHAL_ENABLE_SINGLETON_GUARD)
@@ -76,7 +68,7 @@ endif()
 # Compiler flags , add security flags as well
 set(SECURITY_CFLAGS "-fstack-protector-strong -D_FORTIFY_SOURCE=2 -Wformat -Wformat-security -fPIE -pie -Wl,-z,relro -Wl,-z,now")
 # Set compiler flags, including the security flags
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11 -g -fPIC -D_REENTRANT -Werror -Wall -Wextra -DALSA_AUDIO_MASTER_CONTROL_ENABLE ${SECURITY_CFLAGS}")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11 -g -fPIC -D_REENTRANT -Werror -Wall -Wextra ${SECURITY_CFLAGS}")
 
 # Create the shared library
 add_library(${LIBNAME} SHARED ${SOURCES})
@@ -84,36 +76,27 @@ set_target_properties(${LIBNAME} PROPERTIES
 	VERSION ${PROJECT_VERSION}
 	SOVERSION ${PROJECT_VERSION_MAJOR}
 )
-if (ENABLE_TVSVC_DAEMON)
-	target_link_libraries(${LIBNAME} asound pthread)
-	# Library uses IPC; no direct VCHI calls in libds-hal.so
-	target_compile_definitions(${LIBNAME} PRIVATE TVSVC_IPC_ENABLED)
-else()
-	# Library owns VCHI directly in legacy mode
-	target_link_libraries(${LIBNAME} vchostif vchiq_arm vcos asound pthread)
-endif()
+target_link_libraries(${LIBNAME} asound pthread)
 
 # TVService broker daemon — separate executable, sole owner of VCHI
-if (ENABLE_TVSVC_DAEMON)
-	add_executable(dshal-tvsvc-daemon
-		dsTVSvcDaemon.c
-		dsTVSvcClient.c
-		dshalUtils.c
-		dshalLogger.c
-	)
-	target_include_directories(dshal-tvsvc-daemon PRIVATE
-		${CMAKE_SOURCE_DIR}
-		/usr/include/interface/vmcs_host/linux
-	)
-	target_compile_options(dshal-tvsvc-daemon PRIVATE
-		-std=c11 -g -fPIE -D_REENTRANT -Werror -Wall -Wextra
-	)
-	target_link_libraries(dshal-tvsvc-daemon vchostif vchiq_arm vcos pthread)
-	install(TARGETS dshal-tvsvc-daemon RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-endif()
+add_executable(${DAEMON_NAME}
+	dsTVSvcDaemon.c
+	dsTVSvcClient.c
+	dshalUtils.c
+	dshalLogger.c
+)
+target_include_directories(${DAEMON_NAME} PRIVATE
+	${CMAKE_SOURCE_DIR}
+	/usr/include/interface/vmcs_host/linux
+)
+target_compile_options(${DAEMON_NAME} PRIVATE
+	-std=c11 -g -fPIE -D_REENTRANT -Werror -Wall -Wextra
+)
+target_link_libraries(${DAEMON_NAME} vchostif vchiq_arm vcos pthread)
 
 # Installation
 install(TARGETS ${LIBNAME} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(TARGETS ${DAEMON_NAME} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 # Install headers ending with *Settings.h
 file(GLOB SETTINGS_HEADERS "${CMAKE_SOURCE_DIR}/*Settings.h")
 install(FILES ${SETTINGS_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/rdk/halif/ds-hal)

@@ -124,4 +124,4 @@ static void cleanupSingletonLock(void)
 	releaseSingletonLock();
 }
 
-#endif
+#endif /* DSHAL_ENABLE_SINGLETON_GUARD */
