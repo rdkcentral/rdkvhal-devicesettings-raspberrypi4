@@ -18,8 +18,8 @@
  */
 
 /**
- * @file dshalBroadcomInit.c
- * @brief Broadcom VideoCore library initialization for RDK Device Settings HAL
+ * @file dsBrcmVideoCorePin.c
+ * @brief Broadcom VideoCore library pinning support for RDK Device Settings HAL
  * 
  * This module ensures libvcos.so remains loaded throughout the HAL lifecycle
  * to prevent TLS (Thread-Local Storage) destructor crashes that occur when
