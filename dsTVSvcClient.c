@@ -251,6 +251,13 @@ static void stop_event_thread(void)
     pthread_cond_signal(&gEventCond);
     pthread_mutex_unlock(&gEventMutex);
 
+    /* If called from the event thread itself (e.g., callback path), avoid
+     * self-join; detach so resources are reclaimed when it exits. */
+    if (pthread_equal(pthread_self(), gEventThread)) {
+        (void)pthread_detach(gEventThread);
+        return;
+    }
+
     (void)pthread_join(gEventThread, NULL);
 
     pthread_mutex_lock(&gEventMutex);
