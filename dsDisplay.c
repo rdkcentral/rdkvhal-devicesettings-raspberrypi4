@@ -622,7 +622,7 @@ static dsError_t dsQueryHdmiResolution()
             &group,
             &mode);
     if (num_of_modes < 0) {
-        hal_err("Failed to get modes vc_tv_hdmi_get_supported_modes_new\n");
+        hal_err("Failed to get modes tvsvc_client_get_supported_modes: rc=%d\n", num_of_modes);
         return dsERR_GENERAL;
     }
     if (HdmiSupportedResolution) {
