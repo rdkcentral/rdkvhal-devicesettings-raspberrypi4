@@ -158,6 +158,22 @@ static void dispatch_event(const tvsvc_msg_hdr_t *hdr, const uint8_t *payload)
     }
 }
 
+static void reader_disconnect_fd(int fd, bool wake_rpc)
+{
+    pthread_mutex_lock(&gRpcMutex);
+    if (gConnFd == fd)
+        gConnFd = -1;
+    if (wake_rpc && gRpcPending) {
+        /* Wake a blocked do_rpc() immediately on connection loss. */
+        gRespLen = 0;
+        gRespReady = true;
+        pthread_cond_signal(&gRpcCond);
+    }
+    pthread_mutex_unlock(&gRpcMutex);
+    (void)shutdown(fd, SHUT_RDWR);
+    (void)close(fd);
+}
+
 /* ------------------------------------------------------------------ *
  * Reader thread — reads messages from gConnFd until told to stop.
  *
@@ -176,8 +192,10 @@ static void *reader_thread(void *arg)
 
         tvsvc_msg_hdr_t hdr;
         if (recv_all(fd, &hdr, sizeof(hdr)) != 0) {
-            if (!atomic_load(&gReaderStop))
+            if (!atomic_load(&gReaderStop)) {
                 hal_warn("[TVSvcClient] reader: connection lost\n");
+                reader_disconnect_fd(fd, true);
+            }
             break;
         }
 
@@ -192,8 +210,10 @@ static void *reader_thread(void *arg)
             payload = (uint8_t *)malloc(hdr.len);
             if (!payload || recv_all(fd, payload, hdr.len) != 0) {
                 free(payload);
-                if (!atomic_load(&gReaderStop))
+                if (!atomic_load(&gReaderStop)) {
                     hal_warn("[TVSvcClient] reader: payload recv failed\n");
+                    reader_disconnect_fd(fd, true);
+                }
                 break;
             }
         }
@@ -206,12 +226,7 @@ static void *reader_thread(void *arg)
                          (unsigned int)hdr.version,
                          (unsigned int)TVSVC_VERSION);
             free(payload);
-            (void)shutdown(fd, SHUT_RDWR);
-            (void)close(fd);
-            pthread_mutex_lock(&gRpcMutex);
-            if (gConnFd == fd)
-                gConnFd = -1;
-            pthread_mutex_unlock(&gRpcMutex);
+            reader_disconnect_fd(fd, true);
             break;
         }
 
@@ -225,13 +240,20 @@ static void *reader_thread(void *arg)
             pthread_mutex_lock(&gRpcMutex);
             if (gRpcPending && hdr.req_id == gExpectedReqId &&
                 hdr.cmd == (uint8_t)(gExpectedCmd | TVSVC_RESP_FLAG)) {
-                size_t copy = (hdr.len < RESP_BUF_SIZE) ? hdr.len : RESP_BUF_SIZE;
-                memcpy(gRespBuf, &hdr, sizeof(hdr));
-                if (payload && copy > 0)
-                    memcpy(gRespBuf + sizeof(hdr), payload, copy);
-                gRespLen   = (uint16_t)hdr.len;
-                gRespReady = true;
-                pthread_cond_signal(&gRpcCond);
+                if (hdr.len > RESP_BUF_SIZE) {
+                    hal_warn("[TVSvcClient] discarding oversized response "
+                             "req_id=%u len=%u (max %u)\n",
+                             (unsigned)hdr.req_id,
+                             (unsigned)hdr.len,
+                             (unsigned)RESP_BUF_SIZE);
+                } else {
+                    memcpy(gRespBuf, &hdr, sizeof(hdr));
+                    if (payload && hdr.len > 0)
+                        memcpy(gRespBuf + sizeof(hdr), payload, hdr.len);
+                    gRespLen   = hdr.len;
+                    gRespReady = true;
+                    pthread_cond_signal(&gRpcCond);
+                }
             } else {
                 hal_warn("[TVSvcClient] discarding stale response "
                          "req_id=%u (expected %u)\n",
@@ -281,7 +303,9 @@ int tvsvc_client_connect(void)
         return -err;
     }
 
+    pthread_mutex_lock(&gCbMutex);
     memset(gCallbacks, 0, sizeof(gCallbacks));
+    pthread_mutex_unlock(&gCbMutex);
     gRespReady = false;
     atomic_store(&gReaderStop, false);
     /* Keep gConnFd = -1 until reader thread is running and subscription succeeds. */

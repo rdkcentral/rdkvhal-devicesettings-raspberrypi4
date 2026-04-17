@@ -21,6 +21,10 @@ LOG.RDK.DSMGR = LOG DEBUG INFO ERROR
 
 # HAL Implementation Details
 
+## Audio, Video and Display Management Architecture
+
+Refer [Audio, Video and Display Management Architecture](./AVMANAGEMENT_ARCHITECTURE.md).
+
 ## Front Panel LED Behavior (RPi4 ACT LED)
 
 This implementation uses the Raspberry Pi's ACT LED as the Device Settings Status LED.

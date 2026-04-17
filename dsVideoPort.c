@@ -261,6 +261,7 @@ dsError_t dsGetVideoPort(dsVideoPortType_t type, int index, intptr_t *handle)
         hal_err("index = %d, type = %d, handle = %p\n", index, type, handle);
         return dsERR_INVALID_PARAM;
     }
+    /* Raspberry Pi 4 backend exposes HDMI only in this HAL implementation. */
     if (type != dsVIDEOPORT_TYPE_HDMI) {
         hal_err("unsupported port type %d\n", type);
         return dsERR_OPERATION_NOT_SUPPORTED;

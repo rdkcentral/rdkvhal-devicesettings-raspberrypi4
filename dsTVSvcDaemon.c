@@ -149,7 +149,7 @@ static void daemon_tv_callback(void *userdata,
     /* Enqueue event for main thread to process.
      * Use trylock — blocking here would stall the RTOS callback thread. */
     if (pthread_mutex_trylock(&gEventsMutex) != 0) {
-        fprintf(stderr, "[dsTVSvcDaemon] callback: events mutex busy, dropping event\n");
+        hal_warn("[dsTVSvcDaemon] callback: events mutex busy, dropping event\n");
         return;
     }
     if (gPendingCount < MAX_PENDING_EVENTS) {
@@ -164,11 +164,11 @@ static void daemon_tv_callback(void *userdata,
             uint64_t add = 1;
             ssize_t wr = write(gEventFd, &add, sizeof(add));
             if (wr < 0 && errno != EAGAIN) {
-                fprintf(stderr, "[dsTVSvcDaemon] eventfd write failed: %s\n", strerror(errno));
+                hal_err("[dsTVSvcDaemon] eventfd write failed: %s\n", strerror(errno));
             }
         }
     } else {
-        fprintf(stderr, "[dsTVSvcDaemon] event queue overflow; dropping event\n");
+        hal_warn("[dsTVSvcDaemon] event queue overflow; dropping event\n");
     }
     pthread_mutex_unlock(&gEventsMutex);
 }
@@ -489,21 +489,21 @@ int main(void)
     /* Initialize VCOS — required before VCHI/TVService */
     vcos_init();
 
-    fprintf(stderr, "[dsTVSvcDaemon] starting\n");
+    hal_info("[dsTVSvcDaemon] starting\n");
 
     /* Initialize VCHI before TVService */
     if (vchi_initialise(&gVchiInstance) != 0) {
-        fprintf(stderr, "[dsTVSvcDaemon] vchi_initialise failed\n");
+        hal_err("[dsTVSvcDaemon] vchi_initialise failed\n");
         goto cleanup;
     }
     if (vchi_connect(NULL, 0, gVchiInstance) != 0) {
-        fprintf(stderr, "[dsTVSvcDaemon] vchi_connect failed\n");
+        hal_err("[dsTVSvcDaemon] vchi_connect failed\n");
         goto cleanup;
     }
 
     /* Sole owner of VCHI / TVService. */
     if (vc_vchi_tv_init(gVchiInstance, &gVchiConnection, 1) != 0) {
-        fprintf(stderr, "[dsTVSvcDaemon] vc_vchi_tv_init failed\n");
+        hal_err("[dsTVSvcDaemon] vc_vchi_tv_init failed\n");
         goto cleanup;
     }
     tv_inited = true;
@@ -518,7 +518,7 @@ int main(void)
     /* Create eventfd for non-blocking callback fanout. */
     gEventFd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     if (gEventFd < 0) {
-        fprintf(stderr, "[dsTVSvcDaemon] eventfd: %s\n", strerror(errno));
+        hal_err("[dsTVSvcDaemon] eventfd: %s\n", strerror(errno));
         goto cleanup;
     }
 
@@ -526,7 +526,7 @@ int main(void)
     (void)unlink(TVSVC_SOCK_PATH);
     gListenFd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (gListenFd < 0) {
-        fprintf(stderr, "[dsTVSvcDaemon] socket: %s\n", strerror(errno));
+        hal_err("[dsTVSvcDaemon] socket: %s\n", strerror(errno));
         goto cleanup;
     }
 
@@ -536,13 +536,13 @@ int main(void)
     strncpy(addr.sun_path, TVSVC_SOCK_PATH, sizeof(addr.sun_path) - 1);
 
     if (bind(gListenFd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
-        fprintf(stderr, "[dsTVSvcDaemon] bind: %s\n", strerror(errno));
+        hal_err("[dsTVSvcDaemon] bind: %s\n", strerror(errno));
         goto cleanup;
     }
     (void)chmod(TVSVC_SOCK_PATH, 0660);
 
     if (listen(gListenFd, 8) != 0) {
-        fprintf(stderr, "[dsTVSvcDaemon] listen: %s\n", strerror(errno));
+        hal_err("[dsTVSvcDaemon] listen: %s\n", strerror(errno));
         goto cleanup;
     }
 
@@ -555,7 +555,7 @@ int main(void)
     signal(SIGINT,  sig_handler);
     signal(SIGPIPE, SIG_IGN);
 
-    fprintf(stderr, "[dsTVSvcDaemon] listening on %s\n", TVSVC_SOCK_PATH);
+    hal_info("[dsTVSvcDaemon] listening on %s\n", TVSVC_SOCK_PATH);
 
     /* ---- Main event loop (poll-based, single thread). ---- */
     struct pollfd pfds[2 + TVSVC_MAX_CLIENTS];  /* listen fd, event fd, clients */
@@ -583,7 +583,7 @@ int main(void)
         int ready = poll(pfds, (nfds_t)nfds, 1000 /* ms timeout */);
         if (ready < 0) {
             if (errno == EINTR) continue;
-            fprintf(stderr, "[dsTVSvcDaemon] poll: %s\n", strerror(errno));
+            hal_err("[dsTVSvcDaemon] poll: %s\n", strerror(errno));
             break;
         }
 
@@ -612,7 +612,7 @@ int main(void)
             uint64_t val;
             ssize_t rd = read(gEventFd, &val, sizeof(val));  /* drain eventfd */
             if (rd < 0 && errno != EAGAIN) {
-                fprintf(stderr, "[dsTVSvcDaemon] eventfd read failed: %s\n", strerror(errno));
+                hal_err("[dsTVSvcDaemon] eventfd read failed: %s\n", strerror(errno));
             }
             process_pending_events();
         }
@@ -667,7 +667,7 @@ int main(void)
     exit_code = EXIT_SUCCESS;
 
 cleanup:
-    fprintf(stderr, "[dsTVSvcDaemon] shutting down\n");
+    hal_info("[dsTVSvcDaemon] shutting down\n");
     if (cb_registered)
         vc_tv_unregister_callback(daemon_tv_callback);
     if (gencmd_inited)
