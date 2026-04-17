@@ -228,7 +228,15 @@ static void handle_request(int fd, const tvsvc_msg_hdr_t *hdr,
             .count           = (count < 0) ? 0U : (uint32_t)count
         };
         size_t modes_bytes = resp_hd.count * sizeof(TV_SUPPORTED_MODE_NEW_T);
-        uint16_t plen = (uint16_t)(sizeof(resp_hd) + modes_bytes);
+        size_t total_payload = sizeof(resp_hd) + modes_bytes;
+        /* Bounds check plen to prevent truncation to uint16_t when payload exceeds UINT16_MAX. */
+        if (total_payload > UINT16_MAX) {
+            hal_err("[dsTVSvcDaemon] get_supported_modes payload too large (%zu > UINT16_MAX)\n", total_payload);
+            free(modes);
+            send_resp_simple(fd, hdr->cmd, hdr->req_id, -EIO, 0);
+            break;
+        }
+        uint16_t plen = (uint16_t)total_payload;
         tvsvc_msg_hdr_t rhdr = {
             TVSVC_VERSION,
             (uint8_t)(hdr->cmd | TVSVC_RESP_FLAG),
@@ -542,7 +550,15 @@ int main(void)
         hal_err("[dsTVSvcDaemon] bind: %s\n", strerror(errno));
         goto cleanup;
     }
-    (void)chmod(TVSVC_SOCK_PATH, 0660);
+
+    /* Ensure socket is readable/writable by group (for cross-user/cross-process access). */
+    if (chown(TVSVC_SOCK_PATH, (uid_t)-1, getegid()) != 0) {
+        hal_warn("[dsTVSvcDaemon] chown socket group: %s\n", strerror(errno));
+    }
+    if (chmod(TVSVC_SOCK_PATH, 0660) != 0) {
+        hal_err("[dsTVSvcDaemon] chmod socket: %s\n", strerror(errno));
+        goto cleanup;
+    }
 
     if (listen(gListenFd, 8) != 0) {
         hal_err("[dsTVSvcDaemon] listen: %s\n", strerror(errno));

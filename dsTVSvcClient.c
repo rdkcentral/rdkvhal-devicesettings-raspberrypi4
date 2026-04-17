@@ -25,8 +25,8 @@
  *
  * Threading model:
  *   - One background "reader thread" per process reads all incoming data.
- *   - Event pushes (TVSVC_EVT_*) are dispatched to registered callbacks
- *     from the reader thread; callbacks MUST NOT call back into this client.
+ *   - Event pushes (TVSVC_EVT_*) are queued by reader thread and dispatched
+ *     by a separate worker thread.
  *   - Synchronous RPC calls are serialised by gRpcMutex; the caller blocks
  *     on gRpcCond until the reader thread delivers the response.
  */
@@ -52,6 +52,7 @@
 
 #define MAX_CB_SLOTS   8
 #define RPC_TIMEOUT_S  5
+#define MAX_EVENT_QUEUE 32
 
 /* Maximum response payload = get_modes header + 127 mode structs */
 #define RESP_BUF_SIZE  (sizeof(tvsvc_resp_get_modes_t) + \
@@ -73,6 +74,21 @@ static uint16_t        gRespLen    = 0;
 static pthread_t       gReaderThread;
 static atomic_bool     gReaderRunning = ATOMIC_VAR_INIT(false);
 static atomic_bool     gReaderStop    = ATOMIC_VAR_INIT(false);
+static _Thread_local bool tIsReaderThread = false;
+
+/* Event dispatcher thread */
+typedef struct {
+    tvsvc_evt_tv_callback_t evt;
+} queued_event_t;
+
+static pthread_t       gEventThread;
+static atomic_bool     gEventThreadRunning = ATOMIC_VAR_INIT(false);
+static atomic_bool     gEventStop          = ATOMIC_VAR_INIT(false);
+static pthread_mutex_t gEventMutex         = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t  gEventCond          = PTHREAD_COND_INITIALIZER;
+static queued_event_t  gEventQueue[MAX_EVENT_QUEUE];
+static int             gEventHead          = 0;
+static int             gEventCount         = 0;
 
 /* Registered event callbacks */
 typedef struct {
@@ -127,17 +143,10 @@ static int recv_all(int fd, void *buf, size_t len)
 }
 
 /* ------------------------------------------------------------------ *
- * Event dispatch — called from reader thread (no gRpcMutex held)
+ * Event dispatch helpers
  * ------------------------------------------------------------------ */
-static void dispatch_event(const tvsvc_msg_hdr_t *hdr, const uint8_t *payload)
+static void dispatch_event_payload(const tvsvc_evt_tv_callback_t *evt)
 {
-    if (hdr->cmd != TVSVC_EVT_TV_CALLBACK ||
-        hdr->len < sizeof(tvsvc_evt_tv_callback_t))
-        return;
-
-    const tvsvc_evt_tv_callback_t *evt =
-        (const tvsvc_evt_tv_callback_t *)payload;
-
     tvsvc_client_cb_t callbacks[MAX_CB_SLOTS] = {0};
     void *userdatas[MAX_CB_SLOTS] = {0};
     int count = 0;
@@ -156,6 +165,98 @@ static void dispatch_event(const tvsvc_msg_hdr_t *hdr, const uint8_t *payload)
     for (int i = 0; i < count; i++) {
         callbacks[i](userdatas[i], evt->reason, evt->param1, evt->param2);
     }
+}
+
+static void queue_event(const tvsvc_msg_hdr_t *hdr, const uint8_t *payload)
+{
+    if (hdr->cmd != TVSVC_EVT_TV_CALLBACK ||
+        hdr->len < sizeof(tvsvc_evt_tv_callback_t))
+        return;
+
+    const tvsvc_evt_tv_callback_t *evt =
+        (const tvsvc_evt_tv_callback_t *)payload;
+
+    pthread_mutex_lock(&gEventMutex);
+    if (gEventCount >= MAX_EVENT_QUEUE) {
+        hal_warn("[TVSvcClient] dropping event: queue full (%d)\n", MAX_EVENT_QUEUE);
+        pthread_mutex_unlock(&gEventMutex);
+        return;
+    }
+
+    int tail = (gEventHead + gEventCount) % MAX_EVENT_QUEUE;
+    gEventQueue[tail].evt = *evt;
+    gEventCount++;
+    pthread_cond_signal(&gEventCond);
+    pthread_mutex_unlock(&gEventMutex);
+}
+
+static void *event_thread(void *arg)
+{
+    (void)arg;
+    hal_dbg("[TVSvcClient] event thread started\n");
+
+    while (true) {
+        queued_event_t qevt;
+
+        pthread_mutex_lock(&gEventMutex);
+        while (gEventCount == 0 && !atomic_load(&gEventStop)) {
+            pthread_cond_wait(&gEventCond, &gEventMutex);
+        }
+
+        if (gEventCount == 0 && atomic_load(&gEventStop)) {
+            pthread_mutex_unlock(&gEventMutex);
+            break;
+        }
+
+        qevt = gEventQueue[gEventHead];
+        gEventHead = (gEventHead + 1) % MAX_EVENT_QUEUE;
+        gEventCount--;
+        pthread_mutex_unlock(&gEventMutex);
+
+        dispatch_event_payload(&qevt.evt);
+    }
+
+    atomic_store(&gEventThreadRunning, false);
+    hal_dbg("[TVSvcClient] event thread exiting\n");
+    return NULL;
+}
+
+static int start_event_thread(void)
+{
+    if (atomic_load(&gEventThreadRunning))
+        return 0;
+
+    atomic_store(&gEventStop, false);
+    pthread_mutex_lock(&gEventMutex);
+    gEventHead = 0;
+    gEventCount = 0;
+    pthread_mutex_unlock(&gEventMutex);
+
+    int rc = pthread_create(&gEventThread, NULL, event_thread, NULL);
+    if (rc != 0) {
+        hal_err("[TVSvcClient] event thread create failed: %s\n", strerror(rc));
+        return -rc;
+    }
+    atomic_store(&gEventThreadRunning, true);
+    return 0;
+}
+
+static void stop_event_thread(void)
+{
+    if (!atomic_load(&gEventThreadRunning))
+        return;
+
+    atomic_store(&gEventStop, true);
+    pthread_mutex_lock(&gEventMutex);
+    pthread_cond_signal(&gEventCond);
+    pthread_mutex_unlock(&gEventMutex);
+
+    (void)pthread_join(gEventThread, NULL);
+
+    pthread_mutex_lock(&gEventMutex);
+    gEventHead = 0;
+    gEventCount = 0;
+    pthread_mutex_unlock(&gEventMutex);
 }
 
 static void reader_disconnect_fd(int fd, bool wake_rpc)
@@ -178,7 +279,7 @@ static void reader_disconnect_fd(int fd, bool wake_rpc)
  * Reader thread — reads messages from gConnFd until told to stop.
  *
  * Incoming messages fall into two categories:
- *   bit-7 set (0x80+) : event push — dispatch to callbacks
+ *   bit-7 set (0x80+) : event push — enqueue for event worker
  *   TVSVC_RESP_FLAG   : RPC response — deliver to waiting caller
  * ------------------------------------------------------------------ */
 static void *reader_thread(void *arg)
@@ -186,6 +287,7 @@ static void *reader_thread(void *arg)
     /* fd is passed directly so we can receive the SUBSCRIBE ack before
      * gConnFd is published (it stays -1 until subscription completes). */
     int fd = (int)(intptr_t)arg;
+    tIsReaderThread = true;
     hal_dbg("[TVSvcClient] reader thread started\n");
 
     while (!atomic_load(&gReaderStop)) {
@@ -233,7 +335,7 @@ static void *reader_thread(void *arg)
 
         if (hdr.cmd & 0x80U) {
             /* Asynchronous event push. */
-            dispatch_event(&hdr, payload);
+            queue_event(&hdr, payload);
         } else if (hdr.cmd & TVSVC_RESP_FLAG) {
             /* Synchronous RPC response — validate req_id before waking caller.
              * A response whose req_id doesn't match the current in-flight RPC
@@ -281,6 +383,7 @@ static void *reader_thread(void *arg)
     }
     pthread_mutex_unlock(&gRpcMutex);
     atomic_store(&gReaderRunning, false);
+    tIsReaderThread = false;
     (void)close(fd);
 
     hal_dbg("[TVSvcClient] reader thread exiting\n");
@@ -329,12 +432,19 @@ int tvsvc_client_connect(void)
     /* Keep gConnFd = -1 until reader thread is running and subscription succeeds. */
     pthread_mutex_unlock(&gRpcMutex);
 
+    int rc = start_event_thread();
+    if (rc != 0) {
+        (void)close(fd);
+        return rc;
+    }
+
     /* Start reader thread — pass fd directly so it can receive the
      * SUBSCRIBE ack before gConnFd is published. */
-    int rc = pthread_create(&gReaderThread, NULL, reader_thread, (void *)(intptr_t)fd);
+    rc = pthread_create(&gReaderThread, NULL, reader_thread, (void *)(intptr_t)fd);
     if (rc != 0) {
         hal_err("[TVSvcClient] pthread_create: %s\n", strerror(rc));
         (void)close(fd);
+        stop_event_thread();
         return -rc;
     }
     atomic_store(&gReaderRunning, true);
@@ -366,6 +476,7 @@ int tvsvc_client_connect(void)
                 atomic_store(&gReaderRunning, false);
                 /* Reader thread already closes fd in its exit path. */
             }
+            stop_event_thread();
             return -EIO;
         }
         struct timespec ts;
@@ -383,6 +494,7 @@ int tvsvc_client_connect(void)
                     atomic_store(&gReaderRunning, false);
                     /* Reader thread already closes fd in its exit path. */
                 }
+                stop_event_thread();
                 return -ETIMEDOUT;
             }
         }
@@ -422,6 +534,8 @@ void tvsvc_client_disconnect(void)
     }
     atomic_store(&gReaderStop, false);
     pthread_mutex_unlock(&gRpcMutex);
+
+    stop_event_thread();
 
     hal_info("[TVSvcClient] disconnected\n");
 }
@@ -465,6 +579,11 @@ static int do_rpc(uint8_t cmd,
                   const void *req_payload, uint16_t req_len,
                   void *resp_payload_out,  size_t    resp_buf_size)
 {
+    if (tIsReaderThread) {
+        hal_err("[TVSvcClient] RPC cmd=0x%02x called from reader-thread callback context\n", cmd);
+        return -EDEADLK;
+    }
+
     pthread_mutex_lock(&gRpcMutex);
     if (gConnFd < 0) {
         pthread_mutex_unlock(&gRpcMutex);
@@ -567,10 +686,21 @@ int tvsvc_client_get_supported_modes(HDMI_RES_GROUP_T         group,
         return r->status;
     }
 
+    /* Validate response count against actual payload bytes to prevent out-of-bounds read. */
+    size_t payload_bytes = (size_t)rc - sizeof(tvsvc_resp_get_modes_t);
+    size_t available_modes = payload_bytes / sizeof(TV_SUPPORTED_MODE_NEW_T);
+    uint32_t resp_count = r->count;
+    if (resp_count > TVSVC_MAX_MODES_PER_REQ || (size_t)resp_count > available_modes) {
+        hal_err("[TVSvcClient] get_supported_modes: count %u exceeds max or payload (max %u, avail %zu)\n",
+                resp_count, TVSVC_MAX_MODES_PER_REQ, available_modes);
+        free(resp_buf);
+        return -EIO;
+    }
+
     if (preferred_group) *preferred_group = (HDMI_RES_GROUP_T)r->preferred_group;
     if (preferred_mode)  *preferred_mode  = r->preferred_mode;
 
-    int count = (int)r->count;
+    int count = (int)resp_count;
     if (supported_modes && count > 0) {
         uint32_t copy_n = ((uint32_t)count < max_supported_modes)
                           ? (uint32_t)count : max_supported_modes;
@@ -607,7 +737,21 @@ int tvsvc_client_ddc_read(uint32_t offset, uint32_t length, void *buffer)
         return r->status;
     }
 
+    /* Validate actual_len against payload bytes and protocol limits. */
+    size_t payload_len = (size_t)rc - sizeof(tvsvc_resp_ddc_read_t);
+    uint32_t max_actual = length;
+    if (max_actual > TVSVC_DDC_MAX_LEN)
+        max_actual = TVSVC_DDC_MAX_LEN;
+    if ((size_t)max_actual > payload_len)
+        max_actual = (uint32_t)payload_len;
     int actual = r->actual_len;
+    if (actual < 0 || (uint32_t)actual > max_actual) {
+        hal_err("[TVSvcClient] ddc_read: actual_len %d invalid (max %u, payload %zu)\n",
+                actual, max_actual, payload_len);
+        free(resp_buf);
+        return -EIO;
+    }
+
     if (buffer && actual > 0) {
         uint32_t copy_n = ((uint32_t)actual < length) ? (uint32_t)actual : length;
         memcpy(buffer, resp_buf + sizeof(tvsvc_resp_ddc_read_t), copy_n);
