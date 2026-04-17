@@ -93,7 +93,11 @@ static int send_all(int fd, const void *buf, size_t len)
     const uint8_t *p = (const uint8_t *)buf;
     while (len > 0) {
         ssize_t n = send(fd, p, len, MSG_NOSIGNAL);
-        if (n <= 0) return -1;
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (n == 0) return -1;
         p   += n;
         len -= (size_t)n;
     }
@@ -105,7 +109,11 @@ static int recv_all(int fd, void *buf, size_t len)
     uint8_t *p = (uint8_t *)buf;
     while (len > 0) {
         ssize_t n = recv(fd, p, len, 0);
-        if (n <= 0) return -1;
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (n == 0) return -1; /* clean EOF */
         p   += n;
         len -= (size_t)n;
     }
@@ -574,7 +582,7 @@ int main(void)
 
         /* New connection? */
         if (pfds[0].revents & POLLIN) {
-            int cfd = accept(gListenFd, NULL, NULL);
+            int cfd = accept4(gListenFd, NULL, NULL, SOCK_CLOEXEC);
             if (cfd >= 0) {
                 if (add_client(cfd) != 0) {
                     fprintf(stderr,

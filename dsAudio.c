@@ -835,6 +835,7 @@ dsError_t dsAudioPortTerm()
     {
         return dsERR_NOT_INITIALIZED;
     }
+    tvsvc_client_unregister_callback((tvsvc_client_cb_t)tvservice_hdmiaudio_callback);
     /* Release TVService now that audio callbacks are no longer needed */
     tvsvc_release();
     _halhdmiaudioCB = NULL;
@@ -846,15 +847,16 @@ bool dsCheckSurroundSupport()
 {
     hal_info("invoked.\n");
     bool status = false;
+    if (tvsvc_acquire() != 0)
+        return false;
     int num_channels = 0;
     for (int i=1; i<=8; i++) {
         if (tvsvc_client_audio_supported(EDID_AudioFormat_eAC3, i, EDID_AudioSampleRate_e44KHz, EDID_AudioSampleSize_16bit) == 0)
             num_channels = i;
     }
-
+    tvsvc_release();
     if (num_channels)
         status = true;
-
     return status;
 }
 

@@ -991,6 +991,7 @@ dsError_t  dsVideoPortTerm()
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
+    tvsvc_client_unregister_callback((tvsvc_client_cb_t)tvservice_hdcp_callback);
     tvsvc_release();
     _halhdcpcallback = NULL;
     _bIsVideoPortInitialized = false;

@@ -562,6 +562,7 @@ dsError_t dsDisplayTerm()
     if (false == _bDisplayInited) {
         return dsERR_NOT_INITIALIZED;
     }
+    tvsvc_client_unregister_callback((tvsvc_client_cb_t)tvservice_callback);
     tvsvc_release();
     if (HdmiSupportedResolution) {
         free(HdmiSupportedResolution);

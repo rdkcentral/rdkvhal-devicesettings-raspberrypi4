@@ -86,6 +86,11 @@ static pthread_mutex_t gCbMutex = PTHREAD_MUTEX_INITIALIZER;
 /* Monotonically-increasing request ID */
 static atomic_uint gReqId = 0;
 
+/* Expected response for the current in-flight RPC (protected by gRpcMutex) */
+static uint16_t gExpectedReqId = 0;
+static uint8_t  gExpectedCmd   = 0;
+static bool     gRpcPending    = false;
+
 /* ------------------------------------------------------------------ *
  * I/O helpers
  * ------------------------------------------------------------------ */
@@ -94,7 +99,11 @@ static int send_all(int fd, const void *buf, size_t len)
     const uint8_t *p = (const uint8_t *)buf;
     while (len > 0) {
         ssize_t n = send(fd, p, len, MSG_NOSIGNAL);
-        if (n <= 0) return -1;
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (n == 0) return -1;
         p   += n;
         len -= (size_t)n;
     }
@@ -106,7 +115,11 @@ static int recv_all(int fd, void *buf, size_t len)
     uint8_t *p = (uint8_t *)buf;
     while (len > 0) {
         ssize_t n = recv(fd, p, len, 0);
-        if (n <= 0) return -1;
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (n == 0) return -1; /* clean EOF */
         p   += n;
         len -= (size_t)n;
     }
@@ -154,16 +167,12 @@ static void dispatch_event(const tvsvc_msg_hdr_t *hdr, const uint8_t *payload)
  * ------------------------------------------------------------------ */
 static void *reader_thread(void *arg)
 {
-    (void)arg;
+    /* fd is passed directly so we can receive the SUBSCRIBE ack before
+     * gConnFd is published (it stays -1 until subscription completes). */
+    int fd = (int)(intptr_t)arg;
     hal_dbg("[TVSvcClient] reader thread started\n");
 
     while (!gReaderStop) {
-        /* Take a snapshot of the fd under the lock. */
-        pthread_mutex_lock(&gRpcMutex);
-        int fd = gConnFd;
-        pthread_mutex_unlock(&gRpcMutex);
-
-        if (fd < 0) break;
 
         tvsvc_msg_hdr_t hdr;
         if (recv_all(fd, &hdr, sizeof(hdr)) != 0) {
@@ -204,15 +213,23 @@ static void *reader_thread(void *arg)
             /* Asynchronous event push. */
             dispatch_event(&hdr, payload);
         } else if (hdr.cmd & TVSVC_RESP_FLAG) {
-            /* Synchronous RPC response — wake waiting caller. */
+            /* Synchronous RPC response — validate req_id before waking caller.
+             * A response whose req_id doesn't match the current in-flight RPC
+             * is a stale reply from a previously timed-out request; discard it. */
             pthread_mutex_lock(&gRpcMutex);
-            size_t copy = (hdr.len < RESP_BUF_SIZE) ? hdr.len : RESP_BUF_SIZE;
-            memcpy(gRespBuf, &hdr, sizeof(hdr));
-            if (payload && copy > 0)
-                memcpy(gRespBuf + sizeof(hdr), payload, copy);
-            gRespLen   = (uint16_t)hdr.len;
-            gRespReady = true;
-            pthread_cond_signal(&gRpcCond);
+            if (gRpcPending && hdr.req_id == gExpectedReqId) {
+                size_t copy = (hdr.len < RESP_BUF_SIZE) ? hdr.len : RESP_BUF_SIZE;
+                memcpy(gRespBuf, &hdr, sizeof(hdr));
+                if (payload && copy > 0)
+                    memcpy(gRespBuf + sizeof(hdr), payload, copy);
+                gRespLen   = (uint16_t)hdr.len;
+                gRespReady = true;
+                pthread_cond_signal(&gRpcCond);
+            } else {
+                hal_warn("[TVSvcClient] discarding stale response "
+                         "req_id=%u (expected %u)\n",
+                         (unsigned)hdr.req_id, (unsigned)gExpectedReqId);
+            }
             pthread_mutex_unlock(&gRpcMutex);
         }
 
@@ -237,9 +254,10 @@ int tvsvc_client_connect(void)
 
     int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (fd < 0) {
-        hal_err("[TVSvcClient] socket: %s\n", strerror(errno));
+        int err = errno;
+        hal_err("[TVSvcClient] socket: %s\n", strerror(err));
         pthread_mutex_unlock(&gRpcMutex);
-        return -1;
+        return -err;
     }
 
     struct sockaddr_un addr;
@@ -248,11 +266,12 @@ int tvsvc_client_connect(void)
     strncpy(addr.sun_path, TVSVC_SOCK_PATH, sizeof(addr.sun_path) - 1);
 
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        int err = errno;
         hal_err("[TVSvcClient] connect to %s: %s\n",
-                TVSVC_SOCK_PATH, strerror(errno));
+                TVSVC_SOCK_PATH, strerror(err));
         (void)close(fd);
         pthread_mutex_unlock(&gRpcMutex);
-        return -1;
+        return -err;
     }
 
     memset(gCallbacks, 0, sizeof(gCallbacks));
@@ -261,8 +280,9 @@ int tvsvc_client_connect(void)
     /* Keep gConnFd = -1 until reader thread is running and subscription succeeds. */
     pthread_mutex_unlock(&gRpcMutex);
 
-    /* Start reader thread. */
-    if (pthread_create(&gReaderThread, NULL, reader_thread, NULL) != 0) {
+    /* Start reader thread — pass fd directly so it can receive the
+     * SUBSCRIBE ack before gConnFd is published. */
+    if (pthread_create(&gReaderThread, NULL, reader_thread, (void *)(intptr_t)fd) != 0) {
         hal_err("[TVSvcClient] pthread_create: %s\n", strerror(errno));
         (void)close(fd);
         return -errno;
@@ -277,11 +297,16 @@ int tvsvc_client_connect(void)
      */
     pthread_mutex_lock(&gRpcMutex);
     {
+        uint16_t sub_req_id = (uint16_t)atomic_fetch_add(&gReqId, 1U);
         tvsvc_msg_hdr_t sub_hdr = {
-            TVSVC_VERSION, TVSVC_CMD_SUBSCRIBE_EVENTS,
-            (uint16_t)atomic_fetch_add(&gReqId, 1U), 0
+            TVSVC_VERSION, TVSVC_CMD_SUBSCRIBE_EVENTS, sub_req_id, 0
         };
+        gExpectedReqId = sub_req_id;
+        gExpectedCmd   = TVSVC_CMD_SUBSCRIBE_EVENTS;
+        gRpcPending    = true;
+        gRespReady     = false;
         if (send_all(fd, &sub_hdr, sizeof(sub_hdr)) != 0) {
+            gRpcPending = false;
             pthread_mutex_unlock(&gRpcMutex);
             hal_err("[TVSvcClient] failed to send SUBSCRIBE_EVENTS\n");
             gReaderStop = true;
@@ -297,6 +322,7 @@ int tvsvc_client_connect(void)
         ts.tv_sec += RPC_TIMEOUT_S;
         while (!gRespReady) {
             if (pthread_cond_timedwait(&gRpcCond, &gRpcMutex, &ts) == ETIMEDOUT) {
+                gRpcPending = false;
                 pthread_mutex_unlock(&gRpcMutex);
                 hal_err("[TVSvcClient] timeout waiting for SUBSCRIBE_EVENTS ack\n");
                 gReaderStop = true;
@@ -308,7 +334,8 @@ int tvsvc_client_connect(void)
                 return -ETIMEDOUT;
             }
         }
-        gRespReady = false;
+        gRpcPending = false;
+        gRespReady  = false;
 
         /* Only now publish the fd as connected, after reader thread is running
          * and subscription handshake is complete. */
@@ -392,14 +419,20 @@ static int do_rpc(uint8_t cmd,
         return -ENOTCONN;
     }
 
+    uint16_t req_id = (uint16_t)atomic_fetch_add(&gReqId, 1U);
     tvsvc_msg_hdr_t hdr = {
-        TVSVC_VERSION, cmd,
-        (uint16_t)atomic_fetch_add(&gReqId, 1U),
-        req_len
+        TVSVC_VERSION, cmd, req_id, req_len
     };
+
+    /* Record what we expect back before sending (reader may reply immediately). */
+    gExpectedReqId = req_id;
+    gExpectedCmd   = cmd;
+    gRpcPending    = true;
+    gRespReady     = false;
 
     if (send_all(gConnFd, &hdr, sizeof(hdr)) != 0 ||
         (req_len > 0 && send_all(gConnFd, req_payload, req_len) != 0)) {
+        gRpcPending = false;
         pthread_mutex_unlock(&gRpcMutex);
         return -EIO;
     }
@@ -408,15 +441,16 @@ static int do_rpc(uint8_t cmd,
     (void)clock_gettime(CLOCK_REALTIME, &ts);
     ts.tv_sec += RPC_TIMEOUT_S;
 
-    gRespReady = false;
     while (!gRespReady) {
         int rc = pthread_cond_timedwait(&gRpcCond, &gRpcMutex, &ts);
         if (rc == ETIMEDOUT) {
+            gRpcPending = false;
             pthread_mutex_unlock(&gRpcMutex);
             hal_err("[TVSvcClient] RPC timeout cmd=0x%02x\n", cmd);
             return -ETIMEDOUT;
         }
     }
+    gRpcPending = false;
 
     /* Copy response payload out before releasing the mutex. */
     const uint8_t *rpayload = gRespBuf + sizeof(tvsvc_msg_hdr_t);
