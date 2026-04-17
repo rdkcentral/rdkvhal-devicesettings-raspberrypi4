@@ -59,9 +59,6 @@ typedef struct __hdmiSupportedRes_t {
 extern const hdmiSupportedRes_t resolutionMap[];
 extern const size_t noOfItemsInResolutionMap;
 
-int vchi_tv_init();
-int vchi_tv_uninit();
-
 /*
  * TVService lifecycle — tvsvc_acquire connects to the TVService broker daemon;
  * tvsvc_release disconnects.  Both are safe to call from multiple modules

@@ -27,7 +27,7 @@
  * processes) communicate with this daemon via Unix domain socket IPC.
  *
  * Responsibilities:
- *   - Calls vchi_tv_init() once at startup and vchi_tv_uninit() at shutdown.
+ *   - Calls vc_vchi_tv_init() once at startup and vc_vchi_tv_stop() at shutdown.
  *   - Registers one vc_tv_register_callback() and fans the events out to
  *     every subscribed client.
  *   - Handles synchronous RPC requests (display state, EDID, modes, HDCP …).
@@ -53,8 +53,9 @@
 #include <unistd.h>
 
 #include "interface/vmcs_host/vc_vchi_gencmd.h"
+#include "interface/vmcs_host/vc_tvservice.h"
 #include "dshalLogger.h"
-#include "dshalUtils.h"     /* vchi_tv_init / vchi_tv_uninit */
+#include "dshalUtils.h"
 #include "dsTVSvcProto.h"
 
 /* ------------------------------------------------------------------ */
@@ -79,6 +80,10 @@ typedef struct {
 static pending_event_t     gPendingEvents[MAX_PENDING_EVENTS];
 static int                 gPendingCount = 0;
 static pthread_mutex_t     gEventsMutex = PTHREAD_MUTEX_INITIALIZER;
+
+/* VCHI instance — sole owner of TVService RTOS connection */
+static VCHI_INSTANCE_T     gVchiInstance = NULL;
+static VCHI_CONNECTION_T   *gVchiConnection = NULL;
 
 /* ------------------------------------------------------------------ *
  * I/O helpers
@@ -470,11 +475,24 @@ int main(void)
     bool tv_inited = false;
     bool cb_registered = false;
 
+    /* Initialize VCOS — required before VCHI/TVService */
+    vcos_init();
+
     fprintf(stderr, "[dsTVSvcDaemon] starting\n");
 
+    /* Initialize VCHI before TVService */
+    if (vchi_initialise(&gVchiInstance) != 0) {
+        fprintf(stderr, "[dsTVSvcDaemon] vchi_initialise failed\n");
+        goto cleanup;
+    }
+    if (vchi_connect(NULL, 0, gVchiInstance) != 0) {
+        fprintf(stderr, "[dsTVSvcDaemon] vchi_connect failed\n");
+        goto cleanup;
+    }
+
     /* Sole owner of VCHI / TVService. */
-    if (vchi_tv_init() != 0) {
-        fprintf(stderr, "[dsTVSvcDaemon] vchi_tv_init failed\n");
+    if (vc_vchi_tv_init(gVchiInstance, &gVchiConnection, 1) != 0) {
+        fprintf(stderr, "[dsTVSvcDaemon] vc_vchi_tv_init failed\n");
         goto cleanup;
     }
     tv_inited = true;
@@ -633,7 +651,9 @@ cleanup:
     if (cb_registered)
         vc_tv_unregister_callback(daemon_tv_callback);
     if (tv_inited)
-        vchi_tv_uninit();
+        vc_vchi_tv_stop();
+    if (gVchiInstance != NULL)
+        vchi_disconnect(gVchiInstance);
     if (gEventFd >= 0)
         (void)close(gEventFd);
     if (gListenFd >= 0)
