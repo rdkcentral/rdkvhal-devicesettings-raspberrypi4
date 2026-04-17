@@ -389,8 +389,9 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
     int res = 0;
 
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
-        // Try westeros-gl-console first, if it fails, then use vc_tv_hdmi_power_on_preferred.
-        // Until RPI stack is fully aligned to DRM/KMS, we need to use this workaround.
+        // Try westeros-gl-console first, if it fails, fall back to daemon
+        // (tvsvc_client_hdmi_power_on_preferred). Until RPI stack is fully
+        // aligned to DRM/KMS, we need this workaround.
         char cmd[256] = {0};
         char resp[256] = {0};
         const char *xdgRuntimeDir = getXDGRuntimeDir();

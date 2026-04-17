@@ -328,10 +328,11 @@ int tvsvc_client_connect(void)
 
     /* Start reader thread — pass fd directly so it can receive the
      * SUBSCRIBE ack before gConnFd is published. */
-    if (pthread_create(&gReaderThread, NULL, reader_thread, (void *)(intptr_t)fd) != 0) {
-        hal_err("[TVSvcClient] pthread_create: %s\n", strerror(errno));
+    int rc = pthread_create(&gReaderThread, NULL, reader_thread, (void *)(intptr_t)fd);
+    if (rc != 0) {
+        hal_err("[TVSvcClient] pthread_create: %s\n", strerror(rc));
         (void)close(fd);
-        return -errno;
+        return -rc;
     }
     atomic_store(&gReaderRunning, true);
 
@@ -627,8 +628,10 @@ int tvsvc_client_audio_supported(EDID_AudioFormat     format,
     tvsvc_resp_simple_t r = {0};
     int rc = do_rpc(TVSVC_CMD_AUDIO_SUPPORTED, &req, (uint16_t)sizeof(req),
                     &r, sizeof(r));
-    if (rc < 0 || (size_t)rc < sizeof(r))
-        return -ENOTCONN;
+    if (rc < 0)
+        return rc;
+    if ((size_t)rc < sizeof(r))
+        return -EIO;
     if (r.status != 0) return r.status;
     return r.result;
 }
@@ -644,8 +647,10 @@ int tvsvc_client_sdtv_power_on(SDTV_MODE_T mode, const SDTV_OPTIONS_T *options)
     tvsvc_resp_simple_t r = {0};
     int rc = do_rpc(TVSVC_CMD_SDTV_POWER_ON, &req, (uint16_t)sizeof(req),
                     &r, sizeof(r));
-    if (rc < 0 || (size_t)rc < sizeof(r))
-        return -ENOTCONN;
+    if (rc < 0)
+        return rc;
+    if ((size_t)rc < sizeof(r))
+        return -EIO;
     if (r.status != 0) return r.status;
     return r.result;
 }
@@ -654,8 +659,10 @@ int tvsvc_client_tv_power_off(void)
 {
     tvsvc_resp_simple_t r = {0};
     int rc = do_rpc(TVSVC_CMD_TV_POWER_OFF, NULL, 0, &r, sizeof(r));
-    if (rc < 0 || (size_t)rc < sizeof(r))
-        return -ENOTCONN;
+    if (rc < 0)
+        return rc;
+    if ((size_t)rc < sizeof(r))
+        return -EIO;
     if (r.status != 0) return r.status;
     return r.result;
 }
@@ -664,8 +671,10 @@ int tvsvc_client_hdmi_power_on_preferred(void)
 {
     tvsvc_resp_simple_t r = {0};
     int rc = do_rpc(TVSVC_CMD_HDMI_POWER_ON_PREFERRED, NULL, 0, &r, sizeof(r));
-    if (rc < 0 || (size_t)rc < sizeof(r))
-        return -ENOTCONN;
+    if (rc < 0)
+        return rc;
+    if ((size_t)rc < sizeof(r))
+        return -EIO;
     if (r.status != 0) return r.status;
     return r.result;
 }
