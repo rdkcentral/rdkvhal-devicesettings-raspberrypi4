@@ -475,7 +475,7 @@ dsError_t dsIsDisplayConnected(intptr_t handle, bool *connected)
         hal_dbg("Isdisplayconnected HDMI port\n");
         int ret = tvsvc_client_get_display_state(&tvstate);
         if (ret == 0) {
-            hal_dbg("vc_tv_get_display_state: 0x%x\n", tvstate.state);
+            hal_dbg("tvsvc_client_get_display_state: 0x%x\n", tvstate.state);
             if (tvstate.state & VC_HDMI_UNPLUGGED) {
                 hal_dbg("HDMI is not connected\n");
                 *connected = false;
@@ -492,7 +492,7 @@ dsError_t dsIsDisplayConnected(intptr_t handle, bool *connected)
                 hal_err("Unrecognized HDMI state: 0x%x\n", tvstate.state);
             }
         } else {
-            hal_err("vc_tv_get_display_state failed, ret=%d\n", ret);
+            hal_err("tvsvc_client_get_display_state failed, ret=%d\n", ret);
             return dsERR_GENERAL;
         }
     } else {
@@ -913,7 +913,7 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
             rate = 60;
         }
 
-        //if width is missing, set it manualy
+        //if width is missing, set it manually
         if (height > 0) {
             if (width < 0) {
                 switch (height)
@@ -1067,7 +1067,7 @@ dsError_t dsIsVideoPortActive(intptr_t handle, bool *active)
 
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
         if (tvsvc_client_get_display_state( &tvstate ) == 0) {
-            hal_dbg("vc_tv_get_display_state: 0x%x\n", tvstate.state);
+            hal_dbg("tvsvc_client_get_display_state: 0x%x\n", tvstate.state);
             if (tvstate.state & VC_HDMI_HDMI)
                 *active = true;
             else if (tvstate.state & VC_HDMI_UNPLUGGED)

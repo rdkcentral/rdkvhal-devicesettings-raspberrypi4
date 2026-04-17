@@ -359,8 +359,8 @@ int tvsvc_client_connect(void)
             (void)shutdown(fd, SHUT_RDWR);
             if (atomic_load(&gReaderRunning)) {
                 (void)pthread_join(gReaderThread, NULL);
-                (void)close(fd);
                 atomic_store(&gReaderRunning, false);
+                /* Reader thread already closes fd in its exit path. */
             }
             return -EIO;
         }
@@ -376,8 +376,8 @@ int tvsvc_client_connect(void)
                 (void)shutdown(fd, SHUT_RDWR);
                 if (atomic_load(&gReaderRunning)) {
                     (void)pthread_join(gReaderThread, NULL);
-                    (void)close(fd);
                     atomic_store(&gReaderRunning, false);
+                    /* Reader thread already closes fd in its exit path. */
                 }
                 return -ETIMEDOUT;
             }

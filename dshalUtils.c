@@ -178,16 +178,12 @@ int tvsvc_acquire(void)
 {
     int res = 0;
     pthread_mutex_lock(&tvsvc_client_lock);
-    if (tvsvc_client_refcount == 0)
-    {
-        res = tvsvc_client_connect();
-        if (res == 0)
-        {
-            tvsvc_client_refcount = 1;
-        }
-    }
-    else
-    {
+
+    /* Ensure connection is established (reconnects if daemon dropped).
+     * tvsvc_client_connect() is idempotent: returns 0 if already connected. */
+    res = tvsvc_client_connect();
+
+    if (res == 0) {
         tvsvc_client_refcount++;
     }
     pthread_mutex_unlock(&tvsvc_client_lock);
