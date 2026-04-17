@@ -76,7 +76,7 @@ set_target_properties(${LIBNAME} PROPERTIES
 	VERSION ${PROJECT_VERSION}
 	SOVERSION ${PROJECT_VERSION_MAJOR}
 )
-target_link_libraries(${LIBNAME} asound pthread)
+target_link_libraries(${LIBNAME} asound pthread m)
 
 # TVService broker daemon — separate executable, sole owner of VCHI
 add_executable(${DAEMON_NAME}

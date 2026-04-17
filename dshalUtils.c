@@ -164,7 +164,7 @@ const VicMapEntry vicMapTable[] = {
 #define VIC_MAP_TABLE_SIZE (sizeof(vicMapTable) / sizeof(VicMapEntry))
 
 /*
- * TVService lifecycle — Phase 2: delegate to IPC client.
+ * TVService lifecycle : delegate to IPC client.
  * vchi_tv_init/uninit are now owned exclusively by dsTVSvcDaemon.
  *
  * Multiple modules in the same process may share the IPC connection, so

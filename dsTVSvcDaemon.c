@@ -594,11 +594,14 @@ int main(void)
         if (pfds[0].revents & POLLIN) {
             int cfd = accept4(gListenFd, NULL, NULL, SOCK_CLOEXEC);
             if (cfd >= 0) {
-                /* Apply a short send timeout so a slow/non-reading client
+                /* Apply short socket timeouts so a slow/stalled client
                  * cannot block the main event loop indefinitely. */
                 struct timeval snd_tv = { .tv_sec = 1, .tv_usec = 0 };
+                struct timeval rcv_tv = { .tv_sec = 1, .tv_usec = 0 };
                 (void)setsockopt(cfd, SOL_SOCKET, SO_SNDTIMEO,
                                  &snd_tv, sizeof(snd_tv));
+                (void)setsockopt(cfd, SOL_SOCKET, SO_RCVTIMEO,
+                                 &rcv_tv, sizeof(rcv_tv));
                 if (add_client(cfd) != 0) {
                     fprintf(stderr,
                         "[dsTVSvcDaemon] client table full; rejecting fd=%d\n", cfd);
