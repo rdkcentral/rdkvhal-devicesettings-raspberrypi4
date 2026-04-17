@@ -29,7 +29,8 @@
  * The library is pinned using RTLD_NODELETE flag during library construction
  * and properly released during library destruction.
  */
-
+#define _GNU_SOURCE
+#include <stdio.h>
 #include <dlfcn.h>
 #include "dshalLogger.h"
 
