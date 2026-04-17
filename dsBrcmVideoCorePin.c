@@ -29,12 +29,13 @@
  * The library is pinned using RTLD_NODELETE flag during library construction
  * and properly released during library destruction.
  */
+
+#ifdef DSHAL_ENABLE_VCOS_PIN
+
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <dlfcn.h>
 #include "dshalLogger.h"
-
-#ifdef DSHAL_ENABLE_VCOS_PIN
 
 /**
  * @brief Handle to pinned libvcos.so library

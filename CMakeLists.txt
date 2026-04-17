@@ -45,7 +45,6 @@ if (ENABLE_BROADCOM_VCOS_PIN)
     add_definitions(-DDSHAL_ENABLE_VCOS_PIN)
 else()
     message(STATUS "ENABLE_BROADCOM_VCOS_PIN is OFF")
-    list(REMOVE_ITEM SOURCES "${CMAKE_SOURCE_DIR}/dsBrcmVideoCorePin.c")
 endif()
 
 # Add GIT version to the compile flags
