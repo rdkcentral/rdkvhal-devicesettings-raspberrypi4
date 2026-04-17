@@ -26,6 +26,7 @@
 #include "dshalUtils.h"
 #include <alsa/asoundlib.h>
 #include "dshalLogger.h"
+#include <dlfcn.h>
 
 #define ALSA_CARD_NAME "hw:0"
 #if (SND_LIB_MAJOR >= 1) && (SND_LIB_MINOR >= 2) && (KERNEL_ARPI_VERSION_MAJOR < 6)
@@ -52,6 +53,23 @@ static dsAudioStereoMode_t _stereoModeHDMI = dsAUDIO_STEREO_STEREO;
 static bool _bIsAudioInitialized = false;
 
 dsAudioOutPortConnectCB_t _halhdmiaudioCB = NULL;
+static void *g_libvcosHandle = NULL;
+
+// Library constructor - pin libvcos.so
+__attribute__((constructor))
+static void dshal_audio_constructor(void)
+{
+    // Pinning libvcos.so to prevent TLS crash
+    // RTLD_NODELETE prevents the library from being unloaded
+    g_libvcosHandle = dlopen("libvcos.so", RTLD_LAZY | RTLD_NODELETE);
+
+    if (g_libvcosHandle) {
+        hal_info("[AUDIO CONSTRUCTOR] libvcos.so pinned successfully (handle=%p)\n", g_libvcosHandle);
+    } else {
+        hal_err("[AUDIO CONSTRUCTOR] Failed to pin libvcos.so: %s\n", dlerror());
+    }
+}
+
 static void tvservice_hdmiaudio_callback(void *callback_data, uint32_t reason, uint32_t param1, uint32_t param2)
 {
     AOPHandle_t *aopHandle = (AOPHandle_t *)callback_data;
@@ -1758,4 +1776,14 @@ dsError_t dsSetAudioMixerLevels(intptr_t handle, dsAudioInput_t aInput, int volu
         return dsERR_INVALID_PARAM;
     }
     return dsERR_OPERATION_NOT_SUPPORTED;
+}
+
+__attribute__((destructor))
+static void dshal_audio_destructor(void)
+{
+    if (g_libvcosHandle) {
+        hal_info("[AUDIO DESTRUCTOR] Releasing libvcos.so handle\n");
+        dlclose(g_libvcosHandle);
+        g_libvcosHandle = NULL;
+    }
 }
