@@ -92,6 +92,84 @@ static VOPHandle_t _vopHandles[dsVIDEOPORT_TYPE_MAX][2] = {};
 static dsVideoPortResolution_t _resolution;
 static bool _bIgnoreEDID = false;
 
+static void populate_output_settings_from_tvstate(const TV_DISPLAY_STATE_T *tvstate,
+        dsDisplayMatrixCoefficients_t *matrix_coefficients,
+        dsDisplayColorSpace_t *color_space,
+        unsigned int *color_depth,
+        dsDisplayQuantizationRange_t *quantization_range)
+{
+    uint16_t pixel_encoding = tvstate->display.hdmi.pixel_encoding;
+    uint32_t height = tvstate->display.hdmi.height;
+    bool known_pixel_encoding = (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_LIMITED ||
+        pixel_encoding == HDMI_PIXEL_ENCODING_RGB_FULL ||
+        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_LIMITED ||
+        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_FULL ||
+        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_LIMITED ||
+        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_FULL);
+
+    if (!known_pixel_encoding) {
+        hal_warn("Unknown pixel encoding %u in output settings mapping.\n", pixel_encoding);
+    }
+
+    if (matrix_coefficients != NULL) {
+        if (pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_LIMITED ||
+            pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_FULL ||
+            pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_LIMITED ||
+            pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_FULL) {
+            *matrix_coefficients = (height >= 720)
+                ? dsDISPLAY_MATRIXCOEFFICIENT_BT_709
+                : dsDISPLAY_MATRIXCOEFFICIENT_BT_470_2_BG;
+        }
+        else if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_LIMITED) {
+            *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_eHDMI_RGB;
+        }
+        else if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_FULL) {
+            *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_eDVI_FR_RGB;
+        }
+        else {
+            *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_BT_709;
+        }
+    }
+
+    if (color_space != NULL) {
+        if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_LIMITED ||
+            pixel_encoding == HDMI_PIXEL_ENCODING_RGB_FULL) {
+            *color_space = dsDISPLAY_COLORSPACE_RGB;
+        }
+        else if (pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_LIMITED ||
+                 pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_FULL) {
+            *color_space = dsDISPLAY_COLORSPACE_YCbCr422;
+        }
+        else if (pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_LIMITED ||
+                 pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_FULL) {
+            *color_space = dsDISPLAY_COLORSPACE_YCbCr444;
+        }
+        else {
+            *color_space = dsDISPLAY_COLORSPACE_UNKNOWN;
+        }
+    }
+
+    if (color_depth != NULL) {
+        *color_depth = dsDISPLAY_COLORDEPTH_8BIT;
+    }
+
+    if (quantization_range != NULL) {
+        if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_LIMITED ||
+            pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_LIMITED ||
+            pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_LIMITED) {
+            *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_LIMITED;
+        }
+        else if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_FULL ||
+                 pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_FULL ||
+                 pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_FULL) {
+            *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_FULL;
+        }
+        else {
+            *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_UNKNOWN;
+        }
+    }
+}
+
 static void tvservice_hdcp_callback(void *callback_data,
         uint32_t reason, uint32_t param1, uint32_t param2)
 {
@@ -1595,36 +1673,9 @@ dsError_t dsGetMatrixCoefficients(intptr_t handle, dsDisplayMatrixCoefficients_t
         return dsERR_NONE;
     }
 
-    /* Infer matrix coefficient from pixel encoding and resolution per HDMI standards.
-     * Matrix coefficients are firmware-hardcoded; this exposes the standard mapping. */
-    uint16_t pixel_encoding = tvstate.display.hdmi.pixel_encoding;
-    uint32_t height = tvstate.display.hdmi.height;
+    populate_output_settings_from_tvstate(&tvstate, matrix_coefficients, NULL, NULL, NULL);
 
-    /* YCbCr: Use BT.709 for HD (>=720p), BT.601 for SD (<720p) */
-    if (pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_LIMITED ||
-        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_FULL ||
-        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_LIMITED ||
-        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_FULL) {
-        if (height >= 720) {
-            *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_BT_709;
-        } else {
-            *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_BT_470_2_BG;
-        }
-    }
-    /* RGB: Use DVI/HDMI RGB based on limited vs full range */
-    else if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_LIMITED) {
-        *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_eHDMI_RGB;
-    }
-    else if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_FULL) {
-        *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_eDVI_FR_RGB;
-    }
-    else {
-        hal_warn("Unknown pixel encoding %u; defaulting to BT.709.\n", pixel_encoding);
-        *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_BT_709;
-    }
-
-    hal_dbg("Matrix coefficient determined: %u (pixel_encoding=%u, height=%u)\n",
-            *matrix_coefficients, pixel_encoding, height);
+    hal_dbg("Matrix coefficient determined: %u\n", *matrix_coefficients);
     return dsERR_NONE;
 }
 
@@ -1736,29 +1787,9 @@ dsError_t dsGetColorSpace(intptr_t handle, dsDisplayColorSpace_t *color_space)
         return dsERR_NONE;
     }
 
-    /* Infer color space from pixel encoding per HDMI standards.
-     * Color space is firmware-hardcoded based on pixel encoding; this exposes the standard mapping. */
-    uint16_t pixel_encoding = tvstate.display.hdmi.pixel_encoding;
+    populate_output_settings_from_tvstate(&tvstate, NULL, color_space, NULL, NULL);
 
-    /* Map pixel encoding to color space */
-    if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_LIMITED ||
-        pixel_encoding == HDMI_PIXEL_ENCODING_RGB_FULL) {
-        *color_space = dsDISPLAY_COLORSPACE_RGB;
-    }
-    else if (pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_LIMITED ||
-             pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_FULL) {
-        *color_space = dsDISPLAY_COLORSPACE_YCbCr422;
-    }
-    else if (pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_LIMITED ||
-             pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_FULL) {
-        *color_space = dsDISPLAY_COLORSPACE_YCbCr444;
-    }
-    else {
-        hal_warn("Unknown pixel encoding %u; defaulting to UNKNOWN.\n", pixel_encoding);
-        *color_space = dsDISPLAY_COLORSPACE_UNKNOWN;
-    }
-
-    hal_dbg("Color space determined: %u (pixel_encoding=%u)\n", *color_space, pixel_encoding);
+    hal_dbg("Color space determined: %u\n", *color_space);
     return dsERR_NONE;
 }
 
@@ -1810,28 +1841,9 @@ dsError_t dsGetQuantizationRange(intptr_t handle, dsDisplayQuantizationRange_t *
         return dsERR_NONE;
     }
 
-    /* Infer quantization range from pixel encoding per HDMI standards.
-     * The pixel encoding suffix (LIMITED vs FULL) directly indicates the quantization range:
-     * LIMITED range: 16-235 for 8-bit YCbCr, 64-940 for 10-bit, etc.
-     * FULL range: 0-255 for 8-bit RGB or 0-1023 for 10-bit, etc. */
-    uint16_t pixel_encoding = tvstate.display.hdmi.pixel_encoding;
+    populate_output_settings_from_tvstate(&tvstate, NULL, NULL, NULL, quantization_range);
 
-    if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_LIMITED ||
-        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_LIMITED ||
-        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_LIMITED) {
-        *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_LIMITED;
-    }
-    else if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_FULL ||
-             pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_FULL ||
-             pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_FULL) {
-        *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_FULL;
-    }
-    else {
-        hal_warn("Unknown pixel encoding %u; defaulting to UNKNOWN.\n", pixel_encoding);
-        *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_UNKNOWN;
-    }
-
-    hal_dbg("Quantization range determined: %u (pixel_encoding=%u)\n", *quantization_range, pixel_encoding);
+    hal_dbg("Quantization range determined: %u\n", *quantization_range);
     return dsERR_NONE;
 }
 
@@ -1897,67 +1909,8 @@ dsError_t dsGetCurrentOutputSettings(intptr_t handle, dsHDRStandard_t *video_eot
     /* Video EOTF: RPi4 only supports SDR. */
     *video_eotf = dsHDRSTANDARD_SDR;
 
-    /* Matrix Coefficients: Infer from pixel encoding and resolution per HDMI standards. */
-    uint16_t pixel_encoding = tvstate.display.hdmi.pixel_encoding;
-    uint32_t height = tvstate.display.hdmi.height;
-
-    if (pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_LIMITED ||
-        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_FULL ||
-        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_LIMITED ||
-        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_FULL) {
-        if (height >= 720) {
-            *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_BT_709;
-        } else {
-            *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_BT_470_2_BG;
-        }
-    }
-    else if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_LIMITED) {
-        *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_eHDMI_RGB;
-    }
-    else if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_FULL) {
-        *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_eDVI_FR_RGB;
-    }
-    else {
-        hal_warn("Unknown pixel encoding %u; defaulting to BT.709.\n", pixel_encoding);
-        *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_BT_709;
-    }
-
-    /* Color Space: Infer from pixel encoding per HDMI standards. */
-    if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_LIMITED ||
-        pixel_encoding == HDMI_PIXEL_ENCODING_RGB_FULL) {
-        *color_space = dsDISPLAY_COLORSPACE_RGB;
-    }
-    else if (pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_LIMITED ||
-             pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_FULL) {
-        *color_space = dsDISPLAY_COLORSPACE_YCbCr422;
-    }
-    else if (pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_LIMITED ||
-             pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_FULL) {
-        *color_space = dsDISPLAY_COLORSPACE_YCbCr444;
-    }
-    else {
-        hal_warn("Unknown pixel encoding %u in color space determination.\n", pixel_encoding);
-        *color_space = dsDISPLAY_COLORSPACE_UNKNOWN;
-    }
-
-    /* Color Depth: RPi4 HDMI output is limited to 8-bit color depth across all resolutions. */
-    *color_depth = dsDISPLAY_COLORDEPTH_8BIT;
-
-    /* Quantization Range: Infer from pixel encoding suffix (LIMITED vs FULL). */
-    if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_LIMITED ||
-        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_LIMITED ||
-        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_LIMITED) {
-        *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_LIMITED;
-    }
-    else if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_FULL ||
-             pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_FULL ||
-             pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_FULL) {
-        *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_FULL;
-    }
-    else {
-        hal_warn("Unknown pixel encoding %u in quantization range determination.\n", pixel_encoding);
-        *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_UNKNOWN;
-    }
+    populate_output_settings_from_tvstate(&tvstate, matrix_coefficients, color_space,
+            color_depth, quantization_range);
 
     hal_dbg("Current output settings: EOTF=%u, MatrixCoeff=%u, ColorSpace=%u, ColorDepth=0x%x, QuantRange=%u\n",
             *video_eotf, *matrix_coefficients, *color_space, *color_depth, *quantization_range);
