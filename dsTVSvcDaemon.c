@@ -39,6 +39,7 @@
 #define _GNU_SOURCE
 
 #include <errno.h>
+#include <limits.h>
 #include <poll.h>
 #include <pthread.h>
 #include <signal.h>
@@ -531,6 +532,19 @@ int main(void)
 
     vc_tv_register_callback(daemon_tv_callback, NULL);
     cb_registered = true;
+
+    /* Extract the path from TVSVC_SOCK_PATH and if its a directory, create it */
+    char sock_dir[PATH_MAX] = {0};
+    strncpy(sock_dir, TVSVC_SOCK_PATH, sizeof(sock_dir) - 1);
+    char *last_slash = strrchr(sock_dir, '/');
+    if (last_slash) {
+        *last_slash = '\0';
+        /* Ignore error if directory already exists. */
+        if (mkdir(sock_dir, 0755) != 0 && errno != EEXIST) {
+            hal_err("[dsTVSvcDaemon] mkdir: %s\n", strerror(errno));
+            goto cleanup;
+        }
+    }
 
     /* Create Unix domain socket. */
     (void)unlink(TVSVC_SOCK_PATH);
