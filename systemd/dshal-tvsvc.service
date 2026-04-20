@@ -26,6 +26,7 @@ Type=simple
 RuntimeDirectory=dshal-tvsvc
 ExecStart=/usr/bin/flock -n /run/dshal-tvsvc/daemon.lock /usr/bin/dshal-tvsvc-daemon
 Restart=on-failure
+RestartPreventExitStatus=1
 RestartSec=2
 StandardOutput=journal
 StandardError=journal

@@ -65,7 +65,8 @@
 /* RPC channel — single in-flight request at a time */
 static int             gConnFd     = -1;
 static pthread_mutex_t gRpcMutex   = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t  gRpcCond    = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t  gRpcCond;
+static pthread_once_t  gRpcCondOnce = PTHREAD_ONCE_INIT;
 static bool            gRespReady  = false;
 static uint8_t         gRespBuf[sizeof(tvsvc_msg_hdr_t) + RESP_BUF_SIZE];
 static uint16_t        gRespLen    = 0;
@@ -106,6 +107,30 @@ static atomic_uint gReqId = 0;
 static uint16_t gExpectedReqId = 0;
 static uint8_t  gExpectedCmd   = 0;
 static bool     gRpcPending    = false;
+
+static void init_rpc_cond(void)
+{
+    pthread_condattr_t attr;
+    int rc = pthread_condattr_init(&attr);
+    if (rc != 0) {
+        hal_err("[TVSvcClient] pthread_condattr_init failed: %s\n", strerror(rc));
+        abort();
+    }
+
+    rc = pthread_condattr_setclock(&attr, CLOCK_MONOTONIC);
+    if (rc != 0) {
+        hal_err("[TVSvcClient] pthread_condattr_setclock failed: %s\n", strerror(rc));
+        (void)pthread_condattr_destroy(&attr);
+        abort();
+    }
+
+    rc = pthread_cond_init(&gRpcCond, &attr);
+    (void)pthread_condattr_destroy(&attr);
+    if (rc != 0) {
+        hal_err("[TVSvcClient] pthread_cond_init failed: %s\n", strerror(rc));
+        abort();
+    }
+}
 
 /* ------------------------------------------------------------------ *
  * I/O helpers
@@ -401,6 +426,8 @@ static void *reader_thread(void *arg)
  * ------------------------------------------------------------------ */
 int tvsvc_client_connect(void)
 {
+    (void)pthread_once(&gRpcCondOnce, init_rpc_cond);
+
     pthread_mutex_lock(&gRpcMutex);
     if (gConnFd >= 0) {
         /* Already connected — idempotent. */
@@ -483,7 +510,7 @@ int tvsvc_client_connect(void)
             return -EIO;
         }
         struct timespec ts;
-        (void)clock_gettime(CLOCK_REALTIME, &ts);
+        (void)clock_gettime(CLOCK_MONOTONIC, &ts);
         ts.tv_sec += RPC_TIMEOUT_S;
         while (!gRespReady) {
             if (pthread_cond_timedwait(&gRpcCond, &gRpcMutex, &ts) == ETIMEDOUT) {
@@ -613,6 +640,8 @@ static int do_rpc(uint8_t cmd,
                   const void *req_payload, uint16_t req_len,
                   void *resp_payload_out,  size_t    resp_buf_size)
 {
+    (void)pthread_once(&gRpcCondOnce, init_rpc_cond);
+
     if (tIsReaderThread) {
         hal_err("[TVSvcClient] RPC cmd=0x%02x called from reader-thread callback context\n", cmd);
         return -EDEADLK;
@@ -643,7 +672,7 @@ static int do_rpc(uint8_t cmd,
     }
 
     struct timespec ts;
-    (void)clock_gettime(CLOCK_REALTIME, &ts);
+    (void)clock_gettime(CLOCK_MONOTONIC, &ts);
     ts.tv_sec += RPC_TIMEOUT_S;
 
     while (!gRespReady) {

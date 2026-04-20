@@ -81,7 +81,6 @@ target_link_libraries(${LIBNAME} asound pthread m)
 # TVService broker daemon — separate executable, sole owner of VCHI
 add_executable(${DAEMON_NAME}
 	dsTVSvcDaemon.c
-	dsTVSvcClient.c
 	dshalUtils.c
 	dshalLogger.c
 )
