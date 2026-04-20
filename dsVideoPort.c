@@ -90,7 +90,6 @@ typedef struct _VOPHandle_t {
 static VOPHandle_t _vopHandles[dsVIDEOPORT_TYPE_MAX][2] = {};
 
 static dsVideoPortResolution_t _resolution;
-static int hdcp_defaultVersion = 0;
 static bool _bIgnoreEDID = false;
 
 static void tvservice_hdcp_callback(void *callback_data,
