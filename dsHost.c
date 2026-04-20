@@ -28,7 +28,6 @@
 #include "dshalLogger.h"
 #include "dshalUtils.h"
 #include "dsTVSvcClient.h"
-#include "interface/vmcs_host/vc_vchi_gencmd.h"
 
 static uint32_t version_num = 0x10000;
 static bool host_initialized = false;

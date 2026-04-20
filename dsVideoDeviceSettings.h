@@ -30,7 +30,7 @@ extern "C" {
 
 namespace  {
 static const dsVideoZoom_t kSupportedDFCs[] = { dsVIDEO_ZOOM_NONE, dsVIDEO_ZOOM_FULL, dsVIDEO_ZOOM_PLATFORM};
-static const dsVideoZoom_t kDefaultDFC      = dsVIDEO_ZOOM_FULL;
+static const dsVideoZoom_t kDefaultDFC      = dsVIDEO_ZOOM_NONE;
 
 static const int kNumVideoDevices = 1;
 
@@ -49,4 +49,4 @@ typedef int _SafetyCheck[(dsUTL_DIM(kConfigs) == kNumVideoDevices) ? 1 : -1];
 }
 #endif
 
-#endif /* RPVIDEODEVICESETTINGS_H_ */
+#endif /* _DS_VIDEODEVICESETTINGS_H_ */
