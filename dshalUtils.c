@@ -179,9 +179,10 @@ int tvsvc_acquire(void)
     int res = 0;
     pthread_mutex_lock(&tvsvc_client_lock);
 
-    /* Ensure connection is established when called.
-     * tvsvc_client_connect() is idempotent: returns 0 if already connected.
-     * Individual RPC calls will auto-reconnect on -ENOTCONN (daemon restart). */
+    /* Ensure the IPC connection is established when called.
+     * tvsvc_client_connect() is idempotent and returns 0 if already connected.
+     * If the daemon restarts after acquisition, later RPC calls may still fail
+     * with -ENOTCONN; callers must handle that case explicitly. */
     res = tvsvc_client_connect();
 
     if (res == 0) {

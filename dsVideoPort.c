@@ -2095,7 +2095,7 @@ dsError_t dsGetHdmiPreference(intptr_t handle, dsHdcpProtocolVersion_t *hdcpCurr
  * If platform doesn't want to set the status, then returns dsERR_OPERATION_NOT_SUPPORTED.
  *
  * @param[in] handle        - Handle of the video port returned from dsGetVideoPort()
- * @param [out] status      - Status of IgnoreEDID variable, ( @a true if EDID data ccan be ignored, @a false otherwise )
+ * @param [out] status      - Status of IgnoreEDID variable, ( @a true if EDID data can be ignored, @a false otherwise )
  *
  * @return dsError_t                      -  Status
  * @retval dsERR_NONE                     -  Success
@@ -2187,7 +2187,7 @@ dsError_t dsSetBackgroundColor(intptr_t handle, dsVideoBackgroundColor_t color)
  *
  * For source devices, this function is used to set/reset force HDR mode for the specified video port.
  * It forces and locks the HDMI output to a specified HDR mode regardless of the source content format,
- * if the mode dsHDRSTANDARD_NONE is set, then the HDMI output to follow source contnet format.
+ * if the mode dsHDRSTANDARD_NONE is set, then the HDMI output to follow source content format.
  *
  * @param[in] handle    - Handle of the video port returned from dsGetVideoPort()
  * @param[in] mode      - HDR mode to be forced.  Please refer ::dsHDRStandard_t
