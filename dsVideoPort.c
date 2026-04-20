@@ -90,7 +90,7 @@ typedef struct _VOPHandle_t {
 static VOPHandle_t _vopHandles[dsVIDEOPORT_TYPE_MAX][2] = {};
 
 static dsVideoPortResolution_t _resolution;
-static int hdcp_defaultVersion = 0;
+static bool _bIgnoreEDID = false;
 
 static void tvservice_hdcp_callback(void *callback_data,
         uint32_t reason, uint32_t param1, uint32_t param2)
@@ -331,11 +331,7 @@ dsError_t dsIsVideoPortEnabled(intptr_t handle, bool *enabled)
         hal_err("handle(%p) is invalid or enabled(%p) is null.\n", handle, enabled);
         return dsERR_INVALID_PARAM;
     }
-    if(vopHandle->m_vType == dsVIDEOPORT_TYPE_COMPONENT)
-    {
-        *enabled = vopHandle->m_isEnabled;
-    }
-    else if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI)
+    if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI)
     {
         *enabled = vopHandle->m_isEnabled;
     }
@@ -1380,7 +1376,7 @@ dsError_t  dsIsDisplaySurround(intptr_t handle, bool *surround)
      * hdmi_mode=16
      * hdmi_drive=2
      * hdmi_force_hotplug=1 (optional)
-     * Check the current audion output: amixer cget numid=3
+     * Check the current audio output: amixer cget numid=3
      * Set the audio output to HDMI: amixer cset numid=3 2
      */
     return dsERR_OPERATION_NOT_SUPPORTED;
@@ -1550,6 +1546,27 @@ dsError_t dsGetVideoEOTF(intptr_t handle, dsHDRStandard_t *video_eotf)
 
     return dsERR_NONE;
 }
+
+/**
+ * @brief Gets the current matrix coefficients value.
+ *
+ * This function is used to get the current matrix coefficient value of the specified video port.
+ * For source devices, this function would return dsDISPLAY_MATRIXCOEFFICIENT_UNKNOWN  when TV is not connected.
+ *
+ * @param[in]  handle               - Handle of the video port returned from dsGetVideoPort()
+ * @param[out] matrix_coefficients  - pointer to matrix coefficients value.  Please refer ::dsDisplayMatrixCoefficients_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre dsVideoPortInit() and dsGetVideoPort() must be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
 dsError_t dsGetMatrixCoefficients(intptr_t handle, dsDisplayMatrixCoefficients_t *matrix_coefficients)
 {
     hal_info("invoked.\n");
@@ -1560,9 +1577,79 @@ dsError_t dsGetMatrixCoefficients(intptr_t handle, dsDisplayMatrixCoefficients_t
         hal_err("handle(%p) is invalid or matrix_coefficients(%p) is null.\n", handle, matrix_coefficients);
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+
+    VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
+    if (vopHandle->m_vType != dsVIDEOPORT_TYPE_HDMI) {
+        return dsERR_OPERATION_NOT_SUPPORTED;
+    }
+
+    TV_DISPLAY_STATE_T tvstate;
+    if (tvsvc_client_get_display_state(&tvstate) != 0) {
+        hal_err("Failed to get display state for matrix coefficient inference.\n");
+        return dsERR_GENERAL;
+    }
+
+    if (!(tvstate.state & VC_HDMI_ATTACHED)) {
+        hal_warn("HDMI not attached; cannot determine matrix coefficients.\n");
+        *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_UNKNOWN;
+        return dsERR_NONE;
+    }
+
+    /* Infer matrix coefficient from pixel encoding and resolution per HDMI standards.
+     * Matrix coefficients are firmware-hardcoded; this exposes the standard mapping. */
+    uint16_t pixel_encoding = tvstate.display.hdmi.pixel_encoding;
+    uint32_t height = tvstate.display.hdmi.height;
+
+    /* YCbCr: Use BT.709 for HD (>=720p), BT.601 for SD (<720p) */
+    if (pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_LIMITED ||
+        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_FULL ||
+        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_LIMITED ||
+        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_FULL) {
+        if (height >= 720) {
+            *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_BT_709;
+        } else {
+            *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_BT_470_2_BG;
+        }
+    }
+    /* RGB: Use DVI/HDMI RGB based on limited vs full range */
+    else if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_LIMITED) {
+        *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_eHDMI_RGB;
+    }
+    else if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_FULL) {
+        *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_eDVI_FR_RGB;
+    }
+    else {
+        hal_warn("Unknown pixel encoding %u; defaulting to BT.709.\n", pixel_encoding);
+        *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_BT_709;
+    }
+
+    hal_dbg("Matrix coefficient determined: %u (pixel_encoding=%u, height=%u)\n",
+            *matrix_coefficients, pixel_encoding, height);
+    return dsERR_NONE;
 }
 
+/**
+ * @brief Gets the color depth value of specified video port.
+ *
+ * For sink devices, this function returns the default color depth, which is platform dependent.
+ *
+ * For source devices, this function is used to get the current color depth value of specified video port.
+ * Typically for UHD resolution, the color depth is 10/12-bit, while for non-UHD resolutions, it is 8-bit
+ *
+ * @param[in]  handle       - Handle of the video port returned from dsGetVideoPort()
+ * @param[out] color_depth  - pointer to color depth values.Please refer :: dsDisplayColorDepth_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre dsVideoPortInit() and dsGetVideoPort() must be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
 dsError_t dsGetColorDepth(intptr_t handle, unsigned int *color_depth)
 {
     hal_info("invoked.\n");
@@ -1573,9 +1660,54 @@ dsError_t dsGetColorDepth(intptr_t handle, unsigned int *color_depth)
         hal_err("handle(%p) is invalid or color_depth(%p) is null.\n", handle, color_depth);
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+
+    VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
+    if (vopHandle->m_vType != dsVIDEOPORT_TYPE_HDMI) {
+        return dsERR_OPERATION_NOT_SUPPORTED;
+    }
+
+    TV_DISPLAY_STATE_T tvstate;
+    if (tvsvc_client_get_display_state(&tvstate) != 0) {
+        hal_err("Failed to get display state for color depth determination.\n");
+        return dsERR_GENERAL;
+    }
+
+    if (!(tvstate.state & VC_HDMI_ATTACHED)) {
+        hal_warn("HDMI not attached; cannot determine color depth.\n");
+        return dsERR_OPERATION_NOT_SUPPORTED;
+    }
+
+    /* RPi4 HDMI output is limited to 8-bit color depth across all resolutions.
+     * While RPi4 technically supports 4K@30Hz, all modes use 8-bit SDR (no 10/12-bit deep color). */
+    *color_depth = dsDISPLAY_COLORDEPTH_8BIT;
+
+    hal_dbg("Color depth determined: 0x%x (resolution: %ux%u)\n",
+            *color_depth, tvstate.display.hdmi.width, tvstate.display.hdmi.height);
+    return dsERR_NONE;
 }
 
+/**
+ * @brief Gets the color space setting of specified video port.
+ *
+ * For sink devices, this function returns the default color space setting, which is platform dependent.
+ *
+ * For source devices, this function is used to get the current color space setting of specified video port.
+ * The color space is typically YCbCr.
+ *
+ * @param[in]  handle       - Handle of the video port returned from dsGetVideoPort()
+ * @param[out] color_space  - pointer to color space value. Please refer ::dsDisplayColorSpace_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre dsVideoPortInit() and dsGetVideoPort() must be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
 dsError_t dsGetColorSpace(intptr_t handle, dsDisplayColorSpace_t *color_space)
 {
     hal_info("invoked.\n");
@@ -1586,8 +1718,70 @@ dsError_t dsGetColorSpace(intptr_t handle, dsDisplayColorSpace_t *color_space)
         hal_err("handle(%p) is invalid or color_space(%p) is null.\n", handle, color_space);
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+
+    VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
+    if (vopHandle->m_vType != dsVIDEOPORT_TYPE_HDMI) {
+        return dsERR_OPERATION_NOT_SUPPORTED;
+    }
+
+    TV_DISPLAY_STATE_T tvstate;
+    if (tvsvc_client_get_display_state(&tvstate) != 0) {
+        hal_err("Failed to get display state for color space determination.\n");
+        return dsERR_GENERAL;
+    }
+
+    if (!(tvstate.state & VC_HDMI_ATTACHED)) {
+        hal_warn("HDMI not attached; cannot determine color space.\n");
+        *color_space = dsDISPLAY_COLORSPACE_UNKNOWN;
+        return dsERR_NONE;
+    }
+
+    /* Infer color space from pixel encoding per HDMI standards.
+     * Color space is firmware-hardcoded based on pixel encoding; this exposes the standard mapping. */
+    uint16_t pixel_encoding = tvstate.display.hdmi.pixel_encoding;
+
+    /* Map pixel encoding to color space */
+    if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_LIMITED ||
+        pixel_encoding == HDMI_PIXEL_ENCODING_RGB_FULL) {
+        *color_space = dsDISPLAY_COLORSPACE_RGB;
+    }
+    else if (pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_LIMITED ||
+             pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_FULL) {
+        *color_space = dsDISPLAY_COLORSPACE_YCbCr422;
+    }
+    else if (pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_LIMITED ||
+             pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_FULL) {
+        *color_space = dsDISPLAY_COLORSPACE_YCbCr444;
+    }
+    else {
+        hal_warn("Unknown pixel encoding %u; defaulting to UNKNOWN.\n", pixel_encoding);
+        *color_space = dsDISPLAY_COLORSPACE_UNKNOWN;
+    }
+
+    hal_dbg("Color space determined: %u (pixel_encoding=%u)\n", *color_space, pixel_encoding);
+    return dsERR_NONE;
 }
+
+/**
+ * @brief Gets the quantization range of specified video port.
+ *
+ * This function is used to get the quantization range of the specified video port.
+ * For source devices, this function would return dsDISPLAY_QUANTIZATIONRANGE_UNKNOWN when TV is not connected.
+ *
+ * @param[in]  handle               - Handle of the video port returned from dsGetVideoPort()
+ * @param[out] quantization_range   - pointer to quantization range.  Please refer ::dsDisplayQuantizationRange_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre dsVideoPortInit() and dsGetVideoPort() must be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
 dsError_t dsGetQuantizationRange(intptr_t handle, dsDisplayQuantizationRange_t *quantization_range)
 {
     hal_info("invoked.\n");
@@ -1598,8 +1792,71 @@ dsError_t dsGetQuantizationRange(intptr_t handle, dsDisplayQuantizationRange_t *
         hal_err("handle(%p) is invalid or quantization_range(%p) is null.\n", handle, quantization_range);
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+
+    VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
+    if (vopHandle->m_vType != dsVIDEOPORT_TYPE_HDMI) {
+        return dsERR_OPERATION_NOT_SUPPORTED;
+    }
+
+    TV_DISPLAY_STATE_T tvstate;
+    if (tvsvc_client_get_display_state(&tvstate) != 0) {
+        hal_err("Failed to get display state for quantization range determination.\n");
+        return dsERR_GENERAL;
+    }
+
+    if (!(tvstate.state & VC_HDMI_ATTACHED)) {
+        hal_warn("HDMI not attached; cannot determine quantization range.\n");
+        *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_UNKNOWN;
+        return dsERR_NONE;
+    }
+
+    /* Infer quantization range from pixel encoding per HDMI standards.
+     * The pixel encoding suffix (LIMITED vs FULL) directly indicates the quantization range:
+     * LIMITED range: 16-235 for 8-bit YCbCr, 64-940 for 10-bit, etc.
+     * FULL range: 0-255 for 8-bit RGB or 0-1023 for 10-bit, etc. */
+    uint16_t pixel_encoding = tvstate.display.hdmi.pixel_encoding;
+
+    if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_LIMITED ||
+        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_LIMITED ||
+        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_LIMITED) {
+        *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_LIMITED;
+    }
+    else if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_FULL ||
+             pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_FULL ||
+             pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_FULL) {
+        *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_FULL;
+    }
+    else {
+        hal_warn("Unknown pixel encoding %u; defaulting to UNKNOWN.\n", pixel_encoding);
+        *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_UNKNOWN;
+    }
+
+    hal_dbg("Quantization range determined: %u (pixel_encoding=%u)\n", *quantization_range, pixel_encoding);
+    return dsERR_NONE;
 }
+
+/**
+ * @brief Gets current color space setting, color depth, matrix coefficients, video Electro-Optical Transfer Function (EOT)
+ *        and  quantization range in one call of the specified video port
+ *
+ * @param[in]  handle               - Handle of the video port returned from dsGetVideoPort()
+ * @param[out] video_eotf           - pointer to EOTF value.  Please refer ::dsHDRStandard_t
+ * @param[out] matrix_coefficients  - pointer to matrix coefficients value.  Please refer ::dsDisplayMatrixCoefficients_t
+ * @param[out] color_space          - pointer to color space value.  Please refer ::dsDisplayColorSpace_t
+ * @param[out] color_depth          - pointer to color depths value.  Please refer ::dsDisplayColorDepth_t
+ * @param[out] quantization_range   - pointer to quantization range value.  Please refer ::dsDisplayQuantizationRange_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre dsVideoPortInit() and dsGetVideoPort() must be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
 dsError_t dsGetCurrentOutputSettings(intptr_t handle, dsHDRStandard_t *video_eotf, dsDisplayMatrixCoefficients_t *matrix_coefficients, dsDisplayColorSpace_t *color_space, unsigned int *color_depth, dsDisplayQuantizationRange_t *quantization_range)
 {
     hal_info("invoked.\n");
@@ -1612,9 +1869,122 @@ dsError_t dsGetCurrentOutputSettings(intptr_t handle, dsHDRStandard_t *video_eot
         hal_err("handle(%p) is invalid or one of the params is NULL.\n", handle);
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+
+    VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
+    if (vopHandle->m_vType != dsVIDEOPORT_TYPE_HDMI) {
+        return dsERR_OPERATION_NOT_SUPPORTED;
+    }
+
+    /* Query display state once and reuse for all output settings determinations.
+     * This is more efficient than calling individual getter functions which would
+     * query TVService multiple times. */
+    TV_DISPLAY_STATE_T tvstate;
+    if (tvsvc_client_get_display_state(&tvstate) != 0) {
+        hal_err("Failed to get display state for output settings determination.\n");
+        return dsERR_GENERAL;
+    }
+
+    if (!(tvstate.state & VC_HDMI_ATTACHED)) {
+        hal_warn("HDMI not attached; cannot determine output settings.\n");
+        *video_eotf = dsHDRSTANDARD_SDR;
+        *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_UNKNOWN;
+        *color_space = dsDISPLAY_COLORSPACE_UNKNOWN;
+        *color_depth = dsDISPLAY_COLORDEPTH_8BIT;
+        *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_UNKNOWN;
+        return dsERR_NONE;
+    }
+
+    /* Video EOTF: RPi4 only supports SDR. */
+    *video_eotf = dsHDRSTANDARD_SDR;
+
+    /* Matrix Coefficients: Infer from pixel encoding and resolution per HDMI standards. */
+    uint16_t pixel_encoding = tvstate.display.hdmi.pixel_encoding;
+    uint32_t height = tvstate.display.hdmi.height;
+
+    if (pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_LIMITED ||
+        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_FULL ||
+        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_LIMITED ||
+        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_FULL) {
+        if (height >= 720) {
+            *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_BT_709;
+        } else {
+            *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_BT_470_2_BG;
+        }
+    }
+    else if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_LIMITED) {
+        *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_eHDMI_RGB;
+    }
+    else if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_FULL) {
+        *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_eDVI_FR_RGB;
+    }
+    else {
+        hal_warn("Unknown pixel encoding %u; defaulting to BT.709.\n", pixel_encoding);
+        *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_BT_709;
+    }
+
+    /* Color Space: Infer from pixel encoding per HDMI standards. */
+    if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_LIMITED ||
+        pixel_encoding == HDMI_PIXEL_ENCODING_RGB_FULL) {
+        *color_space = dsDISPLAY_COLORSPACE_RGB;
+    }
+    else if (pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_LIMITED ||
+             pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_FULL) {
+        *color_space = dsDISPLAY_COLORSPACE_YCbCr422;
+    }
+    else if (pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_LIMITED ||
+             pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_FULL) {
+        *color_space = dsDISPLAY_COLORSPACE_YCbCr444;
+    }
+    else {
+        hal_warn("Unknown pixel encoding %u in color space determination.\n", pixel_encoding);
+        *color_space = dsDISPLAY_COLORSPACE_UNKNOWN;
+    }
+
+    /* Color Depth: RPi4 HDMI output is limited to 8-bit color depth across all resolutions. */
+    *color_depth = dsDISPLAY_COLORDEPTH_8BIT;
+
+    /* Quantization Range: Infer from pixel encoding suffix (LIMITED vs FULL). */
+    if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_LIMITED ||
+        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_LIMITED ||
+        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_LIMITED) {
+        *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_LIMITED;
+    }
+    else if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_FULL ||
+             pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_FULL ||
+             pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_FULL) {
+        *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_FULL;
+    }
+    else {
+        hal_warn("Unknown pixel encoding %u in quantization range determination.\n", pixel_encoding);
+        *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_UNKNOWN;
+    }
+
+    hal_dbg("Current output settings: EOTF=%u, MatrixCoeff=%u, ColorSpace=%u, ColorDepth=0x%x, QuantRange=%u\n",
+            *video_eotf, *matrix_coefficients, *color_space, *color_depth, *quantization_range);
+    return dsERR_NONE;
 }
 
+/**
+ * @brief Checks if video output is HDR or not.
+ *
+ * This function checks if the video output is HDR or not.
+ *
+ * @param[in] handle    - Handle of the video port returned from dsGetVideoPort()
+ * @param [out] hdr     - pointer to HDR support status.( @a true if output is HDR, @a false otherwise )
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre dsVideoPortInit() and dsGetVideoPort() must be called before calling this API.
+ *
+ * @see dsGetTVHDRCapabilities()
+ *
+ * @warning  This API is Not thread safe.
+ */
 dsError_t dsIsOutputHDR(intptr_t handle, bool *hdr)
 {
     hal_info("invoked.\n");
@@ -1625,18 +1995,84 @@ dsError_t dsIsOutputHDR(intptr_t handle, bool *hdr)
         hal_err("handle(%p) is invalid or hdr(%p) is null.\n", handle, hdr);
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+
+    VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
+    if (vopHandle->m_vType != dsVIDEOPORT_TYPE_HDMI) {
+        return dsERR_OPERATION_NOT_SUPPORTED;
+    }
+
+    TV_DISPLAY_STATE_T tvstate;
+    if (tvsvc_client_get_display_state(&tvstate) != 0) {
+        hal_err("Failed to get display state for HDR check.\n");
+        return dsERR_GENERAL;
+    }
+
+    if (!(tvstate.state & VC_HDMI_ATTACHED)) {
+        hal_warn("HDMI not attached; cannot determine HDR support.\n");
+        *hdr = false;
+        return dsERR_NONE;
+    }
+
+    /* RPi4 HDMI output is SDR-only. VideoCore VI does not support any HDR standards
+     * (HDR10, HLG, Dolby Vision, HDR10+, etc.). Output is always SDR. */
+    *hdr = false;
+
+    hal_dbg("HDR output: %s (RPi4 supports SDR only)\n", *hdr ? "true" : "false");
+    return dsERR_NONE;
 }
 
+/**
+ * @brief Resets Video Output to SDR.
+ *
+ * For sink devices, this function returns dsERR_OPERATION_NOT_SUPPORTED always.
+ *
+ * For source devices, this function resets the video output to SDR.
+ * It forces and locks the HDMI output to SDR mode regardless of the source content format
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre dsVideoPortInit() must be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
 dsError_t dsResetOutputToSDR()
 {
     hal_info("invoked.\n");
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
+
+    /* RPi4 HDMI output is strictly SDR-only; there is no HDR mode to reset from.
+     * Forcing SDR output is not applicable on hardware that doesn't support HDR. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Sets the preferred HDMI Protocol of the specified video port.
+ *
+ * This function sets the preferred HDMI Protocol of the specified video port.
+ *
+ * @param[in] handle                    - Handle of the video port returned from dsGetVideoPort()
+ * @param[in] hdcpCurrentProtocol       - HDCP protocol to be set.  Please refer ::dsHdcpProtocolVersion_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre dsVideoPortInit() and dsGetVideoPort() must be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetHdmiPreference()
+ */
 dsError_t dsSetHdmiPreference(intptr_t handle, dsHdcpProtocolVersion_t *hdcpCurrentProtocol)
 {
     hal_info("invoked.\n");
@@ -1646,36 +2082,44 @@ dsError_t dsSetHdmiPreference(intptr_t handle, dsHdcpProtocolVersion_t *hdcpCurr
         return dsERR_NOT_INITIALIZED;
     }
 
+    // also verify hdcpCurrentProtocol is a valid pointer and value
     if (hdcpCurrentProtocol == NULL || !isValidVopHandle(handle)) {
         hal_err("Invalid handle (%p) or NULL hdcpCurrentProtocol (%p).\n",
                 (void *)handle, (void *)hdcpCurrentProtocol);
         return dsERR_INVALID_PARAM;
     }
 
-    if (*hdcpCurrentProtocol >= dsHDCP_VERSION_MAX) {
-        hal_err("%s: hdcpCurrentProtocol(%d) is out of range\n",
-                __FUNCTION__, *hdcpCurrentProtocol);
+    if (*hdcpCurrentProtocol < dsHDCP_VERSION_1X || *hdcpCurrentProtocol >= dsHDCP_VERSION_MAX) {
+        hal_err("Invalid HDCP protocol version specified: %d.\n", *hdcpCurrentProtocol);
         return dsERR_INVALID_PARAM;
     }
 
-    switch (*hdcpCurrentProtocol) {
-        case dsHDCP_VERSION_1X:
-            hdcp_defaultVersion = 1;   // HDCP 1.x
-            break;
-        case dsHDCP_VERSION_2X:
-            hdcp_defaultVersion = 2;   // HDCP 2.x
-            break;
-        default:
-            hal_err("%s: Unknown HDCP protocol version: %d\n",
-                    __FUNCTION__, *hdcpCurrentProtocol);
-            return dsERR_INVALID_PARAM;
-    }
-
-    hal_info("%s: hdcp_defaultVersion set to %d\n", __FUNCTION__, hdcp_defaultVersion);
-
-    return dsERR_NONE;
+    /* RPi4 does not support HDCP. HDCP protection is not available on this platform. */
+    hal_warn("HDCP protocol preference requested, but HDCP is not supported on RPi4.\n");
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Gets the preferred HDMI Protocol version of specified video port.
+ *
+ * This function is used to get the preferred HDMI protocol version of the specified video port.
+ *
+ * @param[in] handle                    - Handle of the video port returned from dsGetVideoPort()
+ * @param [out] hdcpCurrentProtocol     - Preferred HDMI Protocol.  Please refer ::dsHdcpProtocolVersion_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre dsVideoPortInit() and dsGetVideoPort() must be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetHdmiPreference()
+ */
 dsError_t dsGetHdmiPreference(intptr_t handle, dsHdcpProtocolVersion_t *hdcpCurrentProtocol)
 {
     hal_info("invoked.\n");
@@ -1689,6 +2133,28 @@ dsError_t dsGetHdmiPreference(intptr_t handle, dsHdcpProtocolVersion_t *hdcpCurr
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Gets the IgnoreEDID status variable set in the device.
+ *
+ * For sink devices, this function returns dsERR_OPERATION_NOT_SUPPORTED always.
+ * For source devices, this function is used to retrieve the status variable in order to determine whether to ignore the EDID data.
+ * Used by caller to decide whether it should handle the hdmi resolution settings or not after hdcp Authentication.
+ * If platform doesn't want to set the status, then returns dsERR_OPERATION_NOT_SUPPORTED.
+ *
+ * @param[in] handle        - Handle of the video port returned from dsGetVideoPort()
+ * @param [out] status      - Status of IgnoreEDID variable, ( @a true if EDID data ccan be ignored, @a false otherwise )
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre dsVideoPortInit() and dsGetVideoPort() must be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
 dsError_t dsGetIgnoreEDIDStatus(intptr_t handle, bool *status)
 {
     hal_info("invoked.\n");
@@ -1699,23 +2165,91 @@ dsError_t dsGetIgnoreEDIDStatus(intptr_t handle, bool *status)
         hal_err("handle(%p) is invalid or status(%p) is null.\n", handle, status);
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+
+    VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
+    if (vopHandle->m_vType != dsVIDEOPORT_TYPE_HDMI) {
+        return dsERR_OPERATION_NOT_SUPPORTED;
+    }
+
+    /* RPi4 is a source device. Return the stored EDID ignore status. */
+    *status = _bIgnoreEDID;
+
+    hal_dbg("EDID ignore status: %s\n", *status ? "true" : "false");
+    return dsERR_NONE;
 }
 
+/**
+ * @brief Sets the background color of the specified video port.
+ *
+ * For sink devices, this function returns dsERR_OPERATION_NOT_SUPPORTED always.
+ *
+ * For source devices, this function sets the background color of the specified video port.
+ *
+ * @param[in] handle    - Handle of the video port returned from dsGetVideoPort()
+ * @param[in] color     - Background color to be set.  Please refer ::dsVideoBackgroundColor_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre dsVideoPortInit() and dsGetVideoPort() must be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
 dsError_t dsSetBackgroundColor(intptr_t handle, dsVideoBackgroundColor_t color)
 {
     hal_info("invoked.\n");
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (!isValidVopHandle(handle) || color != dsVIDEO_BGCOLOR_BLUE
-            || color != dsVIDEO_BGCOLOR_BLACK || color != dsVIDEO_BGCOLOR_NONE) {
-        hal_err("handle(%p) is invalid or color(%d) is invalid.\n", handle, color);
+    if (!isValidVopHandle(handle)) {
+        hal_err("handle(%p) is invalid.\n", handle);
         return dsERR_INVALID_PARAM;
     }
+
+    /* Validate color is in valid range (0-2); MAX is a sentinel value. */
+    if (color >= dsVIDEO_BGCOLOR_MAX) {
+        hal_err("Invalid background color value: %d.\n", color);
+        return dsERR_INVALID_PARAM;
+    }
+
+    VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
+    if (vopHandle->m_vType != dsVIDEOPORT_TYPE_HDMI) {
+        return dsERR_OPERATION_NOT_SUPPORTED;
+    }
+
+    /* RPi4 VideoCore VI does not support background color control via TVService.
+     * This feature is not available on this platform. */
+    hal_warn("Background color setting requested, but not supported on RPi4.\n");
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Sets/Resets the force HDR mode.
+ *
+ * For sink devices, this function returns dsERR_OPERATION_NOT_SUPPORTED always.
+ *
+ * For source devices, this function is used to set/reset force HDR mode for the specified video port.
+ * It forces and locks the HDMI output to a specified HDR mode regardless of the source content format,
+ * if the mode dsHDRSTANDARD_NONE is set, then the HDMI output to follow source contnet format.
+ *
+ * @param[in] handle    - Handle of the video port returned from dsGetVideoPort()
+ * @param[in] mode      - HDR mode to be forced.  Please refer ::dsHDRStandard_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre dsVideoPortInit() and dsGetVideoPort() must be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
 dsError_t dsSetForceHDRMode(intptr_t handle, dsHDRStandard_t mode)
 {
     hal_info("invoked.\n");
@@ -1735,32 +2269,118 @@ dsError_t dsSetForceHDRMode(intptr_t handle, dsHDRStandard_t mode)
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Gets the color depth capabilities of the specified video port
+ *
+ * For sink devices, this function returns dsERR_OPERATION_NOT_SUPPORTED always.
+ * For source devices, this function is used to get the color depth capabilities of the specified video port.
+ *
+ * @param[in] handle                    - Handle of the video port returned from dsGetVideoPort()
+ * @param [out] colorDepthCapability    - OR-ed value of supported color depth standards.  Please refer ::dsDisplayColorDepth_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre dsVideoPortInit() and dsGetVideoPort() must be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
 dsError_t dsColorDepthCapabilities(intptr_t handle, unsigned int *colorDepthCapability )
 {
     hal_info("invoked.\n");
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (colorDepthCapability == NULL ||!isValidVopHandle(handle)) {
+    if (colorDepthCapability == NULL || !isValidVopHandle(handle)) {
         hal_err("handle(%p) is invalid or colorDepthCapability(%p) is null.\n", handle, colorDepthCapability);
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+
+    VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
+    if (vopHandle->m_vType != dsVIDEOPORT_TYPE_HDMI) {
+        return dsERR_OPERATION_NOT_SUPPORTED;
+    }
+
+    /* RPi4 HDMI output is limited to 8-bit color depth across all modes and resolutions.
+     * VideoCore VI does not support 10-bit or 12-bit deep color output. */
+    *colorDepthCapability = dsDISPLAY_COLORDEPTH_8BIT;
+
+    hal_dbg("Color depth capabilities: 0x%x\n", *colorDepthCapability);
+    return dsERR_NONE;
 }
 
+/**
+ * @brief Gets the preferred color depth values.
+ *
+ * For sink devices, this function returns dsERR_OPERATION_NOT_SUPPORTED always.
+ * For source devices, this function is used to get the preferred color depth of the specified video port.
+ * Typically for UHD resolution, the color depth is 10/12-bit, while for non-UHD resolutions, it is 8-bit.
+ *
+ * @param[in] handle        - Handle of the video port returned from dsGetVideoPort()
+ * @param [out] colorDepth  - color depth value.  Please refer ::dsDisplayColorDepth_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre dsVideoPortInit() and dsGetVideoPort() must be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetPreferredColorDepth()
+ */
 dsError_t dsGetPreferredColorDepth(intptr_t handle, dsDisplayColorDepth_t *colorDepth)
 {
     hal_info("invoked.\n");
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (colorDepth == NULL ||!isValidVopHandle(handle)) {
+    if (colorDepth == NULL || !isValidVopHandle(handle)) {
         hal_err("handle(%p) is invalid or colorDepth(%p) is null.\n", handle, colorDepth);
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+
+    VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
+    if (vopHandle->m_vType != dsVIDEOPORT_TYPE_HDMI) {
+        return dsERR_OPERATION_NOT_SUPPORTED;
+    }
+
+    /* RPi4 only supports 8-bit color depth; 8BIT is both the capability and the preferred depth. */
+    *colorDepth = dsDISPLAY_COLORDEPTH_8BIT;
+
+    hal_dbg("Preferred color depth: 0x%x\n", *colorDepth);
+    return dsERR_NONE;
 }
 
+/**
+ * @brief Sets the preferred color depth for the specified video port.
+ *
+ * For sink devices, this function returns dsERR_OPERATION_NOT_SUPPORTED always
+ * For source devices, this function is used to set the preferred color depth for the specified video port.
+ *
+ * @param[in] handle        - Handle of the video port returned from dsGetVideoPort()
+ * @param[in] colorDepth    - color depth value.Please refer :: dsDisplayColorDepth_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre dsVideoPortInit() and dsGetVideoPort() must be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetPreferredColorDepth()
+ */
 dsError_t dsSetPreferredColorDepth(intptr_t handle, dsDisplayColorDepth_t colorDepth)
 {
     hal_info("invoked.\n");
@@ -1776,5 +2396,14 @@ dsError_t dsSetPreferredColorDepth(intptr_t handle, dsDisplayColorDepth_t colorD
         hal_err("colorDepth(%d) is invalid.\n", colorDepth);
         return dsERR_INVALID_PARAM;
     }
+
+    VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
+    if (vopHandle->m_vType != dsVIDEOPORT_TYPE_HDMI) {
+        return dsERR_OPERATION_NOT_SUPPORTED;
+    }
+
+    /* RPi4 color depth is hardware-fixed at 8-bit by VideoCore VI firmware.
+     * There is no TVService API to change the output color depth on this platform. */
+    hal_warn("Preferred color depth set requested, but color depth is fixed at 8-bit on RPi4.\n");
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
