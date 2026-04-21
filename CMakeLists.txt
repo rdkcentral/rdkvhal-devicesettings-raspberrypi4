@@ -39,6 +39,14 @@ else()
 	message(STATUS "ENABLE_FPD_MULTI_PROCESS_GUARD is OFF")
 endif()
 
+option(ENABLE_BROADCOM_VCOS_PIN "Pin libvcos.so lib for dshal" ON)
+if (ENABLE_BROADCOM_VCOS_PIN)
+    message(STATUS "ENABLE_BROADCOM_VCOS_PIN is ON - libvcos.so will be pinned")
+    add_definitions(-DDSHAL_ENABLE_VCOS_PIN)
+else()
+    message(STATUS "ENABLE_BROADCOM_VCOS_PIN is OFF")
+endif()
+
 # Add GIT version to the compile flags
 execute_process(
 	COMMAND git rev-parse --short HEAD
