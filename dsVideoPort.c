@@ -29,11 +29,11 @@
 #include "dsError.h"
 #include "dsTypes.h"
 #include "dsVideoPort.h"
-#include "dsVideoResolutionSettings.h"
 #include "dsDisplay.h"
 #include "dshalUtils.h"
 #include "dshalLogger.h"
 #include "interface/vmcs_host/vc_hdmi.h"
+#include "dsVideoPortSettings.h"
 
 static bool isBootup = true;
 static bool _bIsVideoPortInitialized = false;
@@ -207,7 +207,7 @@ dsError_t  dsVideoPortInit()
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_nativeHandle = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_nativeHandle);
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_index = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_index);
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_isEnabled = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_BB][0].m_isEnabled);
-    _resolution = kResolutions[kDefaultResIndex];
+    _resolution = kResolutionsSettings[kDefaultResIndex];
     int rc = vchi_tv_init();
     if (rc != 0) {
         hal_err("Failed to initialise tv service\n");

@@ -27,21 +27,20 @@
 /*
  * Setup the supported configurations here.
  */
-static const dsVideoPortType_t kSupportedPortTypes[] = { dsVIDEOPORT_TYPE_HDMI };
+dsVideoPortType_t kVideoSupportedPortTypes[] = { dsVIDEOPORT_TYPE_HDMI };
 
-static const dsVideoPortTypeConfig_t kConfigs[] = {
+dsVideoPortTypeConfig_t kVideoPortConfigs[] = {
 	{
 		/*.typeId = */					dsVIDEOPORT_TYPE_HDMI,
 		/*.name = */ 					"HDMI",
 		/*.dtcpSupported = */			false,
 		/*.hdcpSupported = */			false,
 		/*.restrictedResolution = */	-1,
-		/*.numSupportedResolutions = */ dsUTL_DIM(kResolutions), // 0 means "Info available at runtime"
-		/*.supportedResolutons = */     kResolutions,
+		/*.numSupportedResolutions = */ dsUTL_DIM(kResolutionsSettings), // 0 means "Info available at runtime"
+		/*.supportedResolutons = */     kResolutionsSettings,
 	},
 };
-
-static const dsVideoPortPortConfig_t kPorts[] = {
+dsVideoPortPortConfig_t kVideoPortPorts[] = {
 	{
 		/*.typeId = */ 					{dsVIDEOPORT_TYPE_HDMI, 0},
 		/*.connectedAOP */              {dsAUDIOPORT_TYPE_HDMI, 0},

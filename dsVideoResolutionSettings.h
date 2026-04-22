@@ -53,7 +53,7 @@
  ]
  **/
 
-static dsVideoPortResolution_t kResolutions[] = {
+dsVideoPortResolution_t kResolutionsSettings[] = {
     {   /*480p*/
         /*.name = */					"480p",
         /*.pixelResolution = */			dsVIDEO_PIXELRES_720x480,
@@ -200,7 +200,9 @@ static dsVideoPortResolution_t kResolutions[] = {
     },
 };
 
-/* Pick one resolution from kResolutions[] as default - 720p */
-static const int kDefaultResIndex = 4;
+/* Pick one resolution from kResolutionsSettings[] as default - 720p */
+int kDefaultResIndex = 4;
+
+size_t kNumResolutionsSettings = sizeof(kResolutionsSettings) / sizeof(kResolutionsSettings[0]);
 
 #endif /* VIDEORESOLUTIONSETTINGS_H_ */

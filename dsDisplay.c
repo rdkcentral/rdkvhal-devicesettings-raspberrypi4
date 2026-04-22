@@ -27,8 +27,11 @@
 #include "dsDisplay.h"
 #include "dsUtl.h"
 #include "dsError.h"
-#include "dsVideoResolutionSettings.h"
 #include "dshalLogger.h"
+
+extern dsVideoPortResolution_t kResolutionsSettings[];
+extern size_t kNumResolutionsSettings;
+
 #include "dshalUtils.h"
 #include "halif-versions.h"
 
@@ -656,11 +659,10 @@ static dsError_t dsQueryHdmiResolution()
 static dsVideoPortResolution_t* dsgetResolutionInfo(const char *res_name)
 {
     hal_info("Invoked\n");
-    size_t iCount = 0;
-    iCount = (sizeof(kResolutions) / sizeof(kResolutions[0]));
+    size_t iCount = kNumResolutionsSettings;
     for (size_t i=0; i < iCount; i++) {
-        if (!strncmp(res_name, kResolutions[i].name, strlen(res_name))) {
-            return &kResolutions[i];
+        if (!strncmp(res_name, kResolutionsSettings[i].name, strlen(res_name))) {
+            return &kResolutionsSettings[i];
         }
     }
     return NULL;
