@@ -22,6 +22,10 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <time.h>
+#include <dirent.h>
+#include <errno.h>
+#include <limits.h>
+#include <pthread.h>
 
 #include "dsTypes.h"
 #include "dsDisplay.h"
@@ -38,6 +42,160 @@ dsVideoPortResolution_t *HdmiSupportedResolution = NULL;
 static unsigned int numSupportedResn = 0;
 static bool _bDisplayInited = false;
 static bool isBootup = true;
+
+/* DRM/KMS sysfs helper functions */
+static bool read_sysfs_line(const char *path, char *buf, size_t len)
+{
+    FILE *fp = fopen(path, "r");
+    if (!fp) return false;
+    bool ret = (fgets(buf, len, fp) != NULL);
+    fclose(fp);
+    if (ret) {
+        char *nl = strchr(buf, '\n');
+        if (nl) *nl = '\0';
+    }
+    return ret;
+}
+
+static void resolve_drm_card_name(char *cardName, size_t len)
+{
+    const char *envCard = getenv("WESTEROS_DRM_CARD");
+    if (envCard) {
+        snprintf(cardName, len, "%s", envCard);
+        return;
+    }
+    snprintf(cardName, len, "%s", "card0");
+}
+
+static bool drm_get_hdmi_connector_state(bool *connected, bool *enabled)
+{
+    if (!connected || !enabled) return false;
+
+    char cardName[PATH_MAX];
+    char statusPath[PATH_MAX];
+    char enabledPath[PATH_MAX];
+    char line[32];
+
+    resolve_drm_card_name(cardName, sizeof(cardName));
+    *connected = false;
+    *enabled = false;
+
+    DIR *drmDir = opendir("/sys/class/drm");
+    if (!drmDir) return false;
+
+    struct dirent *entry;
+    while ((entry = readdir(drmDir))) {
+        snprintf(statusPath, sizeof(statusPath), "/sys/class/drm/%s/status", entry->d_name);
+        if (strstr(entry->d_name, "HDMI-A")) {
+            if (!read_sysfs_line(statusPath, line, sizeof(line))) {
+                continue;
+            }
+            if (strcmp(line, "connected") == 0) {
+                *connected = true;
+            }
+            snprintf(enabledPath, sizeof(enabledPath), "/sys/class/drm/%s/enabled", entry->d_name);
+            if (read_sysfs_line(enabledPath, line, sizeof(line))) {
+                *enabled = (strcmp(line, "enabled") == 0 || strcmp(line, "1") == 0);
+            }
+            break;
+        }
+    }
+    closedir(drmDir);
+    return true;
+}
+
+/* HDMI Connection watcher thread state */
+static pthread_t gHdmiWatcherThread = (pthread_t)(-1);
+static bool gHdmiWatcherRunning = false;
+static bool gLastHdmiConnected = false;
+static pthread_mutex_t gHdmiWatcherMutex = PTHREAD_MUTEX_INITIALIZER;
+static const int HDMI_WATCHER_POLL_INTERVAL_MS = 500;
+
+static void* hdmi_watcher_thread(void *arg)
+{
+    VDISPHandle_t *hdmiHandle = (VDISPHandle_t *)arg;
+    bool currentConnected = false, currentEnabled = false;
+    bool lastConnected = false;
+    unsigned char eventData = 0;
+
+    hal_info("HDMI watcher thread started\n");
+
+    while (gHdmiWatcherRunning) {
+        if (drm_get_hdmi_connector_state(&currentConnected, &currentEnabled)) {
+            pthread_mutex_lock(&gHdmiWatcherMutex);
+
+            /* Detect state change */
+            if (currentConnected != lastConnected) {
+                hal_info("HDMI connection state changed: connected=%d (was %d)\n", currentConnected, lastConnected);
+                lastConnected = currentConnected;
+                gLastHdmiConnected = currentConnected;
+
+                if (NULL != _halcallback && hdmiHandle) {
+                    if (currentConnected) {
+                        hal_dbg("HDMI cable connected, triggering CONNECTED event\n");
+                        _halcallback((int)(hdmiHandle->m_nativeHandle), dsDISPLAY_EVENT_CONNECTED, &eventData);
+                    } else {
+                        hal_dbg("HDMI cable disconnected, triggering DISCONNECTED event\n");
+                        _halcallback((int)(hdmiHandle->m_nativeHandle), dsDISPLAY_EVENT_DISCONNECTED, &eventData);
+                    }
+                } else {
+                    hal_warn("_halcallback is NULL or hdmiHandle is NULL, cannot report event\n");
+                }
+            }
+
+            pthread_mutex_unlock(&gHdmiWatcherMutex);
+        } else {
+            hal_warn("Failed to read HDMI connector state\n");
+        }
+
+        /* Sleep before next poll */
+        usleep(HDMI_WATCHER_POLL_INTERVAL_MS * 1000);
+    }
+
+    hal_info("HDMI watcher thread terminated\n");
+    return NULL;
+}
+
+static bool start_hdmi_watcher(VDISPHandle_t *hdmiHandle)
+{
+    if (gHdmiWatcherRunning) {
+        hal_warn("HDMI watcher already running\n");
+        return true;
+    }
+
+    gHdmiWatcherRunning = true;
+    int ret = pthread_create(&gHdmiWatcherThread, NULL, hdmi_watcher_thread, (void *)hdmiHandle);
+    if (ret != 0) {
+        hal_err("Failed to create HDMI watcher thread: %d\n", ret);
+        gHdmiWatcherRunning = false;
+        return false;
+    }
+
+    hal_info("HDMI watcher thread created successfully\n");
+    return true;
+}
+
+static bool stop_hdmi_watcher(void)
+{
+    if (!gHdmiWatcherRunning) {
+        return true;
+    }
+
+    gHdmiWatcherRunning = false;
+
+    if (gHdmiWatcherThread != (pthread_t)(-1)) {
+        int ret = pthread_join(gHdmiWatcherThread, NULL);
+        if (ret != 0) {
+            hal_err("Failed to join HDMI watcher thread: %d\n", ret);
+        }
+        gHdmiWatcherThread = (pthread_t)(-1);
+    }
+
+    hal_info("HDMI watcher thread stopped\n");
+    return true;
+}
+
+
 static dsError_t dsQueryHdmiResolution();
 TV_SUPPORTED_MODE_T dsVideoPortgetVideoFormatFromInfo(dsVideoResolution_t res,
         unsigned frameRate, bool interlaced);
@@ -140,6 +298,12 @@ dsError_t dsDisplayInit()
     }
     /*Query the HDMI Resolution */
     dsQueryHdmiResolution();
+
+    /* Start HDMI connection watcher thread */
+    if (!start_hdmi_watcher(&_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0])) {
+        hal_warn("Failed to start HDMI watcher thread, continuing without active monitoring\n");
+    }
+
     _bDisplayInited = true;
     return dsERR_NONE;
 }
@@ -188,12 +352,20 @@ dsError_t dsGetDisplayAspectRatio(intptr_t handle, dsVideoAspectRatio_t *aspect)
     hal_info("Invoked\n");
     TV_DISPLAY_STATE_T tvstate;
     VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
+    bool drmConnected = false, drmEnabled = false;
+
     if (false == _bDisplayInited) {
         return dsERR_NOT_INITIALIZED;
     }
     if (!dsIsValidVDispHandle((intptr_t)vDispHandle) || NULL == aspect) {
         hal_err("Invalid params, handle %p, aspect %p\n", vDispHandle, aspect);
         return dsERR_INVALID_PARAM;
+    }
+
+    /* Check DRM connectivity before attempting to read display state */
+    if (!drm_get_hdmi_connector_state(&drmConnected, &drmEnabled) || !drmConnected) {
+        hal_warn("HDMI not connected (DRM), cannot get aspect ratio\n");
+        return dsERR_GENERAL;
     }
 
     if (tvsvc_client_get_display_state(&tvstate) == 0) {
@@ -221,6 +393,7 @@ dsError_t dsGetDisplayAspectRatio(intptr_t handle, dsVideoAspectRatio_t *aspect)
     hal_dbg("Aspect ratio is %d\n", *aspect);
     return dsERR_NONE;
 }
+
 
 #if RDK_HALIF_DEVICE_SETTINGS_VERSION >= 0x05010000
 /**
@@ -489,6 +662,7 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
     hal_info("Invoked\n");
     TV_DISPLAY_STATE_T tvstate;
     VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
+    bool drmConnected = false, drmEnabled = false;
 
     if (false == _bDisplayInited) {
         return dsERR_NOT_INITIALIZED;
@@ -497,6 +671,12 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
     if (!dsIsValidVDispHandle((intptr_t)vDispHandle) || NULL == edid) {
         hal_err("Invalid params, handle %p, edid %p\n", vDispHandle, edid);
         return dsERR_INVALID_PARAM;
+    }
+
+    /* Check DRM connectivity before attempting EDID read */
+    if (!drm_get_hdmi_connector_state(&drmConnected, &drmEnabled) || !drmConnected) {
+        hal_warn("HDMI not connected (DRM), cannot read EDID\n");
+        return dsERR_NONE;
     }
 
     if (tvsvc_client_get_display_state(&tvstate) != 0) {
@@ -565,6 +745,10 @@ dsError_t dsDisplayTerm()
     if (false == _bDisplayInited) {
         return dsERR_NOT_INITIALIZED;
     }
+
+    /* Stop HDMI connection watcher thread */
+    stop_hdmi_watcher();
+
     tvsvc_client_unregister_callback((tvsvc_client_cb_t)tvservice_callback);
     tvsvc_release();
     if (HdmiSupportedResolution) {
@@ -764,6 +948,7 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
     int i, extensions = 0;
     TV_DISPLAY_STATE_T tvstate;
     VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
+    bool drmConnected = false, drmEnabled = false;
 
     if (false == _bDisplayInited) {
         return dsERR_NOT_INITIALIZED;
@@ -774,6 +959,12 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
     } else if (!dsIsValidVDispHandle((intptr_t)vDispHandle) || vDispHandle != &_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0]) {
         hal_err("invalid handle\n");
         return dsERR_INVALID_PARAM;
+    }
+
+    /* Check DRM connectivity before attempting EDID read */
+    if (!drm_get_hdmi_connector_state(&drmConnected, &drmEnabled) || !drmConnected) {
+        hal_warn("HDMI not connected (DRM), cannot read EDID bytes\n");
+        return dsERR_NONE;
     }
 
     if (tvsvc_client_get_display_state(&tvstate) != 0) {

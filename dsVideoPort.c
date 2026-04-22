@@ -24,6 +24,9 @@
 #include <unistd.h>
 #include <string.h>
 #include <pthread.h>
+#include <dirent.h>
+#include <errno.h>
+#include <limits.h>
 
 #include "dsUtl.h"
 #include "dsError.h"
@@ -91,6 +94,94 @@ static VOPHandle_t _vopHandles[dsVIDEOPORT_TYPE_MAX][2] = {};
 
 static dsVideoPortResolution_t _resolution;
 static bool _bIgnoreEDID = false;
+
+static bool read_sysfs_line(const char *path, char *buf, size_t len)
+{
+    FILE *fp = fopen(path, "r");
+    if (fp == NULL) {
+        return false;
+    }
+
+    if (fgets(buf, (int)len, fp) == NULL) {
+        fclose(fp);
+        return false;
+    }
+
+    fclose(fp);
+    buf[strcspn(buf, "\r\n")] = '\0';
+    return true;
+}
+
+static void resolve_drm_card_name(char *cardName, size_t len)
+{
+    const char *cardPath = getenv("WESTEROS_DRM_CARD");
+    if (cardPath == NULL || cardPath[0] == '\0') {
+        cardPath = DRI_CARD;
+    }
+
+    const char *slash = strrchr(cardPath, '/');
+    const char *base = (slash != NULL) ? (slash + 1) : cardPath;
+
+    snprintf(cardName, len, "%s", base);
+}
+
+static bool drm_get_hdmi_connector_state(bool *connected, bool *enabled)
+{
+    DIR *dir;
+    struct dirent *entry;
+    char cardName[32] = {0};
+    char statusPath[PATH_MAX] = {0};
+    char enabledPath[PATH_MAX] = {0};
+    char line[64] = {0};
+    bool found = false;
+
+    if (connected == NULL || enabled == NULL) {
+        return false;
+    }
+
+    resolve_drm_card_name(cardName, sizeof(cardName));
+
+    dir = opendir("/sys/class/drm");
+    if (dir == NULL) {
+        return false;
+    }
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_name[0] == '.') {
+            continue;
+        }
+
+        if (strncmp(entry->d_name, cardName, strlen(cardName)) != 0) {
+            continue;
+        }
+
+        if (strstr(entry->d_name, "HDMI-A-") == NULL) {
+            continue;
+        }
+
+        snprintf(statusPath, sizeof(statusPath), "/sys/class/drm/%s/status", entry->d_name);
+        if (!read_sysfs_line(statusPath, line, sizeof(line))) {
+            continue;
+        }
+
+        *connected = (strcmp(line, "connected") == 0);
+
+        snprintf(enabledPath, sizeof(enabledPath), "/sys/class/drm/%s/enabled", entry->d_name);
+        if (read_sysfs_line(enabledPath, line, sizeof(line))) {
+            *enabled = (strcmp(line, "enabled") == 0);
+        } else {
+            *enabled = false;
+        }
+
+        found = true;
+        if (*connected) {
+            break;
+        }
+    }
+
+    closedir(dir);
+    return found;
+}
 
 static void populate_output_settings_from_tvstate(const TV_DISPLAY_STATE_T *tvstate,
         dsDisplayMatrixCoefficients_t *matrix_coefficients,
@@ -399,7 +490,10 @@ dsError_t dsIsVideoPortEnabled(intptr_t handle, bool *enabled)
 {
     hal_info("invoked.\n");
     VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
-    if(false == _bIsVideoPortInitialized)
+    bool drmConnected = false;
+    bool drmEnabled = false;
+
+    if (false == _bIsVideoPortInitialized)
     {
         return dsERR_NOT_INITIALIZED;
     }
@@ -409,14 +503,18 @@ dsError_t dsIsVideoPortEnabled(intptr_t handle, bool *enabled)
         hal_err("handle(%p) is invalid or enabled(%p) is null.\n", handle, enabled);
         return dsERR_INVALID_PARAM;
     }
-    if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI)
-    {
-        *enabled = vopHandle->m_isEnabled;
-    }
-    else
+
+    if (vopHandle->m_vType != dsVIDEOPORT_TYPE_HDMI)
     {
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
+
+    if (drm_get_hdmi_connector_state(&drmConnected, &drmEnabled)) {
+        (void)drmConnected;
+        vopHandle->m_isEnabled = drmEnabled;
+    }
+
+    *enabled = vopHandle->m_isEnabled;
     return dsERR_NONE;
 }
 
@@ -460,41 +558,26 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
     }
 
     VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
-    int res = 0;
 
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
-        // Try westeros-gl-console first, if it fails, fall back to daemon
-        // (tvsvc_client_hdmi_power_on_preferred). Until RPI stack is fully
-        // aligned to DRM/KMS, we need this workaround.
         char cmd[256] = {0};
         char resp[256] = {0};
         const char *xdgRuntimeDir = getXDGRuntimeDir();
+
         if (xdgRuntimeDir == NULL) {
             hal_err("Failed to get XDG_RUNTIME_DIR\n");
             return dsERR_GENERAL;
         }
+
         if ((strlen("export XDG_RUNTIME_DIR=") + strlen(xdgRuntimeDir) + strlen("; westeros-gl-console set display enable ") + 3) > (sizeof(cmd) - 1)) {
             hal_err("Command buffer is too small\n");
             return dsERR_GENERAL;
         }
+
         snprintf(cmd, sizeof(cmd), "export XDG_RUNTIME_DIR=%s; westeros-gl-console set display enable %d", xdgRuntimeDir, enabled);
         if (!westerosRWWrapper(cmd, resp, sizeof(resp))) {
             hal_err("Failed to run '%s', got response '%s'\n", cmd, resp);
-            // RDKShell might not have started westeros.
-            if (enabled) {
-                res = tvsvc_client_hdmi_power_on_preferred();
-                if (res != 0) {
-                    hal_err("Failed to power on HDMI with preferred settings\n");
-                    return dsERR_GENERAL;
-                }
-            } else {
-                sleep(1);
-                res = tvsvc_client_tv_power_off();
-                if (res != 0) {
-                    hal_err("Failed to disable HDMI video port\n");
-                    return dsERR_GENERAL;
-                }
-            }
+            return dsERR_GENERAL;
         }
     } else {
         hal_err("Unsupported video port type: %d\n", vopHandle->m_vType);
@@ -535,7 +618,9 @@ dsError_t dsIsDisplayConnected(intptr_t handle, bool *connected)
 {
     hal_info("invoked.\n");
     VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
-    TV_DISPLAY_STATE_T tvstate;
+    bool drmConnected = false;
+    bool drmEnabled = false;
+
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
@@ -543,36 +628,22 @@ dsError_t dsIsDisplayConnected(intptr_t handle, bool *connected)
         hal_err("handle(%p) is invalid or connected(%p) is null.\n", handle, connected);
         return dsERR_INVALID_PARAM;
     }
-    /*Default is false*/
+
     *connected = false;
 
-    if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
-        hal_dbg("Isdisplayconnected HDMI port\n");
-        int ret = tvsvc_client_get_display_state(&tvstate);
-        if (ret == 0) {
-            hal_dbg("tvsvc_client_get_display_state: 0x%x\n", tvstate.state);
-            if (tvstate.state & VC_HDMI_UNPLUGGED) {
-                hal_dbg("HDMI is not connected\n");
-                *connected = false;
-            } else if (tvstate.state & (VC_HDMI_ATTACHED | VC_HDMI_DVI | VC_HDMI_HDMI)) {
-                uint8_t edid[EDID_BLOCK_SIZE] = {0};
-                int readLen = tvsvc_client_ddc_read(0, sizeof(edid), edid);
-                if (readLen == (int)sizeof(edid)) {
-                    hal_dbg("HDMI is connected\n");
-                    *connected = true;
-                } else {
-                    hal_err("EDID DDC read failed, len=%d\n", readLen);
-                }
-            } else {
-                hal_err("Unrecognized HDMI state: 0x%x\n", tvstate.state);
-            }
-        } else {
-            hal_err("tvsvc_client_get_display_state failed, ret=%d\n", ret);
-            return dsERR_GENERAL;
-        }
-    } else {
+    if (vopHandle->m_vType != dsVIDEOPORT_TYPE_HDMI) {
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
+
+    if (!drm_get_hdmi_connector_state(&drmConnected, &drmEnabled)) {
+        hal_err("Unable to read DRM HDMI connector state\n");
+        return dsERR_GENERAL;
+    }
+
+    vopHandle->m_isEnabled = drmEnabled;
+    *connected = drmConnected;
+
+    hal_dbg("DRM HDMI state: connected=%d enabled=%d\n", drmConnected, drmEnabled);
     return dsERR_NONE;
 }
 
