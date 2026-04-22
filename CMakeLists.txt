@@ -11,7 +11,7 @@ option(ENABLE_DSHAL_SINGLETON_GUARD "Enable process-wide singleton guard for dsh
 
 set(DEFAULT_BUILD_TYPE "Release")
 
-option(DRI_CARD "Path to the dri device" "/dev/dri/card0")
+set(DRI_CARD "/dev/dri/card0" CACHE STRING "Path to the dri device")
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 	message(STATUS "Setting build type to '${DEFAULT_BUILD_TYPE}' as none was specified.")

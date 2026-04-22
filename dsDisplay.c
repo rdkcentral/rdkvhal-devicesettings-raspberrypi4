@@ -62,12 +62,15 @@ static bool read_sysfs_line(const char *path, char *buf, size_t len)
 
 static void resolve_drm_card_name(char *cardName, size_t len)
 {
-    const char *envCard = getenv("WESTEROS_DRM_CARD");
-    if (envCard) {
-        snprintf(cardName, len, "%s", envCard);
-        return;
+    const char *cardPath = getenv("WESTEROS_DRM_CARD");
+    if (cardPath == NULL || cardPath[0] == '\0') {
+        cardPath = DRI_CARD;
     }
-    snprintf(cardName, len, "%s", "card0");
+
+    const char *slash = strrchr(cardPath, '/');
+    const char *base = (slash != NULL) ? (slash + 1) : cardPath;
+
+    snprintf(cardName, len, "%s", base);
 }
 
 static bool drm_get_hdmi_connector_state(bool *connected, bool *enabled)
@@ -78,6 +81,9 @@ static bool drm_get_hdmi_connector_state(bool *connected, bool *enabled)
     char statusPath[PATH_MAX];
     char enabledPath[PATH_MAX];
     char line[32];
+    bool foundConnector = false;
+    bool bestConnected = false;
+    bool bestEnabled = false;
 
     resolve_drm_card_name(cardName, sizeof(cardName));
     *connected = false;
@@ -88,22 +94,47 @@ static bool drm_get_hdmi_connector_state(bool *connected, bool *enabled)
 
     struct dirent *entry;
     while ((entry = readdir(drmDir))) {
+        bool entryConnected = false;
+        bool entryEnabled = false;
+
+        /* Restrict scanning to HDMI connectors on the selected DRM card. */
+        if (strncmp(entry->d_name, cardName, strlen(cardName)) != 0 || !strstr(entry->d_name, "HDMI-A")) {
+            continue;
+        }
+
         snprintf(statusPath, sizeof(statusPath), "/sys/class/drm/%s/status", entry->d_name);
-        if (strstr(entry->d_name, "HDMI-A")) {
-            if (!read_sysfs_line(statusPath, line, sizeof(line))) {
-                continue;
-            }
-            if (strcmp(line, "connected") == 0) {
-                *connected = true;
-            }
-            snprintf(enabledPath, sizeof(enabledPath), "/sys/class/drm/%s/enabled", entry->d_name);
-            if (read_sysfs_line(enabledPath, line, sizeof(line))) {
-                *enabled = (strcmp(line, "enabled") == 0 || strcmp(line, "1") == 0);
-            }
+        if (!read_sysfs_line(statusPath, line, sizeof(line))) {
+            continue;
+        }
+        entryConnected = (strcmp(line, "connected") == 0);
+
+        snprintf(enabledPath, sizeof(enabledPath), "/sys/class/drm/%s/enabled", entry->d_name);
+        if (read_sysfs_line(enabledPath, line, sizeof(line))) {
+            entryEnabled = (strcmp(line, "enabled") == 0 || strcmp(line, "1") == 0);
+        }
+
+        /* Prefer a connector that is both connected and enabled. */
+        if (entryConnected && entryEnabled) {
+            bestConnected = true;
+            bestEnabled = true;
+            foundConnector = true;
             break;
         }
+
+        if (!foundConnector) {
+            bestConnected = entryConnected;
+            bestEnabled = entryEnabled;
+        }
+        foundConnector = true;
     }
     closedir(drmDir);
+
+    if (!foundConnector) {
+        return false;
+    }
+
+    *connected = bestConnected;
+    *enabled = bestEnabled;
     return true;
 }
 
