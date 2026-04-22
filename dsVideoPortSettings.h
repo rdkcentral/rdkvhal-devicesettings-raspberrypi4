@@ -48,4 +48,7 @@ dsVideoPortPortConfig_t kVideoPortPorts[] = {
 	},
 };
 
+int kVideoPortConfigs_size = sizeof(kVideoPortConfigs)/sizeof(kVideoPortConfigs[0]);
+int kVideoPortPorts_size = sizeof(kVideoPortPorts)/sizeof(kVideoPortPorts[0]);
+
 #endif /* VIDEOOUTPUTPORTSETTINGS_H_ */

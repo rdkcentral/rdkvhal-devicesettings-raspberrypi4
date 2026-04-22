@@ -17,8 +17,8 @@
  * limitations under the License.
 */
 
-#ifndef __DS_FPD_SETTINGS_H__
-#define __DS_FPD_SETTINGS_H__
+#ifndef _DS_FPD_SETTINGS_H_
+#define _DS_FPD_SETTINGS_H_
 
 #include "dsTypes.h"
 
@@ -74,10 +74,11 @@ dsFPDIndicatorConfig_t kIndicators[] = {
 dsFPDTextDisplayConfig_t kFPDTextDisplays[] = {
 };
 
+// Size hardcoded to 0 as sizeof pattern is unsafe on empty arrays.
 int kFPDTextDisplays_size = 0;
 
 int kFPDIndicatorColors_size = sizeof(kFPDIndicatorColors)/sizeof(kFPDIndicatorColors[0]);
 
 int kIndicators_size = sizeof(kIndicators)/sizeof(kIndicators[0]);
 
-#endif /* __DS_FPD_SETTINGS_H__ */
+#endif /* _DS_FPD_SETTINGS_H_ */
