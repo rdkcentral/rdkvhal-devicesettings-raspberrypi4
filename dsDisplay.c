@@ -116,7 +116,7 @@ static const int HDMI_WATCHER_POLL_INTERVAL_MS = 500;
 
 static void* hdmi_watcher_thread(void *arg)
 {
-    VDISPHandle_t *hdmiHandle = (VDISPHandle_t *)arg;
+    int nativeHandle = (int)(intptr_t)arg;
     bool currentConnected = false, currentEnabled = false;
     bool lastConnected = false;
     unsigned char eventData = 0;
@@ -133,16 +133,16 @@ static void* hdmi_watcher_thread(void *arg)
                 lastConnected = currentConnected;
                 gLastHdmiConnected = currentConnected;
 
-                if (NULL != _halcallback && hdmiHandle) {
+                if (NULL != _halcallback) {
                     if (currentConnected) {
                         hal_dbg("HDMI cable connected, triggering CONNECTED event\n");
-                        _halcallback((int)(hdmiHandle->m_nativeHandle), dsDISPLAY_EVENT_CONNECTED, &eventData);
+                        _halcallback(nativeHandle, dsDISPLAY_EVENT_CONNECTED, &eventData);
                     } else {
                         hal_dbg("HDMI cable disconnected, triggering DISCONNECTED event\n");
-                        _halcallback((int)(hdmiHandle->m_nativeHandle), dsDISPLAY_EVENT_DISCONNECTED, &eventData);
+                        _halcallback(nativeHandle, dsDISPLAY_EVENT_DISCONNECTED, &eventData);
                     }
                 } else {
-                    hal_warn("_halcallback is NULL or hdmiHandle is NULL, cannot report event\n");
+                    hal_warn("_halcallback is NULL, cannot report event\n");
                 }
             }
 
@@ -162,7 +162,7 @@ static void* hdmi_watcher_thread(void *arg)
     return NULL;
 }
 
-static bool start_hdmi_watcher(VDISPHandle_t *hdmiHandle)
+static bool start_hdmi_watcher(int nativeHandle)
 {
     if (gHdmiWatcherRunning) {
         hal_warn("HDMI watcher already running\n");
@@ -170,7 +170,7 @@ static bool start_hdmi_watcher(VDISPHandle_t *hdmiHandle)
     }
 
     gHdmiWatcherRunning = true;
-    int ret = pthread_create(&gHdmiWatcherThread, NULL, hdmi_watcher_thread, (void *)hdmiHandle);
+    int ret = pthread_create(&gHdmiWatcherThread, NULL, hdmi_watcher_thread, (void *)(intptr_t)nativeHandle);
     if (ret != 0) {
         hal_err("Failed to create HDMI watcher thread: %d\n", ret);
         gHdmiWatcherRunning = false;
@@ -306,7 +306,7 @@ dsError_t dsDisplayInit()
     dsQueryHdmiResolution();
 
     /* Start HDMI connection watcher thread */
-    if (!start_hdmi_watcher(&_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0])) {
+    if (!start_hdmi_watcher(_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle)) {
         hal_warn("Failed to start HDMI watcher thread, continuing without active monitoring\n");
     }
 
