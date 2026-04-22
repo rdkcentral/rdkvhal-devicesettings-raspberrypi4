@@ -43,6 +43,9 @@ static unsigned int numSupportedResn = 0;
 static bool _bDisplayInited = false;
 static bool isBootup = true;
 
+/* Forward declaration used by watcher helpers defined before full struct body. */
+typedef struct _VDISPHandle_t VDISPHandle_t;
+
 /* DRM/KMS sysfs helper functions */
 static bool read_sysfs_line(const char *path, char *buf, size_t len)
 {
@@ -149,7 +152,10 @@ static void* hdmi_watcher_thread(void *arg)
         }
 
         /* Sleep before next poll */
-        usleep(HDMI_WATCHER_POLL_INTERVAL_MS * 1000);
+        struct timespec pollInterval;
+        pollInterval.tv_sec = HDMI_WATCHER_POLL_INTERVAL_MS / 1000;
+        pollInterval.tv_nsec = (HDMI_WATCHER_POLL_INTERVAL_MS % 1000) * 1000000L;
+        nanosleep(&pollInterval, NULL);
     }
 
     hal_info("HDMI watcher thread terminated\n");
