@@ -25,8 +25,12 @@
 #include <dirent.h>
 #include <errno.h>
 #include <limits.h>
+#include <fcntl.h>
 #include <pthread.h>
-#include <sys/inotify.h>
+#include <sys/poll.h>
+#include <libudev.h>
+#include <xf86drm.h>
+#include <xf86drmMode.h>
 
 #include "dsTypes.h"
 #include "dsDisplay.h"
@@ -45,20 +49,6 @@ static bool _bDisplayInited = false;
 /* Forward declaration used by watcher helpers defined before full struct body. */
 typedef struct _VDISPHandle_t VDISPHandle_t;
 
-/* DRM/KMS sysfs helper functions */
-static bool read_sysfs_line(const char *path, char *buf, size_t len)
-{
-    FILE *fp = fopen(path, "r");
-    if (!fp) return false;
-    bool ret = (fgets(buf, len, fp) != NULL);
-    fclose(fp);
-    if (ret) {
-        char *nl = strchr(buf, '\n');
-        if (nl) *nl = '\0';
-    }
-    return ret;
-}
-
 static void resolve_drm_card_name(char *cardName, size_t len)
 {
     const char *cardPath = getenv("WESTEROS_DRM_CARD");
@@ -72,44 +62,82 @@ static void resolve_drm_card_name(char *cardName, size_t len)
     snprintf(cardName, len, "%s", base);
 }
 
+static int open_drm_card_fd(void)
+{
+    const char *cardPath = getenv("WESTEROS_DRM_CARD");
+    if (cardPath == NULL || cardPath[0] == '\0') {
+        cardPath = DRI_CARD;
+    }
+
+    int fd = open(cardPath, O_RDWR | O_CLOEXEC);
+    if (fd < 0) {
+        fd = open(cardPath, O_RDONLY | O_CLOEXEC);
+    }
+    return fd;
+}
+
 static bool drm_get_hdmi_connector_state(bool *connected, bool *enabled)
 {
     if (!connected || !enabled) return false;
 
-    char cardName[PATH_MAX];
-    char statusPath[PATH_MAX];
-    char enabledPath[PATH_MAX];
-    char line[32];
+    int drmFd = -1;
+    drmModeRes *resources = NULL;
     bool foundConnector = false;
     bool bestConnected = false;
     bool bestEnabled = false;
 
-    resolve_drm_card_name(cardName, sizeof(cardName));
     *connected = false;
     *enabled = false;
 
-    DIR *drmDir = opendir("/sys/class/drm");
-    if (!drmDir) return false;
+    drmFd = open_drm_card_fd();
+    if (drmFd < 0) {
+        hal_err("Failed to open DRM card for connector state\n");
+        return false;
+    }
 
-    struct dirent *entry;
-    while ((entry = readdir(drmDir))) {
+    resources = drmModeGetResources(drmFd);
+    if (!resources) {
+        close(drmFd);
+        return false;
+    }
+
+    for (int i = 0; i < resources->count_connectors; i++) {
         bool entryConnected = false;
         bool entryEnabled = false;
+        drmModeConnector *connector = drmModeGetConnectorCurrent(drmFd, resources->connectors[i]);
 
-        /* Restrict scanning to HDMI connectors on the selected DRM card. */
-        if (strncmp(entry->d_name, cardName, strlen(cardName)) != 0 || !strstr(entry->d_name, "HDMI-A")) {
+        if (!connector) {
+            connector = drmModeGetConnector(drmFd, resources->connectors[i]);
+        }
+        if (!connector) {
             continue;
         }
 
-        snprintf(statusPath, sizeof(statusPath), "/sys/class/drm/%s/status", entry->d_name);
-        if (!read_sysfs_line(statusPath, line, sizeof(line))) {
+        if (connector->connector_type != DRM_MODE_CONNECTOR_HDMIA
+#ifdef DRM_MODE_CONNECTOR_HDMIB
+            && connector->connector_type != DRM_MODE_CONNECTOR_HDMIB
+#endif
+        ) {
+            drmModeFreeConnector(connector);
             continue;
         }
-        entryConnected = (strcmp(line, "connected") == 0);
 
-        snprintf(enabledPath, sizeof(enabledPath), "/sys/class/drm/%s/enabled", entry->d_name);
-        if (read_sysfs_line(enabledPath, line, sizeof(line))) {
-            entryEnabled = (strcmp(line, "enabled") == 0 || strcmp(line, "1") == 0);
+        entryConnected = (connector->connection == DRM_MODE_CONNECTED);
+
+        if (connector->encoder_id != 0) {
+            drmModeEncoder *encoder = drmModeGetEncoder(drmFd, connector->encoder_id);
+            if (encoder) {
+                drmModeCrtc *crtc = drmModeGetCrtc(drmFd, encoder->crtc_id);
+                if (crtc) {
+                    entryEnabled = crtc->mode_valid;
+                    drmModeFreeCrtc(crtc);
+                }
+                drmModeFreeEncoder(encoder);
+            }
+        }
+
+        if (!entryEnabled && entryConnected && connector->count_modes > 0 && connector->encoder_id != 0) {
+            entryEnabled = true;
         }
 
         /* Prefer a connector that is both connected and enabled. */
@@ -117,6 +145,7 @@ static bool drm_get_hdmi_connector_state(bool *connected, bool *enabled)
             bestConnected = true;
             bestEnabled = true;
             foundConnector = true;
+            drmModeFreeConnector(connector);
             break;
         }
 
@@ -125,8 +154,11 @@ static bool drm_get_hdmi_connector_state(bool *connected, bool *enabled)
             bestEnabled = entryEnabled;
         }
         foundConnector = true;
+        drmModeFreeConnector(connector);
     }
-    closedir(drmDir);
+
+    drmModeFreeResources(resources);
+    close(drmFd);
 
     if (!foundConnector) {
         return false;
@@ -137,13 +169,14 @@ static bool drm_get_hdmi_connector_state(bool *connected, bool *enabled)
     return true;
 }
 
-/* HDMI Connection watcher thread state (inotify-based, no polling) */
+/* HDMI connection watcher thread state (udev + libdrm) */
 static pthread_t gHdmiWatcherThread = (pthread_t)(-1);
 static bool gHdmiWatcherRunning = false;
 static bool gLastHdmiConnected = false;
 static pthread_mutex_t gHdmiWatcherMutex = PTHREAD_MUTEX_INITIALIZER;
-static int gInotifyFd = -1;
-static int gInotifyWd = -1;
+static struct udev *gUdevCtx = NULL;
+static struct udev_monitor *gUdevMonitor = NULL;
+static int gUdevFd = -1;
 
 static void* hdmi_watcher_thread(void *arg)
 {
@@ -151,65 +184,68 @@ static void* hdmi_watcher_thread(void *arg)
     bool currentConnected = false, currentEnabled = false;
     bool lastConnected = false;
     unsigned char eventData = 0;
-    char buf[4096] __attribute__((aligned(__alignof__(struct inotify_event))));
-    const struct inotify_event *event;
-    ssize_t len;
 
     pthread_mutex_lock(&gHdmiWatcherMutex);
     lastConnected = gLastHdmiConnected;
     pthread_mutex_unlock(&gHdmiWatcherMutex);
 
-    hal_info("HDMI watcher thread (inotify-based) started\n");
+    hal_info("HDMI watcher thread (udev + libdrm) started\n");
 
     while (gHdmiWatcherRunning) {
-        len = read(gInotifyFd, buf, sizeof(buf));
-        if (len <= 0) {
-            if (len < 0 && errno != EINTR) {
-                hal_err("inotify read error: %s\n", strerror(errno));
-                struct timespec ts = {.tv_sec = 0, .tv_nsec = 1000000};  /* 1ms sleep on error */
-                nanosleep(&ts, NULL);
+        /* Wait for udev DRM hotplug notifications and poll periodically as a safety net. */
+        struct pollfd pfd = {0};
+        pfd.fd = gUdevFd;
+        pfd.events = POLLIN;
+
+        int poll_result = poll(&pfd, 1, 250);  /* 250ms timeout */
+        if (poll_result > 0 && (pfd.revents & POLLIN)) {
+            struct udev_device *dev = udev_monitor_receive_device(gUdevMonitor);
+            if (dev) {
+                const char *subsystem = udev_device_get_subsystem(dev);
+                const char *sysname = udev_device_get_sysname(dev);
+                const char *action = udev_device_get_action(dev);
+
+                if (subsystem && strcmp(subsystem, "drm") == 0) {
+                    hal_dbg("udev DRM event: action=%s sysname=%s\n",
+                            action ? action : "unknown",
+                            sysname ? sysname : "unknown");
+                }
+                udev_device_unref(dev);
             }
-            continue;
+        } else if (poll_result < 0 && errno != EINTR) {
+            hal_err("poll error: %s\n", strerror(errno));
+            struct timespec ts = {.tv_sec = 0, .tv_nsec = 1000000};  /* 1ms sleep on error */
+            nanosleep(&ts, NULL);
         }
 
-        /* Process all inotify events in the buffer. */
-        for (char *ptr = buf; ptr < buf + len; ptr += sizeof(struct inotify_event) + event->len) {
-            event = (const struct inotify_event *)ptr;
+        /* Refresh connector state for both udev events and timeout wakeups. */
+        if (drm_get_hdmi_connector_state(&currentConnected, &currentEnabled)) {
+            pthread_mutex_lock(&gHdmiWatcherMutex);
 
-            /* Ignore events for non-status/non-enabled files. */
-            if (event->name[0] == '\0' || (strcmp(event->name, "status") != 0 && strcmp(event->name, "enabled") != 0)) {
-                continue;
-            }
+            /* Detect state change and notify. */
+            if (currentConnected != lastConnected) {
+                hal_info("HDMI connection state changed: connected=%d (was %d)\n", currentConnected, lastConnected);
+                lastConnected = currentConnected;
+                gLastHdmiConnected = currentConnected;
 
-            /* Re-read connector state when any watched file changes. */
-            if (drm_get_hdmi_connector_state(&currentConnected, &currentEnabled)) {
-                pthread_mutex_lock(&gHdmiWatcherMutex);
-
-                /* Detect state change and notify. */
-                if (currentConnected != lastConnected) {
-                    hal_info("HDMI connection state changed (via inotify): connected=%d (was %d)\n", currentConnected, lastConnected);
-                    lastConnected = currentConnected;
-                    gLastHdmiConnected = currentConnected;
-
-                    if (NULL != _halcallback) {
-                        if (currentConnected) {
-                            hal_dbg("HDMI cable connected, triggering CONNECTED event\n");
-                            _halcallback(nativeHandle, dsDISPLAY_EVENT_CONNECTED, &eventData);
-                        } else {
-                            hal_dbg("HDMI cable disconnected, triggering DISCONNECTED event\n");
-                            _halcallback(nativeHandle, dsDISPLAY_EVENT_DISCONNECTED, &eventData);
-                        }
+                if (NULL != _halcallback) {
+                    if (currentConnected) {
+                        hal_dbg("HDMI cable connected, triggering CONNECTED event\n");
+                        _halcallback(nativeHandle, dsDISPLAY_EVENT_CONNECTED, &eventData);
                     } else {
-                        hal_warn("_halcallback is NULL, cannot report event\n");
+                        hal_dbg("HDMI cable disconnected, triggering DISCONNECTED event\n");
+                        _halcallback(nativeHandle, dsDISPLAY_EVENT_DISCONNECTED, &eventData);
                     }
+                } else {
+                    hal_warn("_halcallback is NULL, cannot report event\n");
                 }
-
-                pthread_mutex_unlock(&gHdmiWatcherMutex);
             }
+
+            pthread_mutex_unlock(&gHdmiWatcherMutex);
         }
     }
 
-    hal_info("HDMI watcher thread (inotify-based) terminated\n");
+    hal_info("HDMI watcher thread (udev + libdrm) terminated\n");
     return NULL;
 }
 
@@ -230,18 +266,45 @@ static bool start_hdmi_watcher(int nativeHandle)
         hal_info("Initial DRM HDMI state: connected=%d enabled=%d\n", initialConnected, initialEnabled);
     }
 
-    /* Create inotify instance and watch for changes to /sys/class/drm. */
-    gInotifyFd = inotify_init1(IN_CLOEXEC);
-    if (gInotifyFd < 0) {
-        hal_err("Failed to initialize inotify: %s\n", strerror(errno));
+    gUdevCtx = udev_new();
+    if (!gUdevCtx) {
+        hal_err("Failed to initialize udev context\n");
         return false;
     }
 
-    gInotifyWd = inotify_add_watch(gInotifyFd, "/sys/class/drm", IN_MODIFY | IN_CREATE | IN_DELETE);
-    if (gInotifyWd < 0) {
-        hal_err("Failed to add inotify watch on /sys/class/drm: %s\n", strerror(errno));
-        close(gInotifyFd);
-        gInotifyFd = -1;
+    gUdevMonitor = udev_monitor_new_from_netlink(gUdevCtx, "udev");
+    if (!gUdevMonitor) {
+        hal_err("Failed to create udev monitor\n");
+        udev_unref(gUdevCtx);
+        gUdevCtx = NULL;
+        return false;
+    }
+
+    if (udev_monitor_filter_add_match_subsystem_devtype(gUdevMonitor, "drm", NULL) < 0) {
+        hal_err("Failed to add udev DRM filter\n");
+        udev_monitor_unref(gUdevMonitor);
+        gUdevMonitor = NULL;
+        udev_unref(gUdevCtx);
+        gUdevCtx = NULL;
+        return false;
+    }
+
+    if (udev_monitor_enable_receiving(gUdevMonitor) < 0) {
+        hal_err("Failed to enable udev monitor receiving\n");
+        udev_monitor_unref(gUdevMonitor);
+        gUdevMonitor = NULL;
+        udev_unref(gUdevCtx);
+        gUdevCtx = NULL;
+        return false;
+    }
+
+    gUdevFd = udev_monitor_get_fd(gUdevMonitor);
+    if (gUdevFd < 0) {
+        hal_err("Failed to get udev monitor fd\n");
+        udev_monitor_unref(gUdevMonitor);
+        gUdevMonitor = NULL;
+        udev_unref(gUdevCtx);
+        gUdevCtx = NULL;
         return false;
     }
 
@@ -250,14 +313,15 @@ static bool start_hdmi_watcher(int nativeHandle)
     if (ret != 0) {
         hal_err("Failed to create HDMI watcher thread: %d\n", ret);
         gHdmiWatcherRunning = false;
-        inotify_rm_watch(gInotifyFd, gInotifyWd);
-        close(gInotifyFd);
-        gInotifyFd = -1;
-        gInotifyWd = -1;
+        gUdevFd = -1;
+        udev_monitor_unref(gUdevMonitor);
+        gUdevMonitor = NULL;
+        udev_unref(gUdevCtx);
+        gUdevCtx = NULL;
         return false;
     }
 
-    hal_info("HDMI watcher thread (inotify-based) created successfully\n");
+    hal_info("HDMI watcher thread (udev + libdrm) created successfully\n");
     return true;
 }
 
@@ -277,17 +341,19 @@ static bool stop_hdmi_watcher(void)
         gHdmiWatcherThread = (pthread_t)(-1);
     }
 
-    if (gInotifyWd >= 0) {
-        inotify_rm_watch(gInotifyFd, gInotifyWd);
-        gInotifyWd = -1;
+    gUdevFd = -1;
+
+    if (gUdevMonitor) {
+        udev_monitor_unref(gUdevMonitor);
+        gUdevMonitor = NULL;
     }
 
-    if (gInotifyFd >= 0) {
-        close(gInotifyFd);
-        gInotifyFd = -1;
+    if (gUdevCtx) {
+        udev_unref(gUdevCtx);
+        gUdevCtx = NULL;
     }
 
-    hal_info("HDMI watcher thread (inotify-based) stopped\n");
+    hal_info("HDMI watcher thread (udev + libdrm) stopped\n");
     return true;
 }
 
@@ -361,67 +427,88 @@ bool dsIsValidVDispHandle(intptr_t m_handle) {
 
 static bool drm_get_preferred_hdmi_mode(char *mode, size_t len)
 {
-    char cardName[PATH_MAX];
-    char modesPath[PATH_MAX];
-    char statusPath[PATH_MAX];
-    char enabledPath[PATH_MAX];
-    char line[64];
+    int drmFd = -1;
+    drmModeRes *resources = NULL;
+    drmModeModeInfo selectedMode = {0};
+    bool haveMode = false;
     bool selectedConnected = false;
-    bool selectedEnabled = false;
 
     if (!mode || len == 0) {
         return false;
     }
 
-    resolve_drm_card_name(cardName, sizeof(cardName));
+    mode[0] = '\0';
 
-    DIR *drmDir = opendir("/sys/class/drm");
-    if (!drmDir) {
+    drmFd = open_drm_card_fd();
+    if (drmFd < 0) {
         return false;
     }
 
-    struct dirent *entry;
-    mode[0] = '\0';
+    resources = drmModeGetResources(drmFd);
+    if (!resources) {
+        close(drmFd);
+        return false;
+    }
 
-    while ((entry = readdir(drmDir))) {
-        bool entryConnected = false;
-        bool entryEnabled = false;
-
-        if (strncmp(entry->d_name, cardName, strlen(cardName)) != 0 || !strstr(entry->d_name, "HDMI-A")) {
+    for (int i = 0; i < resources->count_connectors; i++) {
+        drmModeConnector *connector = drmModeGetConnectorCurrent(drmFd, resources->connectors[i]);
+        if (!connector) {
+            connector = drmModeGetConnector(drmFd, resources->connectors[i]);
+        }
+        if (!connector) {
             continue;
         }
 
-        snprintf(statusPath, sizeof(statusPath), "/sys/class/drm/%s/status", entry->d_name);
-        if (!read_sysfs_line(statusPath, line, sizeof(line))) {
-            continue;
-        }
-        entryConnected = (strcmp(line, "connected") == 0);
-
-        snprintf(enabledPath, sizeof(enabledPath), "/sys/class/drm/%s/enabled", entry->d_name);
-        if (read_sysfs_line(enabledPath, line, sizeof(line))) {
-            entryEnabled = (strcmp(line, "enabled") == 0 || strcmp(line, "1") == 0);
-        }
-
-        snprintf(modesPath, sizeof(modesPath), "/sys/class/drm/%s/modes", entry->d_name);
-        if (!read_sysfs_line(modesPath, line, sizeof(line))) {
+        if (connector->connector_type != DRM_MODE_CONNECTOR_HDMIA
+#ifdef DRM_MODE_CONNECTOR_HDMIB
+            && connector->connector_type != DRM_MODE_CONNECTOR_HDMIB
+#endif
+        ) {
+            drmModeFreeConnector(connector);
             continue;
         }
 
-        if (entryConnected && entryEnabled) {
-            snprintf(mode, len, "%s", line);
+        if (connector->count_modes <= 0) {
+            drmModeFreeConnector(connector);
+            continue;
+        }
+
+        int preferredIndex = 0;
+        for (int m = 0; m < connector->count_modes; m++) {
+            if (connector->modes[m].type & DRM_MODE_TYPE_PREFERRED) {
+                preferredIndex = m;
+                break;
+            }
+        }
+
+        bool entryConnected = (connector->connection == DRM_MODE_CONNECTED);
+
+        if (entryConnected) {
+            selectedMode = connector->modes[preferredIndex];
+            haveMode = true;
             selectedConnected = true;
-            selectedEnabled = true;
+            drmModeFreeConnector(connector);
             break;
         }
 
-        if (!selectedConnected && !selectedEnabled) {
-            snprintf(mode, len, "%s", line);
-            selectedConnected = entryConnected;
-            selectedEnabled = entryEnabled;
+        if (!haveMode) {
+            selectedMode = connector->modes[preferredIndex];
+            haveMode = true;
         }
+        drmModeFreeConnector(connector);
     }
 
-    closedir(drmDir);
+    drmModeFreeResources(resources);
+    close(drmFd);
+
+    if (!haveMode) {
+        return false;
+    }
+
+    snprintf(mode, len, "%s", selectedMode.name);
+    if (!selectedConnected) {
+        hal_dbg("No connected HDMI mode found; returning first available mode '%s'\n", mode);
+    }
     return (mode[0] != '\0');
 }
 

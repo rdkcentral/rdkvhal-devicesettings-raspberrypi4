@@ -74,7 +74,7 @@ set_target_properties(${LIBNAME} PROPERTIES
 	VERSION ${PROJECT_VERSION}
 	SOVERSION ${PROJECT_VERSION_MAJOR}
 )
-target_link_libraries(${LIBNAME} asound pthread m)
+target_link_libraries(${LIBNAME} asound pthread m drm udev)
 
 # Installation
 install(TARGETS ${LIBNAME} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
