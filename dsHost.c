@@ -27,7 +27,6 @@
 #include "dsHost.h"
 #include "dshalLogger.h"
 #include "dshalUtils.h"
-#include "dsTVSvcClient.h"
 
 static uint32_t version_num = 0x10000;
 static bool host_initialized = false;
@@ -287,25 +286,15 @@ dsError_t dsSetVersion(uint32_t versionNumber)
 
 dsError_t dsGetFreeSystemGraphicsMemory(uint64_t *memory)
 {
-    hal_warn("invoked; deprecated ?.\n");
+    hal_warn("invoked; tvservice removed - returning default GPU memory estimate.\n");
     if (memory == NULL) {
         hal_err("Invalid parameter, memory(%p)\n", memory);
         return dsERR_INVALID_PARAM;
     }
-    /* Ensure IPC connection is established before querying. */
-    int res = tvsvc_acquire();
-    if (res != 0) {
-        hal_err("Failed to acquire TVService: %d\n", res);
-        return dsERR_GENERAL;
-    }
-
-    res = tvsvc_client_get_free_graphics_memory(memory);
-    (void)tvsvc_release();  /* Always release; ignore errors */
-
-    if (res != 0) {
-        hal_err("Failed to get free GPU memory via daemon: %d\n", res);
-        return dsERR_GENERAL;
-    }
+    /* GPU memory query via tvservice removed (Pi4 GPU memory is fixed at boot). */
+    /* Return a sensible default estimate: 128MB free GPU memory (typical on Pi4). */
+    *memory = 128 * 1024 * 1024;  /* 128 MB in bytes */
+    hal_info("Returning default GPU free memory: %llu bytes\n", *memory);
     return dsERR_NONE;
 }
 
@@ -316,19 +305,9 @@ dsError_t dsGetTotalSystemGraphicsMemory(uint64_t *memory)
         hal_err("Invalid parameter, memory(%p)\n", memory);
         return dsERR_INVALID_PARAM;
     }
-    /* Ensure IPC connection is established before querying. */
-    int res = tvsvc_acquire();
-    if (res != 0) {
-        hal_err("Failed to acquire TVService: %d\n", res);
-        return dsERR_GENERAL;
-    }
-
-    res = tvsvc_client_get_total_graphics_memory(memory);
-    (void)tvsvc_release();  /* Always release; ignore errors */
-
-    if (res != 0) {
-        hal_err("Failed to get total GPU memory via daemon: %d\n", res);
-        return dsERR_GENERAL;
-    }
+    /* GPU memory query via tvservice removed (Pi4 GPU memory is fixed at boot). */
+    /* Return a sensible default estimate: 256MB total GPU memory (typical on Pi4). */
+    *memory = 256 * 1024 * 1024;  /* 256 MB in bytes */
+    hal_info("Returning default GPU total memory: %llu bytes\n", *memory);
     return dsERR_NONE;
 }

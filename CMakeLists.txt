@@ -5,7 +5,6 @@ project(ds-hal VERSION 0.0.0 LANGUAGES C)
 
 # Set the library name
 set(LIBNAME "dshal" CACHE STRING "Name of the HAL library")
-set(DAEMON_NAME "dshal-tvsvc-daemon" CACHE STRING "Name of the TVService broker daemon executable")
 option(ENABLE_FPD_MULTI_PROCESS_GUARD "Enable inter-process LED ownership guard" OFF)
 option(ENABLE_DSHAL_SINGLETON_GUARD "Enable process-wide singleton guard for dshal library" ON)
 
@@ -21,9 +20,8 @@ endif()
 
 include(GNUInstallDirs)
 
-# All source files — exclude the daemon executable source from the shared library
+# All source files
 file(GLOB ALL_SOURCES "*.c")
-list(REMOVE_ITEM ALL_SOURCES "${CMAKE_SOURCE_DIR}/dsTVSvcDaemon.c")
 set(SOURCES ${ALL_SOURCES})
 
 include_directories(/usr/include/interface/vmcs_host/linux)
@@ -78,23 +76,8 @@ set_target_properties(${LIBNAME} PROPERTIES
 )
 target_link_libraries(${LIBNAME} asound pthread m)
 
-# TVService broker daemon — separate executable, sole owner of VCHI
-add_executable(${DAEMON_NAME}
-	dsTVSvcDaemon.c
-	dshalLogger.c
-)
-target_include_directories(${DAEMON_NAME} PRIVATE
-	${CMAKE_SOURCE_DIR}
-	/usr/include/interface/vmcs_host/linux
-)
-target_compile_options(${DAEMON_NAME} PRIVATE
-	-std=c11 -g -fPIE -D_REENTRANT -Werror -Wall -Wextra
-)
-target_link_libraries(${DAEMON_NAME} vchostif vchiq_arm vcos pthread)
-
 # Installation
 install(TARGETS ${LIBNAME} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
-install(TARGETS ${DAEMON_NAME} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 # Install headers ending with *Settings.h
 file(GLOB SETTINGS_HEADERS "${CMAKE_SOURCE_DIR}/*Settings.h")
 install(FILES ${SETTINGS_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/rdk/halif/ds-hal)

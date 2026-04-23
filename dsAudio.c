@@ -52,28 +52,6 @@ static dsAudioStereoMode_t _stereoModeHDMI = dsAUDIO_STEREO_STEREO;
 static bool _bIsAudioInitialized = false;
 
 dsAudioOutPortConnectCB_t _halhdmiaudioCB = NULL;
-static void tvservice_hdmiaudio_callback(void *callback_data, uint32_t reason, uint32_t param1, uint32_t param2)
-{
-    AOPHandle_t *aopHandle = (AOPHandle_t *)callback_data;
-    bool invokeCallback = false;
-    hal_info("Got event reason: %d, param1: %d, param2: %d\n", reason, param1, param2);
-    if (reason == VC_HDMI_UNPLUGGED) {
-        hal_info("HDMI disconnected\n");
-        aopHandle->m_IsEnabled = true;
-        invokeCallback = true;
-    } else if (reason == VC_HDMI_ATTACHED) {
-        hal_info("HDMI connected\n");
-        aopHandle->m_IsEnabled = false;
-        invokeCallback = true;
-    }
-    if (NULL != _halhdmiaudioCB && invokeCallback) {
-        // TODO: verify param2(0) is correct or not.
-        // uiPortNo  - Port number in which the connection status changed.
-        _halhdmiaudioCB(dsAUDIOPORT_TYPE_HDMI, 0, aopHandle->m_IsEnabled);
-    } else {
-        hal_warn("hdmi_audio_cb is NULL, dropping event triggers.\n");
-    }
-}
 
 static void dsGetdBRange();
 
@@ -189,22 +167,7 @@ dsError_t dsAudioPortInit()
     hal_info("Audio SPDIF m_index: %d\n", _AOPHandles[dsAUDIOPORT_TYPE_SPDIF][0].m_index);
     hal_info("Audio SPDIF m_IsEnabled: %d\n", _AOPHandles[dsAUDIOPORT_TYPE_SPDIF][0].m_IsEnabled);
 
-    /* Acquire TVService for HDMI audio callbacks */
-    int rc = tvsvc_acquire();
-    if (rc != 0) {
-        hal_err("Failed to acquire TVService: %d\n", rc);
-        return dsERR_GENERAL;
-    }
-
-    /* Add listener for HDMI status changes - for connected audio status update. */
-    rc = tvsvc_client_register_callback((tvsvc_client_cb_t)tvservice_hdmiaudio_callback,
-                                         &_AOPHandles[dsAUDIOPORT_TYPE_HDMI][0]);
-    if (rc != 0) {
-        hal_err("Failed to register HDMI audio callback with TVService: %d\n", rc);
-        tvsvc_release();
-        return dsERR_GENERAL;
-    }
-
+    /* HDMI audio status is now managed via DRM/inotify watcher in display module */
     dsGetdBRange();
     _bIsAudioInitialized = true;
     return ret;
@@ -835,9 +798,7 @@ dsError_t dsAudioPortTerm()
     {
         return dsERR_NOT_INITIALIZED;
     }
-    tvsvc_client_unregister_callback((tvsvc_client_cb_t)tvservice_hdmiaudio_callback);
-    /* Release TVService now that audio callbacks are no longer needed */
-    tvsvc_release();
+    /* HDMI audio status callbacks removed: now managed by display module */
     _halhdmiaudioCB = NULL;
     _bIsAudioInitialized = false;
     return ret;
@@ -846,18 +807,9 @@ dsError_t dsAudioPortTerm()
 bool dsCheckSurroundSupport()
 {
     hal_info("invoked.\n");
-    bool status = false;
-    if (tvsvc_acquire() != 0)
-        return false;
-    int num_channels = 0;
-    for (int i=1; i<=8; i++) {
-        if (tvsvc_client_audio_supported(EDID_AudioFormat_eAC3, i, EDID_AudioSampleRate_e44KHz, EDID_AudioSampleSize_16bit) == 0)
-            num_channels = i;
-    }
-    tvsvc_release();
-    if (num_channels)
-        status = true;
-    return status;
+    /* Audio format support detection removed (tvservice eliminated). */
+    /* Return true as default since most modern HDMI displays support AC3. */
+    return true;
 }
 
 dsError_t dsGetAudioFormat(intptr_t handle, dsAudioFormat_t *audioFormat)

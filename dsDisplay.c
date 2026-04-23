@@ -26,6 +26,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <pthread.h>
+#include <sys/inotify.h>
 
 #include "dsTypes.h"
 #include "dsDisplay.h"
@@ -36,12 +37,10 @@
 #include "dshalUtils.h"
 #include "halif-versions.h"
 
-#define MAX_HDMI_CODE_ID (127)
 dsDisplayEventCallback_t _halcallback = NULL;
 dsVideoPortResolution_t *HdmiSupportedResolution = NULL;
 static unsigned int numSupportedResn = 0;
 static bool _bDisplayInited = false;
-static bool isBootup = true;
 
 /* Forward declaration used by watcher helpers defined before full struct body. */
 typedef struct _VDISPHandle_t VDISPHandle_t;
@@ -138,12 +137,13 @@ static bool drm_get_hdmi_connector_state(bool *connected, bool *enabled)
     return true;
 }
 
-/* HDMI Connection watcher thread state */
+/* HDMI Connection watcher thread state (inotify-based, no polling) */
 static pthread_t gHdmiWatcherThread = (pthread_t)(-1);
 static bool gHdmiWatcherRunning = false;
 static bool gLastHdmiConnected = false;
 static pthread_mutex_t gHdmiWatcherMutex = PTHREAD_MUTEX_INITIALIZER;
-static const int HDMI_WATCHER_POLL_INTERVAL_MS = 500;
+static int gInotifyFd = -1;
+static int gInotifyWd = -1;
 
 static void* hdmi_watcher_thread(void *arg)
 {
@@ -151,45 +151,63 @@ static void* hdmi_watcher_thread(void *arg)
     bool currentConnected = false, currentEnabled = false;
     bool lastConnected = false;
     unsigned char eventData = 0;
+    char buf[4096] __attribute__((aligned(__alignof__(struct inotify_event))));
+    const struct inotify_event *event;
+    ssize_t len;
 
-    hal_info("HDMI watcher thread started\n");
+    pthread_mutex_lock(&gHdmiWatcherMutex);
+    lastConnected = gLastHdmiConnected;
+    pthread_mutex_unlock(&gHdmiWatcherMutex);
+
+    hal_info("HDMI watcher thread (inotify-based) started\n");
 
     while (gHdmiWatcherRunning) {
-        if (drm_get_hdmi_connector_state(&currentConnected, &currentEnabled)) {
-            pthread_mutex_lock(&gHdmiWatcherMutex);
-
-            /* Detect state change */
-            if (currentConnected != lastConnected) {
-                hal_info("HDMI connection state changed: connected=%d (was %d)\n", currentConnected, lastConnected);
-                lastConnected = currentConnected;
-                gLastHdmiConnected = currentConnected;
-
-                if (NULL != _halcallback) {
-                    if (currentConnected) {
-                        hal_dbg("HDMI cable connected, triggering CONNECTED event\n");
-                        _halcallback(nativeHandle, dsDISPLAY_EVENT_CONNECTED, &eventData);
-                    } else {
-                        hal_dbg("HDMI cable disconnected, triggering DISCONNECTED event\n");
-                        _halcallback(nativeHandle, dsDISPLAY_EVENT_DISCONNECTED, &eventData);
-                    }
-                } else {
-                    hal_warn("_halcallback is NULL, cannot report event\n");
-                }
+        len = read(gInotifyFd, buf, sizeof(buf));
+        if (len <= 0) {
+            if (len < 0 && errno != EINTR) {
+                hal_err("inotify read error: %s\n", strerror(errno));
             }
-
-            pthread_mutex_unlock(&gHdmiWatcherMutex);
-        } else {
-            hal_warn("Failed to read HDMI connector state\n");
+            continue;
         }
 
-        /* Sleep before next poll */
-        struct timespec pollInterval;
-        pollInterval.tv_sec = HDMI_WATCHER_POLL_INTERVAL_MS / 1000;
-        pollInterval.tv_nsec = (HDMI_WATCHER_POLL_INTERVAL_MS % 1000) * 1000000L;
-        nanosleep(&pollInterval, NULL);
+        /* Process all inotify events in the buffer. */
+        for (char *ptr = buf; ptr < buf + len; ptr += sizeof(struct inotify_event) + event->len) {
+            event = (const struct inotify_event *)ptr;
+
+            /* Ignore events for non-status/non-enabled files. */
+            if (event->name[0] == '\0' || (strcmp(event->name, "status") != 0 && strcmp(event->name, "enabled") != 0)) {
+                continue;
+            }
+
+            /* Re-read connector state when any watched file changes. */
+            if (drm_get_hdmi_connector_state(&currentConnected, &currentEnabled)) {
+                pthread_mutex_lock(&gHdmiWatcherMutex);
+
+                /* Detect state change and notify. */
+                if (currentConnected != lastConnected) {
+                    hal_info("HDMI connection state changed (via inotify): connected=%d (was %d)\n", currentConnected, lastConnected);
+                    lastConnected = currentConnected;
+                    gLastHdmiConnected = currentConnected;
+
+                    if (NULL != _halcallback) {
+                        if (currentConnected) {
+                            hal_dbg("HDMI cable connected, triggering CONNECTED event\n");
+                            _halcallback(nativeHandle, dsDISPLAY_EVENT_CONNECTED, &eventData);
+                        } else {
+                            hal_dbg("HDMI cable disconnected, triggering DISCONNECTED event\n");
+                            _halcallback(nativeHandle, dsDISPLAY_EVENT_DISCONNECTED, &eventData);
+                        }
+                    } else {
+                        hal_warn("_halcallback is NULL, cannot report event\n");
+                    }
+                }
+
+                pthread_mutex_unlock(&gHdmiWatcherMutex);
+            }
+        }
     }
 
-    hal_info("HDMI watcher thread terminated\n");
+    hal_info("HDMI watcher thread (inotify-based) terminated\n");
     return NULL;
 }
 
@@ -200,15 +218,44 @@ static bool start_hdmi_watcher(int nativeHandle)
         return true;
     }
 
+    bool initialConnected = false;
+    bool initialEnabled = false;
+
+    if (drm_get_hdmi_connector_state(&initialConnected, &initialEnabled)) {
+        pthread_mutex_lock(&gHdmiWatcherMutex);
+        gLastHdmiConnected = initialConnected;
+        pthread_mutex_unlock(&gHdmiWatcherMutex);
+        hal_info("Initial DRM HDMI state: connected=%d enabled=%d\n", initialConnected, initialEnabled);
+    }
+
+    /* Create inotify instance and watch for changes to /sys/class/drm. */
+    gInotifyFd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+    if (gInotifyFd < 0) {
+        hal_err("Failed to initialize inotify: %s\n", strerror(errno));
+        return false;
+    }
+
+    gInotifyWd = inotify_add_watch(gInotifyFd, "/sys/class/drm", IN_MODIFY | IN_CREATE | IN_DELETE);
+    if (gInotifyWd < 0) {
+        hal_err("Failed to add inotify watch on /sys/class/drm: %s\n", strerror(errno));
+        close(gInotifyFd);
+        gInotifyFd = -1;
+        return false;
+    }
+
     gHdmiWatcherRunning = true;
     int ret = pthread_create(&gHdmiWatcherThread, NULL, hdmi_watcher_thread, (void *)(intptr_t)nativeHandle);
     if (ret != 0) {
         hal_err("Failed to create HDMI watcher thread: %d\n", ret);
         gHdmiWatcherRunning = false;
+        inotify_rm_watch(gInotifyFd, gInotifyWd);
+        close(gInotifyFd);
+        gInotifyFd = -1;
+        gInotifyWd = -1;
         return false;
     }
 
-    hal_info("HDMI watcher thread created successfully\n");
+    hal_info("HDMI watcher thread (inotify-based) created successfully\n");
     return true;
 }
 
@@ -228,12 +275,64 @@ static bool stop_hdmi_watcher(void)
         gHdmiWatcherThread = (pthread_t)(-1);
     }
 
-    hal_info("HDMI watcher thread stopped\n");
+    if (gInotifyWd >= 0) {
+        inotify_rm_watch(gInotifyFd, gInotifyWd);
+        gInotifyWd = -1;
+    }
+
+    if (gInotifyFd >= 0) {
+        close(gInotifyFd);
+        gInotifyFd = -1;
+    }
+
+    hal_info("HDMI watcher thread (inotify-based) stopped\n");
     return true;
+}
+
+/* Structure to pass data to the initial state reporter thread */
+typedef struct {
+    int nativeHandle;
+    dsDisplayEventCallback_t callback;
+} initial_state_reporter_args_t;
+
+/* One-shot thread to report the current HDMI state when callback is registered */
+static void* report_initial_hdmi_state(void *arg)
+{
+    initial_state_reporter_args_t *args = (initial_state_reporter_args_t *)arg;
+    int nativeHandle = args->nativeHandle;
+    dsDisplayEventCallback_t callback = args->callback;
+    bool currentConnected = false, currentEnabled = false;
+    unsigned char eventData = 0;
+
+    free(args);
+
+    /* Small delay to ensure watcher thread is fully initialized */
+    usleep(50000); /* 50ms */
+
+    hal_info("Initial state reporter thread: querying current HDMI state\n");
+
+    if (drm_get_hdmi_connector_state(&currentConnected, &currentEnabled)) {
+        hal_info("Initial HDMI state: connected=%d enabled=%d\n", currentConnected, currentEnabled);
+        if (callback != NULL) {
+            if (currentConnected) {
+                hal_dbg("Reporting initial HDMI CONNECTED state\n");
+                callback(nativeHandle, dsDISPLAY_EVENT_CONNECTED, &eventData);
+            } else {
+                hal_dbg("Reporting initial HDMI DISCONNECTED state\n");
+                callback(nativeHandle, dsDISPLAY_EVENT_DISCONNECTED, &eventData);
+            }
+        }
+    } else {
+        hal_err("Failed to query initial HDMI state\n");
+    }
+
+    hal_info("Initial state reporter thread: exiting\n");
+    return NULL;
 }
 
 
 static dsError_t dsQueryHdmiResolution();
+static bool drm_get_preferred_hdmi_mode(char *mode, size_t len);
 TV_SUPPORTED_MODE_T dsVideoPortgetVideoFormatFromInfo(dsVideoResolution_t res,
         unsigned frameRate, bool interlaced);
 static dsVideoPortResolution_t *dsgetResolutionInfo(const char *res_name);
@@ -257,48 +356,70 @@ bool dsIsValidVDispHandle(intptr_t m_handle) {
     return false;
 }
 
-static void tvservice_callback(void *callback_data, uint32_t reason, uint32_t param1, uint32_t param2)
+static bool drm_get_preferred_hdmi_mode(char *mode, size_t len)
 {
-    VDISPHandle_t *hdmiHandle = (VDISPHandle_t*)callback_data;
-    unsigned char eventData = 0;
-    hal_info("Got handle %p and reason %d, param1 %d, param2 %d\n", hdmiHandle, reason, param1, param2);
-    switch (reason) {
-        case VC_HDMI_UNPLUGGED:
-            hal_dbg("HDMI cable is unplugged\n");
-            if (NULL != _halcallback) {
-                _halcallback((int)(hdmiHandle->m_nativeHandle), dsDISPLAY_EVENT_DISCONNECTED, &eventData);
-            } else {
-                hal_warn("_halcallback is NULL, dropping event reporting.\n");
-            }
-            break;
-        case VC_HDMI_ATTACHED:
-        case VC_HDMI_DVI:
-        case VC_HDMI_HDMI:
-            hal_dbg("HDMI is attached\n");
-            if (NULL != _halcallback) {
-                _halcallback((int)(hdmiHandle->m_nativeHandle), dsDISPLAY_EVENT_CONNECTED, &eventData);
-            } else {
-                hal_warn("_halcallback is NULL, dropping event reporting.\n");
-            }
-            break;
-        case VC_HDMI_HDCP_UNAUTH:
-        case VC_HDMI_HDCP_AUTH:
-        case VC_HDMI_HDCP_KEY_DOWNLOAD:
-        case VC_HDMI_HDCP_SRM_DOWNLOAD:
-            hal_warn("HDCP related events; dropping\n");
-            break;
-        default:
-            if (isBootup == true) {
-                hal_dbg("For Rpi - HDMI is attached by default\n");
-                if (NULL != _halcallback) {
-                    _halcallback((int)(hdmiHandle->m_nativeHandle), dsDISPLAY_EVENT_CONNECTED, &eventData);
-                } else {
-                    hal_warn("_halcallback is NULL, dropping event reporting.\n");
-                }
-                isBootup = false;
-            }
-            break;
+    char cardName[PATH_MAX];
+    char modesPath[PATH_MAX];
+    char statusPath[PATH_MAX];
+    char enabledPath[PATH_MAX];
+    char line[64];
+    bool selectedConnected = false;
+    bool selectedEnabled = false;
+
+    if (!mode || len == 0) {
+        return false;
     }
+
+    resolve_drm_card_name(cardName, sizeof(cardName));
+
+    DIR *drmDir = opendir("/sys/class/drm");
+    if (!drmDir) {
+        return false;
+    }
+
+    struct dirent *entry;
+    mode[0] = '\0';
+
+    while ((entry = readdir(drmDir))) {
+        bool entryConnected = false;
+        bool entryEnabled = false;
+
+        if (strncmp(entry->d_name, cardName, strlen(cardName)) != 0 || !strstr(entry->d_name, "HDMI-A")) {
+            continue;
+        }
+
+        snprintf(statusPath, sizeof(statusPath), "/sys/class/drm/%s/status", entry->d_name);
+        if (!read_sysfs_line(statusPath, line, sizeof(line))) {
+            continue;
+        }
+        entryConnected = (strcmp(line, "connected") == 0);
+
+        snprintf(enabledPath, sizeof(enabledPath), "/sys/class/drm/%s/enabled", entry->d_name);
+        if (read_sysfs_line(enabledPath, line, sizeof(line))) {
+            entryEnabled = (strcmp(line, "enabled") == 0 || strcmp(line, "1") == 0);
+        }
+
+        snprintf(modesPath, sizeof(modesPath), "/sys/class/drm/%s/modes", entry->d_name);
+        if (!read_sysfs_line(modesPath, line, sizeof(line))) {
+            continue;
+        }
+
+        if (entryConnected && entryEnabled) {
+            snprintf(mode, len, "%s", line);
+            selectedConnected = true;
+            selectedEnabled = true;
+            break;
+        }
+
+        if (!selectedConnected && !selectedEnabled) {
+            snprintf(mode, len, "%s", line);
+            selectedConnected = entryConnected;
+            selectedEnabled = entryEnabled;
+        }
+    }
+
+    closedir(drmDir);
+    return (mode[0] != '\0');
 }
 
 /**
@@ -320,20 +441,7 @@ dsError_t dsDisplayInit()
     _VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle = dsVIDEOPORT_TYPE_HDMI;
     _VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index = 0;
 
-    int32_t res = tvsvc_acquire();
-    if (res != 0) {
-        hal_err("Failed to acquire TVService: %d\n", res);
-        return dsERR_GENERAL;
-    }
-    /* Register callback for HDMI hotplug */
-    res = tvsvc_client_register_callback((tvsvc_client_cb_t)tvservice_callback,
-                                          &_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0]);
-    if (res != 0) {
-        hal_err("Failed to register HDMI hotplug callback: %d\n", res);
-        tvsvc_release();
-        return dsERR_GENERAL;
-    }
-    /*Query the HDMI Resolution */
+    /* Query resolution information without TVService dependency. */
     dsQueryHdmiResolution();
 
     /* Start HDMI connection watcher thread */
@@ -387,9 +495,11 @@ dsError_t dsGetDisplay(dsVideoPortType_t m_vType, int index, intptr_t *handle)
 dsError_t dsGetDisplayAspectRatio(intptr_t handle, dsVideoAspectRatio_t *aspect)
 {
     hal_info("Invoked\n");
-    TV_DISPLAY_STATE_T tvstate;
     VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
     bool drmConnected = false, drmEnabled = false;
+    char mode[64] = {0};
+    unsigned int width = 0;
+    unsigned int height = 0;
 
     if (false == _bDisplayInited) {
         return dsERR_NOT_INITIALIZED;
@@ -399,34 +509,29 @@ dsError_t dsGetDisplayAspectRatio(intptr_t handle, dsVideoAspectRatio_t *aspect)
         return dsERR_INVALID_PARAM;
     }
 
-    /* Check DRM connectivity before attempting to read display state */
+    if (vDispHandle->m_vType != dsVIDEOPORT_TYPE_HDMI) {
+        hal_err("Unsupported video port type %d\n", vDispHandle->m_vType);
+        return dsERR_OPERATION_NOT_SUPPORTED;
+    }
+
+    /* Check DRM connectivity before attempting to resolve aspect ratio. */
     if (!drm_get_hdmi_connector_state(&drmConnected, &drmEnabled) || !drmConnected) {
         hal_warn("HDMI not connected (DRM), cannot get aspect ratio\n");
         return dsERR_GENERAL;
     }
 
-    if (tvsvc_client_get_display_state(&tvstate) == 0) {
-        if (vDispHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
-            hal_info("PortType:HDMI, aspect ratio is %d\n", tvstate.display.hdmi.aspect_ratio);
-            switch (tvstate.display.hdmi.aspect_ratio) {
-                case HDMI_ASPECT_4_3:
-                    *aspect = dsVIDEO_ASPECT_RATIO_4x3;
-                    break;
-                case HDMI_ASPECT_16_9:
-                    *aspect = dsVIDEO_ASPECT_RATIO_16x9;
-                    break;
-                default:
-                    *aspect = dsVIDEO_ASPECT_RATIO_4x3;
-                    break;
-            }
+    if (drm_get_preferred_hdmi_mode(mode, sizeof(mode)) && sscanf(mode, "%ux%u", &width, &height) == 2 && height != 0) {
+        if ((unsigned long long)width * 3ULL >= (unsigned long long)height * 4ULL) {
+            *aspect = dsVIDEO_ASPECT_RATIO_16x9;
         } else {
-            hal_err("Unsupported video port type %d\n", vDispHandle->m_vType);
-            return dsERR_OPERATION_NOT_SUPPORTED;
+            *aspect = dsVIDEO_ASPECT_RATIO_4x3;
         }
+        hal_info("PortType:HDMI, DRM mode %s -> aspect ratio %d\n", mode, *aspect);
     } else {
-        hal_err("Error getting current display state\n");
-        return dsERR_GENERAL;
+        *aspect = dsVIDEO_ASPECT_RATIO_16x9;
+        hal_warn("Unable to read DRM mode; defaulting aspect ratio to 16:9\n");
     }
+
     hal_dbg("Aspect ratio is %d\n", *aspect);
     return dsERR_NONE;
 }
@@ -625,7 +730,7 @@ dsError_t dsGetAVIScanInformation(intptr_t handle, dsAVIScanInformation_t* scanI
 
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
-#endif
+#endif /* RDK_HALIF_DEVICE_SETTINGS_VERSION >= 0x05010000 */
 
 /**
  * @brief Callback registration for display related events.
@@ -670,6 +775,29 @@ dsError_t dsRegisterDisplayEventCallback(intptr_t handle, dsDisplayEventCallback
         hal_warn("Callback already registered; override with new one.\n");
     }
     _halcallback = cb;
+
+    /* Spawn a one-shot thread to report the current HDMI state immediately */
+    initial_state_reporter_args_t *args = (initial_state_reporter_args_t *)malloc(sizeof(initial_state_reporter_args_t));
+    if (args == NULL) {
+        hal_err("Failed to allocate memory for initial state reporter thread args\n");
+        return dsERR_GENERAL;
+    }
+
+    args->nativeHandle = vDispHandle->m_nativeHandle;
+    args->callback = cb;
+
+    pthread_t reporter_thread;
+    int ret = pthread_create(&reporter_thread, NULL, report_initial_hdmi_state, (void *)args);
+    if (ret != 0) {
+        hal_err("Failed to create initial state reporter thread: %d\n", ret);
+        free(args);
+        return dsERR_GENERAL;
+    }
+
+    /* Detach thread so it cleans up automatically on exit */
+    pthread_detach(reporter_thread);
+
+    hal_dbg("Initial state reporter thread spawned\n");
     return dsERR_NONE;
 }
 
@@ -697,7 +825,6 @@ dsError_t dsRegisterDisplayEventCallback(intptr_t handle, dsDisplayEventCallback
 dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
 {
     hal_info("Invoked\n");
-    TV_DISPLAY_STATE_T tvstate;
     VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
     bool drmConnected = false, drmEnabled = false;
 
@@ -714,10 +841,6 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
     if (!drm_get_hdmi_connector_state(&drmConnected, &drmEnabled) || !drmConnected) {
         hal_warn("HDMI not connected (DRM), cannot read EDID\n");
         return dsERR_NONE;
-    }
-
-    if (tvsvc_client_get_display_state(&tvstate) != 0) {
-	    return dsERR_NONE;
     }
 
     unsigned char *raw = (unsigned char *)calloc(MAX_EDID_BYTES_LEN, sizeof(unsigned char));
@@ -786,8 +909,6 @@ dsError_t dsDisplayTerm()
     /* Stop HDMI connection watcher thread */
     stop_hdmi_watcher();
 
-    tvsvc_client_unregister_callback((tvsvc_client_cb_t)tvservice_callback);
-    tvsvc_release();
     if (HdmiSupportedResolution) {
         free(HdmiSupportedResolution);
         HdmiSupportedResolution = NULL;
@@ -832,41 +953,43 @@ dsError_t dsDisplaygetNativeHandle(intptr_t handle, int *native)
 static dsError_t dsQueryHdmiResolution()
 {
     hal_info("Invoked\n");
-    static TV_SUPPORTED_MODE_NEW_T modeSupported[MAX_HDMI_CODE_ID];
-    HDMI_RES_GROUP_T group;
-    uint32_t mode;
-    int num_of_modes;
-    memset(modeSupported, 0, sizeof(modeSupported));
 
-    num_of_modes = tvsvc_client_get_supported_modes(HDMI_RES_GROUP_CEA, modeSupported,
-            vcos_countof(modeSupported),
-            &group,
-            &mode);
-    if (num_of_modes < 0) {
-        hal_err("Failed to get modes tvsvc_client_get_supported_modes: rc=%d\n", num_of_modes);
-        return dsERR_GENERAL;
-    }
     if (HdmiSupportedResolution) {
         free(HdmiSupportedResolution);
         HdmiSupportedResolution = NULL;
     }
+
     numSupportedResn = 0;
-    HdmiSupportedResolution = (dsVideoPortResolution_t *)malloc(sizeof(dsVideoPortResolution_t)*noOfItemsInResolutionMap);
-    if (HdmiSupportedResolution) {
-        for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
-            for (int j = 0; j < num_of_modes; j++) {
-                if (modeSupported[j].code == resolutionMap[i].mode) {
-                    dsVideoPortResolution_t *resolution = dsgetResolutionInfo(resolutionMap[i].rdkRes);
-                    memcpy(&HdmiSupportedResolution[numSupportedResn], resolution, sizeof(dsVideoPortResolution_t));
-                    hal_dbg("Supported Resolution '%s'\n", HdmiSupportedResolution[numSupportedResn].name);
-                    numSupportedResn++;
-                }
-            }
-        }
-    } else {
+    HdmiSupportedResolution = (dsVideoPortResolution_t *)malloc(sizeof(dsVideoPortResolution_t) * noOfItemsInResolutionMap);
+    if (!HdmiSupportedResolution) {
         hal_err("malloc failed\n");
         return dsERR_GENERAL;
     }
+
+    for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
+        bool alreadyAdded = false;
+        dsVideoPortResolution_t *resolution = dsgetResolutionInfo(resolutionMap[i].rdkRes);
+
+        if (!resolution) {
+            continue;
+        }
+
+        for (unsigned int j = 0; j < numSupportedResn; j++) {
+            if (strncmp(HdmiSupportedResolution[j].name, resolution->name, sizeof(HdmiSupportedResolution[j].name)) == 0) {
+                alreadyAdded = true;
+                break;
+            }
+        }
+
+        if (alreadyAdded) {
+            continue;
+        }
+
+        memcpy(&HdmiSupportedResolution[numSupportedResn], resolution, sizeof(dsVideoPortResolution_t));
+        hal_dbg("Supported Resolution '%s'\n", HdmiSupportedResolution[numSupportedResn].name);
+        numSupportedResn++;
+    }
+
     hal_dbg("Total Device supported resolutions on HDMI = %d\n", numSupportedResn);
     return dsERR_NONE;
 }
@@ -980,12 +1103,10 @@ TV_SUPPORTED_MODE_T dsVideoPortgetVideoFormatFromInfo(dsVideoResolution_t res, u
 dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
 {
     hal_info("Invoked\n");
-    uint8_t buffer[128] = {0};
-    size_t offset = 0;
-    int i, extensions = 0;
-    TV_DISPLAY_STATE_T tvstate;
     VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
     bool drmConnected = false, drmEnabled = false;
+    char edid_path[256] = {0};
+    char connector_name[64] = {0};
 
     if (false == _bDisplayInited) {
         return dsERR_NOT_INITIALIZED;
@@ -1004,38 +1125,58 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
         return dsERR_NONE;
     }
 
-    if (tvsvc_client_get_display_state(&tvstate) != 0) {
-            return dsERR_NONE;
-    }
-
-    *length = 0;
-    int siz = tvsvc_client_ddc_read(offset, sizeof(buffer), buffer);
-    if (siz <= 0) {
-        hal_err("tvsvc_client_ddc_read returned %d.\n", siz);
+    /* Scan /sys/class/drm for active HDMI connector and read EDID binary */
+    DIR *drm_class = opendir("/sys/class/drm");
+    if (!drm_class) {
+        hal_err("Failed to open /sys/class/drm\n");
         return dsERR_GENERAL;
     }
-    offset += sizeof( buffer);
-    extensions = buffer[0x7e]; /* This tells you how many more blocks to read */
-    memcpy(edid, (unsigned char *)buffer, sizeof(buffer));
-    /* First block always exist */
-    for (i = 0; i < extensions; i++, offset += sizeof( buffer)) {
-        memset(buffer, 0, sizeof(buffer));
-        siz = tvsvc_client_ddc_read(offset, sizeof(buffer), buffer);
-        if (siz <= 0) {
-            hal_err("subsequent tvsvc_client_ddc_read returned %d.\n", siz);
+
+    struct dirent *entry;
+    *length = 0;
+    while ((entry = readdir(drm_class)) != NULL) {
+        if (strncmp(entry->d_name, gDrmCardName, strlen(gDrmCardName)) != 0) {
+            continue; /* Skip entries not matching our card */
+        }
+        if (strstr(entry->d_name, "HDMI-A") == NULL) {
+            continue; /* Skip non-HDMI connectors */
+        }
+
+        snprintf(edid_path, sizeof(edid_path), "/sys/class/drm/%s/edid", entry->d_name);
+        FILE *edid_file = fopen(edid_path, "rb");
+        if (!edid_file) {
+            hal_dbg("EDID file not found at %s\n", edid_path);
+            continue;
+        }
+
+        *length = (int)fread(edid, 1, MAX_EDID_BYTES_LEN, edid_file);
+        fclose(edid_file);
+
+        if (*length <= 0) {
+            hal_err("Failed to read EDID from %s\n", edid_path);
+            closedir(drm_class);
             return dsERR_GENERAL;
         }
-        memcpy(edid + offset, buffer, sizeof(buffer));
+
+        hal_dbg("Read %d bytes of EDID from %s\n", *length, edid_path);
+        strncpy(connector_name, entry->d_name, sizeof(connector_name) - 1);
+        break;
     }
-    *length = offset;
+    closedir(drm_class);
+
+    if (*length == 0) {
+        hal_err("EDID not found for any HDMI connector\n");
+        return dsERR_GENERAL;
+    }
+
 #if 1 // Print EDID bytes for debugging
     FILE *file = fopen("/tmp/.hal-edid-bytes.dat", "wb");
     if (file != NULL) {
-        for (i = 0; i < *length; i++) {
+        for (int i = 0; i < *length; i++) {
             fprintf(file, "%02x", edid[i]);
         }
         fclose(file);
-        hal_info("EDID bytes written to /tmp/.hal-edid-bytes.dat\n");
+        hal_info("EDID bytes written to /tmp/.hal-edid-bytes.dat (%d bytes from %s)\n", *length, connector_name);
     } else {
         hal_err("Failed to open /tmp/.hal-edid-bytes.dat\n");
     }

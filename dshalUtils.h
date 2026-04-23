@@ -59,18 +59,6 @@ typedef struct __hdmiSupportedRes_t {
 extern const hdmiSupportedRes_t resolutionMap[];
 extern const size_t noOfItemsInResolutionMap;
 
-/*
- * TVService lifecycle — tvsvc_acquire connects to the TVService broker daemon;
- * tvsvc_release disconnects.  Both are safe to call from multiple modules
- * (Display, VideoPort, Audio) within the same process because the underlying
- * tvsvc_client_connect/disconnect are idempotent.
- */
-int tvsvc_acquire(void);
-int tvsvc_release(void);
-
-/* IPC client — include so every ds-hal module can call tvsvc_client_* directly */
-#include "dsTVSvcClient.h"
-
 int fill_edid_struct(unsigned char *edid, dsDisplayEDID_t *display, int size);
 void parse_edid(const uint8_t *edid, EDID_t *parsed_edid);
 void print_edid(const EDID_t *parsed_edid);

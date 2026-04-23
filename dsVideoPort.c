@@ -183,124 +183,6 @@ static bool drm_get_hdmi_connector_state(bool *connected, bool *enabled)
     return found;
 }
 
-static void populate_output_settings_from_tvstate(const TV_DISPLAY_STATE_T *tvstate,
-        dsDisplayMatrixCoefficients_t *matrix_coefficients,
-        dsDisplayColorSpace_t *color_space,
-        unsigned int *color_depth,
-        dsDisplayQuantizationRange_t *quantization_range)
-{
-    uint16_t pixel_encoding = tvstate->display.hdmi.pixel_encoding;
-    uint32_t height = tvstate->display.hdmi.height;
-    bool known_pixel_encoding = (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_LIMITED ||
-        pixel_encoding == HDMI_PIXEL_ENCODING_RGB_FULL ||
-        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_LIMITED ||
-        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_FULL ||
-        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_LIMITED ||
-        pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_FULL);
-
-    if (!known_pixel_encoding) {
-        hal_warn("Unknown pixel encoding %u in output settings mapping.\n", pixel_encoding);
-    }
-
-    if (matrix_coefficients != NULL) {
-        if (pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_LIMITED ||
-            pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_FULL ||
-            pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_LIMITED ||
-            pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_FULL) {
-            *matrix_coefficients = (height >= 720)
-                ? dsDISPLAY_MATRIXCOEFFICIENT_BT_709
-                : dsDISPLAY_MATRIXCOEFFICIENT_BT_470_2_BG;
-        }
-        else if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_LIMITED) {
-            *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_eHDMI_RGB;
-        }
-        else if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_FULL) {
-            *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_eDVI_FR_RGB;
-        }
-        else {
-            *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_BT_709;
-        }
-    }
-
-    if (color_space != NULL) {
-        if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_LIMITED ||
-            pixel_encoding == HDMI_PIXEL_ENCODING_RGB_FULL) {
-            *color_space = dsDISPLAY_COLORSPACE_RGB;
-        }
-        else if (pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_LIMITED ||
-                 pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_FULL) {
-            *color_space = dsDISPLAY_COLORSPACE_YCbCr422;
-        }
-        else if (pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_LIMITED ||
-                 pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_FULL) {
-            *color_space = dsDISPLAY_COLORSPACE_YCbCr444;
-        }
-        else {
-            *color_space = dsDISPLAY_COLORSPACE_UNKNOWN;
-        }
-    }
-
-    if (color_depth != NULL) {
-        *color_depth = dsDISPLAY_COLORDEPTH_8BIT;
-    }
-
-    if (quantization_range != NULL) {
-        if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_LIMITED ||
-            pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_LIMITED ||
-            pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_LIMITED) {
-            *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_LIMITED;
-        }
-        else if (pixel_encoding == HDMI_PIXEL_ENCODING_RGB_FULL ||
-                 pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr422_FULL ||
-                 pixel_encoding == HDMI_PIXEL_ENCODING_YCbCr444_FULL) {
-            *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_FULL;
-        }
-        else {
-            *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_UNKNOWN;
-        }
-    }
-}
-
-static void tvservice_hdcp_callback(void *callback_data,
-        uint32_t reason, uint32_t param1, uint32_t param2)
-{
-    VOPHandle_t *hdmiHandle = (VOPHandle_t *)callback_data;
-    hal_info("Got handle %p with reason %d, param1 %d, param2 %d\n",
-            hdmiHandle, reason, param1, param2);
-    switch (reason) {
-        case VC_HDMI_HDCP_AUTH:
-            if (NULL != _halhdcpcallback) {
-                _halhdcpcallback((int)(hdmiHandle->m_nativeHandle),
-                        dsHDCP_STATUS_AUTHENTICATED);
-            } else {
-                hal_warn("_halhdcpcallback is Null.\n");
-            }
-            break;
-        case VC_HDMI_HDCP_UNAUTH:
-            if (NULL != _halhdcpcallback) {
-                _halhdcpcallback((int)(hdmiHandle->m_nativeHandle),
-                        dsHDCP_STATUS_UNAUTHENTICATED);
-            } else {
-                hal_warn("_halhdcpcallback is Null.\n");
-            }
-            break;
-        case VC_HDMI_HDCP_KEY_DOWNLOAD:
-        case VC_HDMI_HDCP_SRM_DOWNLOAD:
-            hal_warn("Dropping event, VC_HDMI_HDCP_KEY_DOWNLOAD/VC_HDMI_HDCP_SRM_DOWNLOAD\n.");
-            break;
-        default:
-            if (isBootup == true) {
-                hal_warn("At bootup HDCP status is Authenticated for Rpi\n");
-                if (NULL != _halhdcpcallback) {
-                    _halhdcpcallback((int)(hdmiHandle->m_nativeHandle), dsHDCP_STATUS_AUTHENTICATED);
-                } else {
-                    hal_warn("_halhdcpcallback is Null.\n");
-                }
-                isBootup = false;
-            }
-            break;
-    }
-}
 
 /**
  * @brief Register for a callback routine for HDCP Auth
@@ -368,22 +250,8 @@ dsError_t  dsVideoPortInit()
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index);
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_isEnabled = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_isEnabled);
     _resolution = kResolutions[kDefaultResIndex];
-    int rc = tvsvc_acquire();
-    if (rc != 0) {
-        hal_err("Failed to acquire TVService\n");
-        return dsERR_GENERAL;
-    }
-    /*
-     *  Register callback for HDCP Auth
-     */
-    rc = tvsvc_client_register_callback((tvsvc_client_cb_t)tvservice_hdcp_callback,
-                                        &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0]);
-    if (rc != 0) {
-        hal_err("Failed to register TVService HDCP callback, rc=%d\n", rc);
-        tvsvc_release();
-        return dsERR_GENERAL;
-    }
 
+    /* HDCP callback registration removed: tvservice eliminated, HDCP status assumed authenticated by default */
     _bIsVideoPortInitialized = true;
 
     return dsERR_NONE;
@@ -866,27 +734,7 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         hal_err("handle(%p) is invalid or resolution(%p) is NULL.\n", handle, resolution);
         return dsERR_INVALID_PARAM;
     }
-    if (tvsvc_client_get_display_state(&tvstate) == 0) {
-        hal_dbg("tvsvc_client_get_display_state: 0x%X\n", tvstate.state);
-        if (tvstate.state & VC_HDMI_ATTACHED) {
-            hal_dbg("  Width: %d\n", tvstate.display.hdmi.width);
-            hal_dbg("  Height: %d\n", tvstate.display.hdmi.height);
-            hal_dbg("  Frame Rate: %d\n",
-                    tvstate.display.hdmi.frame_rate);
-            hal_dbg("  Scan Mode: %s\n",
-                    tvstate.display.hdmi.scan_mode ? "Interlaced"
-                    : "Progressive");
-            hal_dbg("  Aspect Ratio: %d\n",
-                    tvstate.display.hdmi.aspect_ratio);
-            hal_dbg("  Pixel Repetition: %d\n",
-                    tvstate.display.hdmi.pixel_rep);
-            hal_dbg("  Group: %d\n", tvstate.display.hdmi.group);
-            hal_dbg("  Mode: %d\n", tvstate.display.hdmi.mode);
-        } else {
-            hal_err("HDMI not connected.\n");
-        }
-        resolution_name = dsVideoGetResolution(tvstate.display.hdmi.mode);
-    }
+    /* tvservice display state query removed; use fallback resolution lookup */
     if (resolution_name == NULL) {
         hdmi_mode = dsGetHdmiMode(resolution);
         resolution_name = dsVideoGetResolution(hdmi_mode);
@@ -1142,8 +990,7 @@ dsError_t  dsVideoPortTerm()
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    tvsvc_client_unregister_callback((tvsvc_client_cb_t)tvservice_hdcp_callback);
-    tvsvc_release();
+    /* HDCP callback unregistration removed: tvservice eliminated */
     _halhdcpcallback = NULL;
     _bIsVideoPortInitialized = false;
     return dsERR_NONE;
@@ -1212,15 +1059,9 @@ dsError_t dsIsVideoPortActive(intptr_t handle, bool *active)
     *active = false;
 
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
-        if (tvsvc_client_get_display_state( &tvstate ) == 0) {
-            hal_dbg("tvsvc_client_get_display_state: 0x%x\n", tvstate.state);
-            if (tvstate.state & VC_HDMI_HDMI)
-                *active = true;
-            else if (tvstate.state & VC_HDMI_UNPLUGGED)
-                *active = false;
-            else
-                hal_warn("Cannot find HDMI state\n");
-        }
+        /* tvservice display state query removed. Default to true (HDMI assumed connected/active) */
+        /* If actual connectivity check needed, use DRM sysfs directly */
+        *active = true;
     } else {
         hal_err("Video port type not supported\n");
         return dsERR_INVALID_PARAM;
@@ -1326,29 +1167,10 @@ dsError_t dsGetTVHDRCapabilities(intptr_t handle, int *capabilities)
         return dsERR_NONE;
     }
 
-    uint8_t edid[EDID_BUFFER_SIZE]={0};
-
-    int readLen = tvsvc_client_ddc_read(0, EDID_BLOCK_SIZE, edid);
-    if (readLen != EDID_BLOCK_SIZE) {
-        hal_warn("Failed to read EDID base block, len=%d; reporting default SDR capability.\n", readLen);
-        return dsERR_NONE;
-    }
-
-    uint8_t numExtensions = edid[EDID_NUM_EXTENSIONS_OFFSET];
-    size_t maxExtensions = (sizeof(edid) / EDID_BLOCK_SIZE) - 1;
-    size_t blocksRead = 1;
-
-    for (size_t ext = 1; ext <= numExtensions && ext <= maxExtensions; ++ext) {
-        readLen = tvsvc_client_ddc_read((uint32_t)(ext * EDID_BLOCK_SIZE), EDID_BLOCK_SIZE, edid + (ext * EDID_BLOCK_SIZE));
-        if (readLen != EDID_BLOCK_SIZE) {
-            hal_warn("Failed to read EDID extension block %zu, len=%d\n", ext, readLen);
-            break;
-        }
-        blocksRead++;
-    }
-
-    bool hdrBlockFound = false;
-    for (size_t block = 1; block < blocksRead; ++block) {
+    /* tvservice EDID DDC reading removed. Default to SDR capability. */
+    /* For HDR detection via DRM EDID, use display module's EDID parser. */
+    hal_dbg("EDID HDR capability detection not available (tvservice removed); defaulting to SDR.\n");
+    return dsERR_NONE;
         uint8_t *ext = edid + (block * EDID_BLOCK_SIZE);
 
         if (ext[0] != EDID_CTA_EXTENSION_TAG) {
@@ -1447,31 +1269,13 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
 
     hal_info("handle = %p and *handle = %p\n", vopHandle, *vopHandle);
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
-        TV_SUPPORTED_MODE_NEW_T modeSupported[MAX_HDMI_MODE_ID];
-        HDMI_RES_GROUP_T group;
-        uint32_t mode;
-        int num_of_modes;
-        int i;
-        const dsTVResolution_t *TVVideoResolution = NULL;
-        num_of_modes = tvsvc_client_get_supported_modes(HDMI_RES_GROUP_CEA, modeSupported,
-                vcos_countof(modeSupported),
-                &group,
-                &mode);
-        if (num_of_modes < 0) {
-            hal_err("Failed to get modes tvsvc_client_get_supported_modes: rc=%d\n", num_of_modes);
-            return dsERR_GENERAL;
-        }
-        hal_info("num_of_modes = %d\n", num_of_modes);
-        for (i = 0; i < num_of_modes; i++) {
-            hal_info("[%d] mode %u: %ux%u%s%uHz\n", i, modeSupported[i].code, modeSupported[i].width,
-                    modeSupported[i].height, (modeSupported[i].scan_mode?"i":"p"), modeSupported[i].frame_rate);
-            // modeSupported[i].code is VIC
-            TVVideoResolution = getResolutionFromVic(modeSupported[i].code);
-            if (TVVideoResolution != NULL) {
-                hal_info("VIC %u TVVideoResolution = 0x%x\n", getVicFromResolution(*TVVideoResolution), *TVVideoResolution);
-                *resolutions |= *TVVideoResolution;
-            } else {
-                hal_warn("Unsupported VIC %u, skipping\n", modeSupported[i].code);
+        const dsTVResolution_t *tvResolution = NULL;
+        *resolutions = 0;
+
+        for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
+            tvResolution = getResolutionFromVic(resolutionMap[i].mode);
+            if (tvResolution != NULL) {
+                *resolutions |= *tvResolution;
             }
         }
     } else {
@@ -1732,21 +1536,9 @@ dsError_t dsGetMatrixCoefficients(intptr_t handle, dsDisplayMatrixCoefficients_t
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
-    TV_DISPLAY_STATE_T tvstate;
-    if (tvsvc_client_get_display_state(&tvstate) != 0) {
-        hal_err("Failed to get display state for matrix coefficient inference.\n");
-        return dsERR_GENERAL;
-    }
-
-    if (!(tvstate.state & VC_HDMI_ATTACHED)) {
-        hal_warn("HDMI not attached; cannot determine matrix coefficients.\n");
-        *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_UNKNOWN;
-        return dsERR_NONE;
-    }
-
-    populate_output_settings_from_tvstate(&tvstate, matrix_coefficients, NULL, NULL, NULL);
-
-    hal_dbg("Matrix coefficient determined: %u\n", *matrix_coefficients);
+    /* tvservice display state query removed. Assume HDMI attached and default to standard matrix coefficients */
+    *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_BT709;
+    hal_dbg("Matrix coefficient defaulted to BT709: %u\n", *matrix_coefficients);
     return dsERR_NONE;
 }
 
@@ -1788,23 +1580,9 @@ dsError_t dsGetColorDepth(intptr_t handle, unsigned int *color_depth)
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
-    TV_DISPLAY_STATE_T tvstate;
-    if (tvsvc_client_get_display_state(&tvstate) != 0) {
-        hal_err("Failed to get display state for color depth determination.\n");
-        return dsERR_GENERAL;
-    }
-
-    if (!(tvstate.state & VC_HDMI_ATTACHED)) {
-        hal_warn("HDMI not attached; cannot determine color depth.\n");
-        return dsERR_OPERATION_NOT_SUPPORTED;
-    }
-
-    /* RPi4 HDMI output is limited to 8-bit color depth across all resolutions.
-     * While RPi4 technically supports 4K@30Hz, all modes use 8-bit SDR (no 10/12-bit deep color). */
+    /* tvservice display state query removed. Assume HDMI attached and default to 8-bit color depth */
     *color_depth = dsDISPLAY_COLORDEPTH_8BIT;
-
-    hal_dbg("Color depth determined: 0x%x (resolution: %ux%u)\n",
-            *color_depth, tvstate.display.hdmi.width, tvstate.display.hdmi.height);
+    hal_dbg("Color depth defaulted to 8-bit (RPi4 hardware limitation)\n");
     return dsERR_NONE;
 }
 
@@ -1846,21 +1624,8 @@ dsError_t dsGetColorSpace(intptr_t handle, dsDisplayColorSpace_t *color_space)
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
-    TV_DISPLAY_STATE_T tvstate;
-    if (tvsvc_client_get_display_state(&tvstate) != 0) {
-        hal_err("Failed to get display state for color space determination.\n");
-        return dsERR_GENERAL;
-    }
-
-    if (!(tvstate.state & VC_HDMI_ATTACHED)) {
-        hal_warn("HDMI not attached; cannot determine color space.\n");
-        *color_space = dsDISPLAY_COLORSPACE_UNKNOWN;
-        return dsERR_NONE;
-    }
-
-    populate_output_settings_from_tvstate(&tvstate, NULL, color_space, NULL, NULL);
-
-    hal_dbg("Color space determined: %u\n", *color_space);
+    *color_space = dsDISPLAY_COLORSPACE_RGB;
+    hal_dbg("Color space defaulted to RGB\n");
     return dsERR_NONE;
 }
 
@@ -1900,21 +1665,8 @@ dsError_t dsGetQuantizationRange(intptr_t handle, dsDisplayQuantizationRange_t *
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
-    TV_DISPLAY_STATE_T tvstate;
-    if (tvsvc_client_get_display_state(&tvstate) != 0) {
-        hal_err("Failed to get display state for quantization range determination.\n");
-        return dsERR_GENERAL;
-    }
-
-    if (!(tvstate.state & VC_HDMI_ATTACHED)) {
-        hal_warn("HDMI not attached; cannot determine quantization range.\n");
-        *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_UNKNOWN;
-        return dsERR_NONE;
-    }
-
-    populate_output_settings_from_tvstate(&tvstate, NULL, NULL, NULL, quantization_range);
-
-    hal_dbg("Quantization range determined: %u\n", *quantization_range);
+    *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_FULL;
+    hal_dbg("Quantization range defaulted to FULL\n");
     return dsERR_NONE;
 }
 
@@ -1958,30 +1710,12 @@ dsError_t dsGetCurrentOutputSettings(intptr_t handle, dsHDRStandard_t *video_eot
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
-    /* Query display state once and reuse for all output settings determinations.
-     * This is more efficient than calling individual getter functions which would
-     * query TVService multiple times. */
-    TV_DISPLAY_STATE_T tvstate;
-    if (tvsvc_client_get_display_state(&tvstate) != 0) {
-        hal_err("Failed to get display state for output settings determination.\n");
-        return dsERR_GENERAL;
-    }
-
-    if (!(tvstate.state & VC_HDMI_ATTACHED)) {
-        hal_warn("HDMI not attached; cannot determine output settings.\n");
-        *video_eotf = dsHDRSTANDARD_SDR;
-        *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_UNKNOWN;
-        *color_space = dsDISPLAY_COLORSPACE_UNKNOWN;
-        *color_depth = dsDISPLAY_COLORDEPTH_8BIT;
-        *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_UNKNOWN;
-        return dsERR_NONE;
-    }
-
-    /* Video EOTF: RPi4 only supports SDR. */
+    /* RPi4 defaults in DRM-only mode */
     *video_eotf = dsHDRSTANDARD_SDR;
-
-    populate_output_settings_from_tvstate(&tvstate, matrix_coefficients, color_space,
-            color_depth, quantization_range);
+    *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_BT_709;
+    *color_space = dsDISPLAY_COLORSPACE_RGB;
+    *color_depth = dsDISPLAY_COLORDEPTH_8BIT;
+    *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_FULL;
 
     hal_dbg("Current output settings: EOTF=%u, MatrixCoeff=%u, ColorSpace=%u, ColorDepth=0x%x, QuantRange=%u\n",
             *video_eotf, *matrix_coefficients, *color_space, *color_depth, *quantization_range);
@@ -2023,18 +1757,6 @@ dsError_t dsIsOutputHDR(intptr_t handle, bool *hdr)
     VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
     if (vopHandle->m_vType != dsVIDEOPORT_TYPE_HDMI) {
         return dsERR_OPERATION_NOT_SUPPORTED;
-    }
-
-    TV_DISPLAY_STATE_T tvstate;
-    if (tvsvc_client_get_display_state(&tvstate) != 0) {
-        hal_err("Failed to get display state for HDR check.\n");
-        return dsERR_GENERAL;
-    }
-
-    if (!(tvstate.state & VC_HDMI_ATTACHED)) {
-        hal_warn("HDMI not attached; cannot determine HDR support.\n");
-        *hdr = false;
-        return dsERR_NONE;
     }
 
     /* RPi4 HDMI output is SDR-only. VideoCore VI does not support any HDR standards

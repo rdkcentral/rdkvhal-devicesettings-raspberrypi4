@@ -163,53 +163,6 @@ const VicMapEntry vicMapTable[] = {
 
 #define VIC_MAP_TABLE_SIZE (sizeof(vicMapTable) / sizeof(VicMapEntry))
 
-/*
- * TVService lifecycle : delegate to IPC client.
- * vchi_tv_init/uninit are now owned exclusively by dsTVSvcDaemon.
- *
- * Multiple modules in the same process may share the IPC connection, so
- * keep a process-wide refcount here and only connect on 0->1 and
- * disconnect on 1->0.
- */
-static pthread_mutex_t tvsvc_client_lock = PTHREAD_MUTEX_INITIALIZER;
-static unsigned int tvsvc_client_refcount = 0;
-
-int tvsvc_acquire(void)
-{
-    int res = 0;
-    pthread_mutex_lock(&tvsvc_client_lock);
-
-    /* Ensure the IPC connection is established when called.
-     * tvsvc_client_connect() is idempotent and returns 0 if already connected.
-     * If the daemon restarts after acquisition, later RPC calls may still fail
-     * with -ENOTCONN; callers must handle that case explicitly. */
-    res = tvsvc_client_connect();
-
-    if (res == 0) {
-        tvsvc_client_refcount++;
-    }
-    pthread_mutex_unlock(&tvsvc_client_lock);
-    return res;
-}
-
-int tvsvc_release(void)
-{
-    int res = 0;
-    pthread_mutex_lock(&tvsvc_client_lock);
-    if (tvsvc_client_refcount == 0)
-    {
-        pthread_mutex_unlock(&tvsvc_client_lock);
-        return 0;
-    }
-    tvsvc_client_refcount--;
-    if (tvsvc_client_refcount == 0)
-    {
-        tvsvc_client_disconnect();
-    }
-    pthread_mutex_unlock(&tvsvc_client_lock);
-    return res;
-}
-
 static int detailedBlock(unsigned char *x, int extension, dsDisplayEDID_t *displayEdidInfo)
 {
     hal_info("extension %d\n", extension);
