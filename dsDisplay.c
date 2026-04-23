@@ -1106,7 +1106,7 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
     hal_info("Invoked\n");
     VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
     bool drmConnected = false, drmEnabled = false;
-    char edid_path[256] = {0};
+    char edid_path[PATH_MAX] = {0};
     char connector_name[64] = {0};
     char cardName[PATH_MAX] = {0};
 
@@ -1145,7 +1145,11 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
             continue; /* Skip non-HDMI connectors */
         }
 
-        snprintf(edid_path, sizeof(edid_path), "/sys/class/drm/%s/edid", entry->d_name);
+        int path_len = snprintf(edid_path, sizeof(edid_path), "/sys/class/drm/%s/edid", entry->d_name);
+        if (path_len < 0 || (size_t)path_len >= sizeof(edid_path)) {
+            hal_warn("EDID path truncated for connector '%s'\n", entry->d_name);
+            continue;
+        }
         FILE *edid_file = fopen(edid_path, "rb");
         if (!edid_file) {
             hal_dbg("EDID file not found at %s\n", edid_path);

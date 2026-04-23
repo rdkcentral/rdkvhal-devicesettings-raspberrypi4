@@ -38,7 +38,6 @@
 #include "dshalLogger.h"
 #include "interface/vmcs_host/vc_hdmi.h"
 
-static bool isBootup = true;
 static bool _bIsVideoPortInitialized = false;
 static bool isValidVopHandle(intptr_t handle);
 static const char *dsVideoGetResolution(uint32_t mode);
@@ -1477,8 +1476,8 @@ dsError_t dsGetMatrixCoefficients(intptr_t handle, dsDisplayMatrixCoefficients_t
     }
 
     /* tvservice display state query removed. Assume HDMI attached and default to standard matrix coefficients */
-    *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_BT709;
-    hal_dbg("Matrix coefficient defaulted to BT709: %u\n", *matrix_coefficients);
+    *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_BT_709;
+    hal_dbg("Matrix coefficient defaulted to BT_709: %u\n", *matrix_coefficients);
     return dsERR_NONE;
 }
 
