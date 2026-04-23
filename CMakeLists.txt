@@ -19,6 +19,10 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 include(GNUInstallDirs)
+find_package(PkgConfig REQUIRED)
+
+pkg_check_modules(LIBDRM REQUIRED libdrm)
+pkg_check_modules(LIBUDEV REQUIRED libudev)
 
 # All source files
 file(GLOB ALL_SOURCES "*.c")
@@ -74,7 +78,22 @@ set_target_properties(${LIBNAME} PROPERTIES
 	VERSION ${PROJECT_VERSION}
 	SOVERSION ${PROJECT_VERSION_MAJOR}
 )
-target_link_libraries(${LIBNAME} asound pthread m drm udev)
+target_include_directories(${LIBNAME} PRIVATE
+	${LIBDRM_INCLUDE_DIRS}
+	${LIBUDEV_INCLUDE_DIRS}
+)
+target_compile_options(${LIBNAME} PRIVATE
+	${LIBDRM_CFLAGS_OTHER}
+	${LIBUDEV_CFLAGS_OTHER}
+)
+target_link_directories(${LIBNAME} PRIVATE
+	${LIBDRM_LIBRARY_DIRS}
+	${LIBUDEV_LIBRARY_DIRS}
+)
+target_link_libraries(${LIBNAME} asound pthread m
+	${LIBDRM_LIBRARIES}
+	${LIBUDEV_LIBRARIES}
+)
 
 # Installation
 install(TARGETS ${LIBNAME} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
