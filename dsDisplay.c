@@ -166,6 +166,8 @@ static void* hdmi_watcher_thread(void *arg)
         if (len <= 0) {
             if (len < 0 && errno != EINTR) {
                 hal_err("inotify read error: %s\n", strerror(errno));
+                struct timespec ts = {.tv_sec = 0, .tv_nsec = 1000000};  /* 1ms sleep on error */
+                nanosleep(&ts, NULL);
             }
             continue;
         }
@@ -229,7 +231,7 @@ static bool start_hdmi_watcher(int nativeHandle)
     }
 
     /* Create inotify instance and watch for changes to /sys/class/drm. */
-    gInotifyFd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+    gInotifyFd = inotify_init1(IN_CLOEXEC);
     if (gInotifyFd < 0) {
         hal_err("Failed to initialize inotify: %s\n", strerror(errno));
         return false;
