@@ -66,5 +66,7 @@ bool westerosRWWrapper(const char *cmd, char *resp, size_t respSize);
 const dsTVResolution_t *getResolutionFromVic(int vic);
 const int *getVicFromResolution(dsTVResolution_t resolution);
 const char *getXDGRuntimeDir();
+int dsOpenDrmCardFd(void);
+bool dsGetHdmiConnectorState(bool *connected, bool *enabled);
 
 #endif

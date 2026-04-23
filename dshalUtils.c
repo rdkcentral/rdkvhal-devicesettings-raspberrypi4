@@ -25,10 +25,130 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <limits.h>
+#include <fcntl.h>
 #include <pthread.h>
+#include <xf86drm.h>
+#include <xf86drmMode.h>
 
 #include "dshalUtils.h"
 #include "dshalLogger.h"
+
+int dsOpenDrmCardFd(void)
+{
+    const char *cardPath = getenv("WESTEROS_DRM_CARD");
+    if (cardPath == NULL || cardPath[0] == '\0') {
+        cardPath = DRI_CARD;
+    }
+
+    int fd = open(cardPath, O_RDWR);
+    if (fd < 0) {
+        fd = open(cardPath, O_RDONLY);
+    }
+
+    if (fd >= 0) {
+        int flags = fcntl(fd, F_GETFD);
+        if (flags != -1) {
+            (void)fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
+        }
+    }
+
+    return fd;
+}
+
+bool dsGetHdmiConnectorState(bool *connected, bool *enabled)
+{
+    int drmFd = -1;
+    drmModeRes *resources = NULL;
+    bool foundConnector = false;
+    bool bestConnected = false;
+    bool bestEnabled = false;
+
+    if (connected == NULL || enabled == NULL) {
+        return false;
+    }
+
+    *connected = false;
+    *enabled = false;
+
+    drmFd = dsOpenDrmCardFd();
+    if (drmFd < 0) {
+        hal_err("Failed to open DRM card for connector state\n");
+        return false;
+    }
+
+    resources = drmModeGetResources(drmFd);
+    if (!resources) {
+        close(drmFd);
+        return false;
+    }
+
+    for (int i = 0; i < resources->count_connectors; i++) {
+        bool entryConnected = false;
+        bool entryEnabled = false;
+        drmModeConnector *connector = drmModeGetConnectorCurrent(drmFd, resources->connectors[i]);
+
+        if (!connector) {
+            connector = drmModeGetConnector(drmFd, resources->connectors[i]);
+        }
+        if (!connector) {
+            continue;
+        }
+
+        if (connector->connector_type != DRM_MODE_CONNECTOR_HDMIA
+#ifdef DRM_MODE_CONNECTOR_HDMIB
+            && connector->connector_type != DRM_MODE_CONNECTOR_HDMIB
+#endif
+        ) {
+            drmModeFreeConnector(connector);
+            continue;
+        }
+
+        entryConnected = (connector->connection == DRM_MODE_CONNECTED);
+
+        if (connector->encoder_id != 0) {
+            drmModeEncoder *encoder = drmModeGetEncoder(drmFd, connector->encoder_id);
+            if (encoder) {
+                drmModeCrtc *crtc = drmModeGetCrtc(drmFd, encoder->crtc_id);
+                if (crtc) {
+                    entryEnabled = crtc->mode_valid;
+                    drmModeFreeCrtc(crtc);
+                }
+                drmModeFreeEncoder(encoder);
+            }
+        }
+
+        if (!entryEnabled && entryConnected && connector->count_modes > 0 && connector->encoder_id != 0) {
+            entryEnabled = true;
+        }
+
+        if (entryConnected && entryEnabled) {
+            bestConnected = true;
+            bestEnabled = true;
+            foundConnector = true;
+            drmModeFreeConnector(connector);
+            break;
+        }
+
+        if (!foundConnector) {
+            bestConnected = entryConnected;
+            bestEnabled = entryEnabled;
+        }
+
+        foundConnector = true;
+        drmModeFreeConnector(connector);
+    }
+
+    drmModeFreeResources(resources);
+    close(drmFd);
+
+    if (!foundConnector) {
+        return false;
+    }
+
+    *connected = bestConnected;
+    *enabled = bestEnabled;
+    return true;
+}
 
 const hdmiSupportedRes_t resolutionMap[] = {
     {"480p", 2},       // 720x480p @ 59.94/60Hz
