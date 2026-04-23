@@ -27,6 +27,9 @@
 #include <dirent.h>
 #include <errno.h>
 #include <limits.h>
+#include <fcntl.h>
+#include <xf86drm.h>
+#include <xf86drmMode.h>
 
 #include "dsUtl.h"
 #include "dsError.h"
@@ -94,92 +97,122 @@ static VOPHandle_t _vopHandles[dsVIDEOPORT_TYPE_MAX][2] = {};
 static dsVideoPortResolution_t _resolution;
 static bool _bIgnoreEDID = false;
 
-static bool read_sysfs_line(const char *path, char *buf, size_t len)
-{
-    FILE *fp = fopen(path, "r");
-    if (fp == NULL) {
-        return false;
-    }
-
-    if (fgets(buf, (int)len, fp) == NULL) {
-        fclose(fp);
-        return false;
-    }
-
-    fclose(fp);
-    buf[strcspn(buf, "\r\n")] = '\0';
-    return true;
-}
-
-static void resolve_drm_card_name(char *cardName, size_t len)
+static int open_drm_card_fd(void)
 {
     const char *cardPath = getenv("WESTEROS_DRM_CARD");
     if (cardPath == NULL || cardPath[0] == '\0') {
         cardPath = DRI_CARD;
     }
 
-    const char *slash = strrchr(cardPath, '/');
-    const char *base = (slash != NULL) ? (slash + 1) : cardPath;
+    int fd = open(cardPath, O_RDWR);
+    if (fd < 0) {
+        fd = open(cardPath, O_RDONLY);
+    }
 
-    snprintf(cardName, len, "%s", base);
+    if (fd >= 0) {
+        int flags = fcntl(fd, F_GETFD);
+        if (flags != -1) {
+            (void)fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
+        }
+    }
+
+    return fd;
 }
 
 static bool drm_get_hdmi_connector_state(bool *connected, bool *enabled)
 {
-    DIR *dir;
-    struct dirent *entry;
-    char cardName[32] = {0};
-    char statusPath[PATH_MAX] = {0};
-    char enabledPath[PATH_MAX] = {0};
-    char line[64] = {0};
-    bool found = false;
+    int drmFd = -1;
+    drmModeRes *resources = NULL;
+    bool foundConnector = false;
+    bool bestConnected = false;
+    bool bestEnabled = false;
 
     if (connected == NULL || enabled == NULL) {
         return false;
     }
 
-    resolve_drm_card_name(cardName, sizeof(cardName));
+    *connected = false;
+    *enabled = false;
 
-    dir = opendir("/sys/class/drm");
-    if (dir == NULL) {
+    drmFd = open_drm_card_fd();
+    if (drmFd < 0) {
+        hal_err("Failed to open DRM card for connector state\n");
         return false;
     }
 
-    while ((entry = readdir(dir)) != NULL) {
-        if (entry->d_name[0] == '.') {
-            continue;
-        }
-
-        if (strncmp(entry->d_name, cardName, strlen(cardName)) != 0) {
-            continue;
-        }
-
-        if (strstr(entry->d_name, "HDMI-A-") == NULL) {
-            continue;
-        }
-
-        snprintf(statusPath, sizeof(statusPath), "/sys/class/drm/%s/status", entry->d_name);
-        if (!read_sysfs_line(statusPath, line, sizeof(line))) {
-            continue;
-        }
-
-        *connected = (strcmp(line, "connected") == 0);
-
-        snprintf(enabledPath, sizeof(enabledPath), "/sys/class/drm/%s/enabled", entry->d_name);
-        if (read_sysfs_line(enabledPath, line, sizeof(line))) {
-            *enabled = (strcmp(line, "enabled") == 0);
-        } else {
-            *enabled = false;
-        }
-
-        found = true;
-        if (*connected) {
-            break;
-        }
+    resources = drmModeGetResources(drmFd);
+    if (!resources) {
+        close(drmFd);
+        return false;
     }
 
-    closedir(dir);
-    return found;
+    for (int i = 0; i < resources->count_connectors; i++) {
+        bool entryConnected = false;
+        bool entryEnabled = false;
+        drmModeConnector *connector = drmModeGetConnectorCurrent(drmFd, resources->connectors[i]);
+
+        if (!connector) {
+            connector = drmModeGetConnector(drmFd, resources->connectors[i]);
+        }
+        if (!connector) {
+            continue;
+        }
+
+        if (connector->connector_type != DRM_MODE_CONNECTOR_HDMIA
+#ifdef DRM_MODE_CONNECTOR_HDMIB
+            && connector->connector_type != DRM_MODE_CONNECTOR_HDMIB
+#endif
+        ) {
+            drmModeFreeConnector(connector);
+            continue;
+        }
+
+        entryConnected = (connector->connection == DRM_MODE_CONNECTED);
+
+        if (connector->encoder_id != 0) {
+            drmModeEncoder *encoder = drmModeGetEncoder(drmFd, connector->encoder_id);
+            if (encoder) {
+                drmModeCrtc *crtc = drmModeGetCrtc(drmFd, encoder->crtc_id);
+                if (crtc) {
+                    entryEnabled = crtc->mode_valid;
+                    drmModeFreeCrtc(crtc);
+                }
+                drmModeFreeEncoder(encoder);
+            }
+        }
+
+        if (!entryEnabled && entryConnected && connector->count_modes > 0 && connector->encoder_id != 0) {
+            entryEnabled = true;
+        }
+
+        if (entryConnected && entryEnabled) {
+            bestConnected = true;
+            bestEnabled = true;
+            foundConnector = true;
+            drmModeFreeConnector(connector);
+            break;
+        }
+
+        if (!foundConnector) {
+            bestConnected = entryConnected;
+            bestEnabled = entryEnabled;
+        }
+
+        foundConnector = true;
+        drmModeFreeConnector(connector);
+    }
+
+    drmModeFreeResources(resources);
+    close(drmFd);
+
+    if (!foundConnector) {
+        return false;
+    }
+
+    *connected = bestConnected;
+    *enabled = bestEnabled;
+
+    return true;
 }
 
 
