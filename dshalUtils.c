@@ -150,6 +150,95 @@ bool dsGetHdmiConnectorState(bool *connected, bool *enabled)
     return true;
 }
 
+bool dsGetPreferredHdmiMode(char *mode, size_t len)
+{
+    int drmFd = -1;
+    drmModeRes *resources = NULL;
+    drmModeModeInfo selectedMode = {0};
+    bool haveMode = false;
+    bool selectedConnected = false;
+
+    if (mode == NULL || len == 0) {
+        return false;
+    }
+
+    mode[0] = '\0';
+
+    drmFd = dsOpenDrmCardFd();
+    if (drmFd < 0) {
+        return false;
+    }
+
+    resources = drmModeGetResources(drmFd);
+    if (!resources) {
+        close(drmFd);
+        return false;
+    }
+
+    for (int i = 0; i < resources->count_connectors; i++) {
+        drmModeConnector *connector = drmModeGetConnectorCurrent(drmFd, resources->connectors[i]);
+        if (!connector) {
+            connector = drmModeGetConnector(drmFd, resources->connectors[i]);
+        }
+        if (!connector) {
+            continue;
+        }
+
+        if (connector->connector_type != DRM_MODE_CONNECTOR_HDMIA
+#ifdef DRM_MODE_CONNECTOR_HDMIB
+            && connector->connector_type != DRM_MODE_CONNECTOR_HDMIB
+#endif
+        ) {
+            drmModeFreeConnector(connector);
+            continue;
+        }
+
+        if (connector->count_modes <= 0) {
+            drmModeFreeConnector(connector);
+            continue;
+        }
+
+        int preferredIndex = 0;
+        for (int m = 0; m < connector->count_modes; m++) {
+            if (connector->modes[m].type & DRM_MODE_TYPE_PREFERRED) {
+                preferredIndex = m;
+                break;
+            }
+        }
+
+        bool entryConnected = (connector->connection == DRM_MODE_CONNECTED);
+
+        if (entryConnected) {
+            selectedMode = connector->modes[preferredIndex];
+            haveMode = true;
+            selectedConnected = true;
+            drmModeFreeConnector(connector);
+            break;
+        }
+
+        if (!haveMode) {
+            selectedMode = connector->modes[preferredIndex];
+            haveMode = true;
+        }
+
+        drmModeFreeConnector(connector);
+    }
+
+    drmModeFreeResources(resources);
+    close(drmFd);
+
+    if (!haveMode) {
+        return false;
+    }
+
+    snprintf(mode, len, "%s", selectedMode.name);
+    if (!selectedConnected) {
+        hal_dbg("No connected HDMI mode found; returning first available mode '%s'\n", mode);
+    }
+
+    return (mode[0] != '\0');
+}
+
 const hdmiSupportedRes_t resolutionMap[] = {
     {"480p", 2},       // 720x480p @ 59.94/60Hz
     {"480p", 3},       // 720x480p @ 59.94/60Hz

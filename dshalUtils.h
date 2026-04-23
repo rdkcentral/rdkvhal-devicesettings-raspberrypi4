@@ -20,6 +20,8 @@
 #ifndef __DSHALUTILS_H
 #define __DSHALUTILS_H
 
+#include <stddef.h>
+
 #include "interface/vmcs_host/vc_tvservice.h"
 #include "interface/vmcs_host/vc_vchi_gencmd.h"
 #include "dsTypes.h"
@@ -68,5 +70,6 @@ const int *getVicFromResolution(dsTVResolution_t resolution);
 const char *getXDGRuntimeDir();
 int dsOpenDrmCardFd(void);
 bool dsGetHdmiConnectorState(bool *connected, bool *enabled);
+bool dsGetPreferredHdmiMode(char *mode, size_t len);
 
 #endif
