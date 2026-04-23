@@ -69,10 +69,18 @@ static int open_drm_card_fd(void)
         cardPath = DRI_CARD;
     }
 
-    int fd = open(cardPath, O_RDWR | O_CLOEXEC);
+    int fd = open(cardPath, O_RDWR);
     if (fd < 0) {
-        fd = open(cardPath, O_RDONLY | O_CLOEXEC);
+        fd = open(cardPath, O_RDONLY);
     }
+
+    if (fd >= 0) {
+        int flags = fcntl(fd, F_GETFD);
+        if (flags != -1) {
+            (void)fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
+        }
+    }
+
     return fd;
 }
 
