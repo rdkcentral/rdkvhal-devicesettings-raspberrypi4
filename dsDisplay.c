@@ -307,7 +307,8 @@ static void* report_initial_hdmi_state(void *arg)
     free(args);
 
     /* Small delay to ensure watcher thread is fully initialized */
-    usleep(50000); /* 50ms */
+    struct timespec ts = {0, 50 * 1000 * 1000}; /* 50ms */
+    (void)nanosleep(&ts, NULL);
 
     hal_info("Initial state reporter thread: querying current HDMI state\n");
 
@@ -1107,6 +1108,7 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
     bool drmConnected = false, drmEnabled = false;
     char edid_path[256] = {0};
     char connector_name[64] = {0};
+    char cardName[PATH_MAX] = {0};
 
     if (false == _bDisplayInited) {
         return dsERR_NOT_INITIALIZED;
@@ -1126,6 +1128,7 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
     }
 
     /* Scan /sys/class/drm for active HDMI connector and read EDID binary */
+    resolve_drm_card_name(cardName, sizeof(cardName));
     DIR *drm_class = opendir("/sys/class/drm");
     if (!drm_class) {
         hal_err("Failed to open /sys/class/drm\n");
@@ -1135,7 +1138,7 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
     struct dirent *entry;
     *length = 0;
     while ((entry = readdir(drm_class)) != NULL) {
-        if (strncmp(entry->d_name, gDrmCardName, strlen(gDrmCardName)) != 0) {
+        if (strncmp(entry->d_name, cardName, strlen(cardName)) != 0) {
             continue; /* Skip entries not matching our card */
         }
         if (strstr(entry->d_name, "HDMI-A") == NULL) {
