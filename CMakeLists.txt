@@ -94,10 +94,6 @@ target_link_libraries(${DAEMON_NAME} vchostif vchiq_arm vcos pthread)
 
 # Installation
 install(TARGETS ${LIBNAME} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
-install(TARGETS ${DAEMON_NAME} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-# Install headers ending with *Settings.h
-file(GLOB SETTINGS_HEADERS "${CMAKE_SOURCE_DIR}/*Settings.h")
-install(FILES ${SETTINGS_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/rdk/halif/ds-hal)
 
 # Clean target
 add_custom_target(clean-all

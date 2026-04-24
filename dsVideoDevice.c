@@ -24,6 +24,7 @@
 #include "dsVideoDeviceTypes.h"
 #include "dshalUtils.h"
 #include "dshalLogger.h"
+#include "dsVideoDeviceSettings.h"
 
 static bool _bVideoDeviceInited = false;
 

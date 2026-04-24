@@ -38,6 +38,7 @@
 #include "dsFPD.h"
 #include "dsFPDTypes.h"
 #include "dshalLogger.h"
+#include "dsFPDSettings.h"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
