@@ -20,7 +20,7 @@
 Description=DisplayEnable.
 
 [Service]
-ExecStart=/bin/sh -c '/lib/rdk/rpiDisplayEnable.sh 2'
+ExecStart=/bin/sh -c '/usr/bin/rpiDisplayEnable.sh 2'
 StandardOutput=journal
 
 [Install]
