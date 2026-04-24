@@ -26,12 +26,12 @@
 /*
  * Setup the supported configurations here.
  */
-static const dsAudioPortType_t 		kSupportedPortTypes[] 				= { dsAUDIOPORT_TYPE_HDMI };
-static const dsAudioEncoding_t 		kSupportedHDMIEncodings[]			= { dsAUDIO_ENC_PCM, dsAUDIO_ENC_AC3};
-static const dsAudioCompression_t 	kSupportedHDMICompressions[] 		= { dsAUDIO_CMP_NONE, dsAUDIO_CMP_LIGHT, dsAUDIO_CMP_MEDIUM, dsAUDIO_CMP_HEAVY, };
-static const dsAudioStereoMode_t 	kSupportedHDMIStereoModes[] 		= { dsAUDIO_STEREO_STEREO, dsAUDIO_STEREO_SURROUND, };
+dsAudioPortType_t 		kAudioSupportedPortTypes[] 			= { dsAUDIOPORT_TYPE_HDMI };
+dsAudioEncoding_t 		kSupportedHDMIEncodings[]			= { dsAUDIO_ENC_PCM, dsAUDIO_ENC_AC3};
+dsAudioCompression_t 	kSupportedHDMICompressions[] 		= { dsAUDIO_CMP_NONE, dsAUDIO_CMP_LIGHT, dsAUDIO_CMP_MEDIUM, dsAUDIO_CMP_HEAVY, };
+dsAudioStereoMode_t 	kSupportedHDMIStereoModes[] 		= { dsAUDIO_STEREO_STEREO, dsAUDIO_STEREO_SURROUND, };
 
-static const dsAudioTypeConfig_t 	kConfigs[]= {
+dsAudioTypeConfig_t 	kAudioConfigs[]= {
 	{
 		/*.typeId = */					dsAUDIOPORT_TYPE_HDMI,
 		/*.name = */					"HDMI", //HDMI
@@ -44,7 +44,7 @@ static const dsAudioTypeConfig_t 	kConfigs[]= {
 	}
 };
 
-static const dsVideoPortPortId_t connectedVOPs[dsAUDIOPORT_TYPE_MAX][dsVIDEOPORT_TYPE_MAX] = {
+dsVideoPortPortId_t connectedVOPs[dsAUDIOPORT_TYPE_MAX][dsVIDEOPORT_TYPE_MAX] = {
 	{/*VOPs connected to LR Audio */
 
 	},
@@ -53,7 +53,7 @@ static const dsVideoPortPortId_t connectedVOPs[dsAUDIOPORT_TYPE_MAX][dsVIDEOPORT
 	}
 };
 
-static const dsAudioPortConfig_t kPorts[] = {
+dsAudioPortConfig_t kAudioPorts[] = {
 	{
 		/*.typeId = */ 					{dsAUDIOPORT_TYPE_HDMI, 0},
 		/*.connectedVOPs = */			connectedVOPs[dsAUDIOPORT_TYPE_HDMI],
