@@ -20,8 +20,7 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 include(GNUInstallDirs)
-set(SYSTEMD_SYSTEM_UNITDIR "${CMAKE_INSTALL_LIBDIR}/systemd/system" CACHE PATH
-	"systemd system unit directory")
+set(SYSTEMD_SYSTEM_UNITDIR "/lib/systemd/system" CACHE PATH "systemd system unit directory")
 set(RDK_HELPER_DIR "lib/rdk" CACHE PATH "RDK helper scripts install directory")
 
 # All source files — exclude the daemon executable source from the shared library
