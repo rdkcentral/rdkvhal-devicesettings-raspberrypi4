@@ -220,6 +220,11 @@ static void handle_request(int fd, const tvsvc_msg_hdr_t *hdr,
         int count = vc_tv_hdmi_get_supported_modes_new(
                         (HDMI_RES_GROUP_T)req->group, modes, (int)max,
                         &pref_group, &pref_mode);
+        if (count > 0 && (uint32_t)count > max) {
+            hal_err("[dsTVSvcDaemon] get_supported_modes returned count %d > requested max %u\n",
+                    count, max);
+            count = -EIO;
+        }
 
         tvsvc_resp_get_modes_t resp_hd = {
             .status          = (count < 0) ? count : 0,

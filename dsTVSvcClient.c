@@ -729,14 +729,16 @@ int tvsvc_client_get_supported_modes(HDMI_RES_GROUP_T         group,
                                      HDMI_RES_GROUP_T        *preferred_group,
                                      uint32_t                *preferred_mode)
 {
+    uint32_t requested_modes = (max_supported_modes < TVSVC_MAX_MODES_PER_REQ)
+        ? max_supported_modes : TVSVC_MAX_MODES_PER_REQ;
+
     tvsvc_req_get_modes_t req = {
         (uint32_t)group,
-        (max_supported_modes < TVSVC_MAX_MODES_PER_REQ)
-            ? max_supported_modes : TVSVC_MAX_MODES_PER_REQ
+        requested_modes
     };
 
     size_t resp_buf_size = sizeof(tvsvc_resp_get_modes_t) +
-                           TVSVC_MAX_MODES_PER_REQ * sizeof(TV_SUPPORTED_MODE_NEW_T);
+                           requested_modes * sizeof(TV_SUPPORTED_MODE_NEW_T);
     uint8_t *resp_buf = (uint8_t *)malloc(resp_buf_size);
     if (!resp_buf)
         return -ENOMEM;

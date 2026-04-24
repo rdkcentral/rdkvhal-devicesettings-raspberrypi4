@@ -67,6 +67,9 @@ endif()
 
 # Compiler flags , add security flags as well
 set(SECURITY_CFLAGS "-fstack-protector-strong -D_FORTIFY_SOURCE=2 -Wformat -Wformat-security -fPIE -pie -Wl,-z,relro -Wl,-z,now")
+set(SECURITY_LDFLAGS "-pie -Wl,-z,relro -Wl,-z,now")
+separate_arguments(SECURITY_CFLAGS_LIST NATIVE_COMMAND "${SECURITY_CFLAGS}")
+separate_arguments(SECURITY_LDFLAGS_LIST NATIVE_COMMAND "${SECURITY_LDFLAGS}")
 # Set compiler flags, including the security flags
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11 -g -fPIC -D_REENTRANT -Werror -Wall -Wextra ${SECURITY_CFLAGS}")
 
@@ -89,6 +92,10 @@ target_include_directories(${DAEMON_NAME} PRIVATE
 )
 target_compile_options(${DAEMON_NAME} PRIVATE
 	-std=c11 -g -fPIE -D_REENTRANT -Werror -Wall -Wextra
+	${SECURITY_CFLAGS_LIST}
+)
+target_link_options(${DAEMON_NAME} PRIVATE
+	${SECURITY_LDFLAGS_LIST}
 )
 target_link_libraries(${DAEMON_NAME} vchostif vchiq_arm vcos pthread)
 
