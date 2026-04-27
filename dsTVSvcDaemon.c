@@ -38,6 +38,7 @@
 
 #define _GNU_SOURCE
 
+#include <ctype.h>
 #include <errno.h>
 #include <limits.h>
 #include <poll.h>
@@ -208,6 +209,10 @@ static void handle_request(int fd, const tvsvc_msg_hdr_t *hdr,
         const tvsvc_req_get_modes_t *req = (const tvsvc_req_get_modes_t *)payload;
         uint32_t max = (req->max_modes < TVSVC_MAX_MODES_PER_REQ)
                        ? req->max_modes : TVSVC_MAX_MODES_PER_REQ;
+        if (max == 0) {
+            send_resp_simple(fd, hdr->cmd, hdr->req_id, -EINVAL, 0);
+            break;
+        }
 
         TV_SUPPORTED_MODE_NEW_T *modes =
             (TV_SUPPORTED_MODE_NEW_T *)calloc(max, sizeof(*modes));
@@ -264,6 +269,19 @@ static void handle_request(int fd, const tvsvc_msg_hdr_t *hdr,
         }
         const tvsvc_req_ddc_read_t *req = (const tvsvc_req_ddc_read_t *)payload;
         uint32_t want = (req->len < TVSVC_DDC_MAX_LEN) ? req->len : TVSVC_DDC_MAX_LEN;
+        if (want == 0) {
+            /* Zero-length read is a no-op; return success with actual_len=0. */
+            tvsvc_resp_ddc_read_t empty = { .status = 0, .actual_len = 0 };
+            tvsvc_msg_hdr_t rhdr_empty = {
+                TVSVC_VERSION,
+                (uint8_t)(hdr->cmd | TVSVC_RESP_FLAG),
+                hdr->req_id,
+                (uint16_t)sizeof(empty)
+            };
+            (void)send_all(fd, &rhdr_empty, sizeof(rhdr_empty));
+            (void)send_all(fd, &empty,      sizeof(empty));
+            break;
+        }
         uint8_t *buf  = (uint8_t *)calloc(want, 1U);
         if (!buf) {
             send_resp_simple(fd, hdr->cmd, hdr->req_id, -ENOMEM, 0);
@@ -344,7 +362,11 @@ static void handle_request(int fd, const tvsvc_msg_hdr_t *hdr,
         } else {
             buffer[sizeof(buffer) - 1] = '\0';
             char *equal = strchr(buffer, '=');
-            r.memory = (uint64_t)strtoull(equal ? (equal + 1) : buffer, NULL, 10);
+            if (!equal || !isdigit((unsigned char)*(equal + 1))) {
+                r.status = -EIO;
+            } else {
+                r.memory = (uint64_t)strtoull(equal + 1, NULL, 10);
+            }
         }
         tvsvc_msg_hdr_t rhdr = {
             TVSVC_VERSION,
@@ -366,7 +388,11 @@ static void handle_request(int fd, const tvsvc_msg_hdr_t *hdr,
         } else {
             buffer[sizeof(buffer) - 1] = '\0';
             char *equal = strchr(buffer, '=');
-            r.memory = (uint64_t)strtoull(equal ? (equal + 1) : buffer, NULL, 10);
+            if (!equal || !isdigit((unsigned char)*(equal + 1))) {
+                r.status = -EIO;
+            } else {
+                r.memory = (uint64_t)strtoull(equal + 1, NULL, 10);
+            }
         }
         tvsvc_msg_hdr_t rhdr = {
             TVSVC_VERSION,
@@ -516,11 +542,11 @@ int main(void)
         goto cleanup;
     }
 
-    /* Sole owner of VCHI / TVService. */
-    if (vc_vchi_tv_init(gVchiInstance, &gVchiConnection, 1) != 0) {
-        hal_err("[dsTVSvcDaemon] vc_vchi_tv_init failed\n");
-        goto cleanup;
-    }
+    /* Sole owner of VCHI / TVService.
+     * vc_vchi_tv_init() is void in the RPi userland headers; failures in
+     * the underlying VCHI layer are caught by the vchi_initialise /
+     * vchi_connect checks above. */
+    vc_vchi_tv_init(gVchiInstance, &gVchiConnection, 1);
     tv_inited = true;
 
     /* Initialise gencmd service — required for GET_FREE/TOTAL_GFX_MEM. */

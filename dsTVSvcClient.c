@@ -577,16 +577,30 @@ int tvsvc_client_connect(void)
 
 void tvsvc_client_disconnect(void)
 {
-    /* Signal reader thread to stop and unblock its recv(). */
+    bool cancelReader = false;
+
+    /* Signal reader thread to stop and unblock its blocking recv(). */
     atomic_store(&gReaderStop, true);
 
     pthread_mutex_lock(&gRpcMutex);
     if (gConnFd >= 0) {
         (void)shutdown(gConnFd, SHUT_RDWR);
+    } else if (atomic_load(&gReaderRunning)) {
+        /*
+         * The reader can be running during the connect-time handshake before
+         * the socket fd is published into gConnFd.  In that window there is
+         * no visible fd to shutdown(), so joining without another unblock
+         * can hang indefinitely in recv().  Fall back to cancelling the
+         * reader thread in this case.
+         */
+        cancelReader = true;
     }
     pthread_mutex_unlock(&gRpcMutex);
 
     if (atomic_load(&gReaderRunning)) {
+        if (cancelReader) {
+            (void)pthread_cancel(gReaderThread);
+        }
         (void)pthread_join(gReaderThread, NULL);
         atomic_store(&gReaderRunning, false);
     }
@@ -681,9 +695,23 @@ static int do_rpc(uint8_t cmd,
     while (!gRespReady) {
         int rc = pthread_cond_timedwait(&gRpcCond, &gRpcMutex, &ts);
         if (rc == ETIMEDOUT) {
+            /*
+             * A timed-out RPC may still receive a late response on the
+             * stream socket.  Reusing the same connection would risk
+             * desynchronising subsequent RPCs, so treat timeout as a
+             * connection-level fault and force reconnect on next use.
+             */
+            int fd_to_close = gConnFd;
+            gConnFd     = -1;
             gRpcPending = false;
+            gRespReady  = false;
+            gRespLen    = 0;
             pthread_mutex_unlock(&gRpcMutex);
-            hal_err("[TVSvcClient] RPC timeout cmd=0x%02x\n", cmd);
+            if (fd_to_close >= 0) {
+                (void)shutdown(fd_to_close, SHUT_RDWR);
+                (void)close(fd_to_close);
+            }
+            hal_err("[TVSvcClient] RPC timeout cmd=0x%02x; connection reset\n", cmd);
             return -ETIMEDOUT;
         }
     }
