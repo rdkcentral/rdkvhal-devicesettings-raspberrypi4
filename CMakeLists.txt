@@ -103,6 +103,13 @@ target_link_libraries(${DAEMON_NAME} vchostif vchiq_arm vcos pthread)
 
 # Installation
 install(TARGETS ${LIBNAME} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(FILES
+    ${CMAKE_SOURCE_DIR}/dsAudioSettings.h
+    ${CMAKE_SOURCE_DIR}/dsVideoDeviceSettings.h
+    ${CMAKE_SOURCE_DIR}/dsVideoPortSettings.h
+    ${CMAKE_SOURCE_DIR}/dsVideoResolutionSettings.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/rdk/halif/ds-hal
+)
 install(TARGETS ${DAEMON_NAME} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(FILES ${CMAKE_SOURCE_DIR}/platform.cfg DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(PROGRAMS ${CMAKE_SOURCE_DIR}/scripts/rpiDisplayEnable.sh DESTINATION ${CMAKE_INSTALL_BINDIR})
