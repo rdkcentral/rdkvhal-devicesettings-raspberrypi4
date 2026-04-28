@@ -60,4 +60,11 @@ dsAudioPortConfig_t kAudioPorts[] = {
 	}
 };
 
+int kAudioConfigs_size = sizeof(kAudioConfigs)/sizeof(kAudioConfigs[0]);
+int kAudioPorts_size = sizeof(kAudioPorts)/sizeof(kAudioPorts[0]);
+
+/* Aliases expected by devicesettings middleware static fallback */
+#define kConfigs kAudioConfigs
+#define kPorts   kAudioPorts
+
 #endif

@@ -25,6 +25,10 @@
 /* External declarations - definitions in dsVideoResolutionSettings.c */
 extern dsVideoPortResolution_t kResolutionsSettings[];
 extern int kDefaultResIndex;
+extern int kResolutionsSettings_size;
 extern size_t kNumResolutionsSettings;
+
+/* Alias expected by devicesettings middleware */
+#define kResolutions kResolutionsSettings
 
 #endif /* _DS_VIDEORESOLUTIONSETTINGS_H_ */

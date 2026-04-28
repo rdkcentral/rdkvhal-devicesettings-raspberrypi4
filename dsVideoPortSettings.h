@@ -51,4 +51,8 @@ dsVideoPortPortConfig_t kVideoPortPorts[] = {
 int kVideoPortConfigs_size = sizeof(kVideoPortConfigs)/sizeof(kVideoPortConfigs[0]);
 int kVideoPortPorts_size = sizeof(kVideoPortPorts)/sizeof(kVideoPortPorts[0]);
 
+/* Aliases expected by devicesettings middleware */
+#define kConfigs kVideoPortConfigs
+#define kPorts   kVideoPortPorts
+
 #endif /* VIDEOOUTPUTPORTSETTINGS_H_ */

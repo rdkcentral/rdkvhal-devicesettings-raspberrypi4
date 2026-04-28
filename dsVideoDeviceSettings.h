@@ -16,7 +16,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
- 
+
 #ifndef _DS_VIDEODEVICESETTINGS_H_
 #define _DS_VIDEODEVICESETTINGS_H_
 
@@ -39,5 +39,8 @@ dsVideoConfig_t kVideoDeviceConfigs[]= {
 };
 
 int kVideoDeviceConfigs_size = sizeof(kVideoDeviceConfigs)/sizeof(kVideoDeviceConfigs[0]);
+
+/* Alias expected by devicesettings middleware static fallback */
+#define kConfigs kVideoDeviceConfigs
 
 #endif /* RPVIDEODEVICESETTINGS_H_ */

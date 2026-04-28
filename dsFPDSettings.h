@@ -81,4 +81,8 @@ int kFPDIndicatorColors_size = sizeof(kFPDIndicatorColors)/sizeof(kFPDIndicatorC
 
 int kIndicators_size = sizeof(kIndicators)/sizeof(kIndicators[0]);
 
+/* Aliases expected by devicesettings middleware static fallback */
+#define kIndicatorColors kFPDIndicatorColors
+#define kTextDisplays    kFPDTextDisplays
+
 #endif /* _DS_FPD_SETTINGS_H_ */
