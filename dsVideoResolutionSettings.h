@@ -200,9 +200,9 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
     },
 };
 
-/* Pick one resolution from kResolutionsSettings[] as default - 720p */
-int kDefaultResIndex = 4;
-
-size_t kNumResolutionsSettings = sizeof(kResolutionsSettings) / sizeof(kResolutionsSettings[0]);
+/* External declarations - definitions in dsVideoResolutionSettings.c */
+extern dsVideoPortResolution_t kResolutionsSettings[];
+extern int kDefaultResIndex;
+extern size_t kNumResolutionsSettings;
 
 #endif /* VIDEORESOLUTIONSETTINGS_H_ */
