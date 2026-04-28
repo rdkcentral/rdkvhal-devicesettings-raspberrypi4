@@ -19,6 +19,37 @@
 
 #include "dsVideoResolutionSettings.h"
 
+#define  _INTERLACED true
+#define _PROGRESSIVE false
+
+#define dsVideoPortRESOLUTION_NUMMAX 32
+
+/******************************************************************************************************
+ *
+ * root@raspberrypi4-64-rdke:~# tvservice -j -m CEA
+ [
+ { "code":3,   "width":720,  "height":480,  "rate":60, "aspect_ratio":"16:9", "scan":"p", "3d_modes":[] },
+ { "code":4,   "width":1280, "height":720,  "rate":60, "aspect_ratio":"16:9", "scan":"p", "3d_modes":[] },
+ { "code":5,   "width":1920, "height":1080, "rate":60, "aspect_ratio":"16:9", "scan":"i", "3d_modes":[] },
+ { "code":7,   "width":720,  "height":480,  "rate":60, "aspect_ratio":"16:9", "scan":"i", "3d_modes":[] },
+ { "code":16,  "width":1920, "height":1080, "rate":60, "aspect_ratio":"16:9", "scan":"p", "3d_modes":[] },
+ { "code":18,  "width":720,  "height":576,  "rate":50, "aspect_ratio":"16:9", "scan":"p", "3d_modes":[] },
+ { "code":19,  "width":1280, "height":720,  "rate":50, "aspect_ratio":"16:9", "scan":"p", "3d_modes":[] },
+ { "code":20,  "width":1920, "height":1080, "rate":50, "aspect_ratio":"16:9", "scan":"i", "3d_modes":[] },
+ { "code":22,  "width":720,  "height":576,  "rate":50, "aspect_ratio":"16:9", "scan":"i", "3d_modes":[] },
+ { "code":31,  "width":1920, "height":1080, "rate":50, "aspect_ratio":"16:9", "scan":"p", "3d_modes":[] },
+ { "code":32,  "width":1920, "height":1080, "rate":24, "aspect_ratio":"16:9", "scan":"p", "3d_modes":[] },
+ { "code":33,  "width":1920, "height":1080, "rate":25, "aspect_ratio":"16:9", "scan":"p", "3d_modes":[] },
+ { "code":34,  "width":1920, "height":1080, "rate":30, "aspect_ratio":"16:9", "scan":"p", "3d_modes":[] },
+ { "code":93,  "width":3840, "height":2160, "rate":24, "aspect_ratio":"16:9", "scan":"p", "3d_modes":[] },
+ { "code":94,  "width":3840, "height":2160, "rate":25, "aspect_ratio":"16:9", "scan":"p", "3d_modes":[] },
+ { "code":95,  "width":3840, "height":2160, "rate":30, "aspect_ratio":"16:9", "scan":"p", "3d_modes":[] },
+ { "code":98,  "width":4096, "height":2160, "rate":24, "aspect_ratio":"unknown AR", "scan":"p", "3d_modes":[] },
+ { "code":99,  "width":4096, "height":2160, "rate":25, "aspect_ratio":"unknown AR", "scan":"p", "3d_modes":[] },
+ { "code":100, "width":4096, "height":2160, "rate":30, "aspect_ratio":"unknown AR", "scan":"p", "3d_modes":[] }
+ ]
+ **/
+
 /* Actual definitions of global arrays and indices */
 dsVideoPortResolution_t kResolutionsSettings[] = {
     {   /*480p*/
