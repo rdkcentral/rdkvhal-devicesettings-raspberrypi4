@@ -33,7 +33,6 @@
 #include "dsDisplay.h"
 #include "dsUtl.h"
 #include "dsError.h"
-#include "dsVideoResolutionSettings.h"
 #include "dshalLogger.h"
 
 extern dsVideoPortResolution_t kResolutionsSettings[];

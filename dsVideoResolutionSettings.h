@@ -181,6 +181,6 @@ size_t kNumResolutionsSettings = sizeof(kResolutionsSettings) / sizeof(kResoluti
 
 /* Default resolution index to be used when auto-selecting resolution. */
 /* Use 720p60 (index 4) as it's the default resolution of RPi's boot configuration. */
-static const int kDefaultResIndex = 4;
+int kDefaultResIndex = 4;
 
 #endif /* _DS_VIDEORESOLUTIONSETTINGS_H_ */
