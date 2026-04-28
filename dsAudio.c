@@ -74,7 +74,7 @@ static int8_t initAlsa(const char *selemname, const char *s_card, snd_mixer_elem
     hal_info("invoked.\n");
     int ret = 0;
     snd_mixer_t *smixer = NULL;
-    snd_mixer_selem_id_t *sid;
+    snd_mixer_selem_id_t *sid = NULL;
 
     if ((ret = snd_mixer_open(&smixer, 0)) < 0) {
         hal_err("Cannot open sound mixer %s\n", snd_strerror(ret));
@@ -114,6 +114,8 @@ static int8_t initAlsa(const char *selemname, const char *s_card, snd_mixer_elem
         snd_mixer_close(smixer);
         ret = -1;
     }
+
+    snd_mixer_selem_id_free(sid);
 
     return ret;
 }

@@ -69,7 +69,7 @@ dsError_t dsReadCfgFile(size_t index,char* portString,port_initialization_fp ini
 	size_t length = 0;
 	dsError_t retValue = dsERR_INVALID_PARAM;
 
-	sprintf(platformFile, "%s%c%s", STRINGIFY(HAL_CONFIG_FILE), 47, PLATFORM_FILE);
+    snprintf(platformFile, sizeof(platformFile), "%s%c%s", STRINGIFY(HAL_CONFIG_FILE), 47, PLATFORM_FILE);
 
 	fptr = fopen(platformFile, "r");
 	if (fptr != NULL && index > 0 && init != NULL) {
@@ -171,10 +171,11 @@ char* dsGetValue(char* property)
     char* buff_p;
     char* valBuff_p;
     char* retValue = NULL;
+    static char valueBuff_p[512];
     char propBuff_p[512];
     char platformFile[512];
     FILE* fptr;
-    sprintf(platformFile,"%s%c%s",STRINGIFY(HAL_CONFIG_FILE),47,PLATFORM_FILE);
+    snprintf(platformFile,sizeof(platformFile),"%s%c%s",STRINGIFY(HAL_CONFIG_FILE),47,PLATFORM_FILE);
     fptr = fopen(platformFile,"r");
     if (fptr != NULL) {
         while (1) {
@@ -192,9 +193,12 @@ char* dsGetValue(char* property)
                 propBuff_p[length] = '\0';
                 char* str = strstr(propBuff_p,property);
                 if (str != NULL) {
-                    retValue = valBuff_p;
+                    snprintf(valueBuff_p, sizeof(valueBuff_p), "%s", valBuff_p);
+                    retValue = valueBuff_p;
+                    FREE(buff_p);
                     break;
                 }
+                FREE(buff_p);
             } else {
                 retValue = NULL;
                 break;
@@ -224,7 +228,7 @@ char* dsGetPropertyFrmCfg(char* prop,size_t index,char* portType)
 {
 	hal_info("Invoked.\n");
     char lbuffer[60];
-    sprintf(lbuffer,"%s.%d.",portType,index);
+    snprintf(lbuffer, sizeof(lbuffer), "%s.%zu.", portType, index);
     char* lptr = strstr(prop,lbuffer);
     if(lptr != NULL)
     lptr = lptr + strlen(lbuffer);
@@ -255,7 +259,7 @@ size_t dsGetIndexFrmCfg(char* indexString)
     size_t index = 0;
     FILE* fptr;
 
-    sprintf(platformFile,"%s%c%s",STRINGIFY(HAL_CONFIG_FILE),47,PLATFORM_FILE);
+    snprintf(platformFile,sizeof(platformFile),"%s%c%s",STRINGIFY(HAL_CONFIG_FILE),47,PLATFORM_FILE);
     fptr = fopen(platformFile,"r");
     if (fptr != NULL) {
         while (1) {
@@ -277,7 +281,10 @@ size_t dsGetIndexFrmCfg(char* indexString)
                         lptr = lptr + strlen(indexString);
                         lptr++;
                         if (strcmp(lptr,"index") == 0) {
-                            sscanf(valbuff_p,"%d",&index);
+                            if (sscanf(valbuff_p, "%zu", &index) != 1) {
+                                hal_warn("Invalid index value in config: %s\n", valbuff_p);
+                                index = 0;
+                            }
                             FREE(buff_p);
                             break;
                         }

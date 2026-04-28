@@ -678,10 +678,12 @@ dsError_t dsRegisterDisplayEventCallback(intptr_t handle, dsDisplayEventCallback
         return dsERR_INVALID_PARAM;
     }
     /* Register The call Back */
+    pthread_mutex_lock(&gHdmiWatcherMutex);
     if (NULL != _halcallback) {
         hal_warn("Callback already registered; override with new one.\n");
     }
     _halcallback = cb;
+    pthread_mutex_unlock(&gHdmiWatcherMutex);
 
     /* Spawn a one-shot thread to report the current HDMI state immediately */
     initial_state_reporter_args_t *args = (initial_state_reporter_args_t *)malloc(sizeof(initial_state_reporter_args_t));
@@ -734,6 +736,7 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
     hal_info("Invoked\n");
     VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
     bool drmConnected = false, drmEnabled = false;
+    dsError_t ret = dsERR_NONE;
 
     if (false == _bDisplayInited) {
         return dsERR_NOT_INITIALIZED;
@@ -751,12 +754,18 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
     }
 
     unsigned char *raw = (unsigned char *)calloc(MAX_EDID_BYTES_LEN, sizeof(unsigned char));
+    if (raw == NULL) {
+        hal_err("Failed to allocate EDID buffer\n");
+        return dsERR_GENERAL;
+    }
+
     int length = 0;
     edid->numOfSupportedResolution = 0;
     if (vDispHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
         if (dsGetEDIDBytes(handle, raw, &length) != dsERR_NONE) {
             hal_err("Failed to get EDID bytes\n");
-            return dsERR_GENERAL;
+            ret = dsERR_GENERAL;
+            goto cleanup;
         }
         hal_dbg("Raw EDID debug\n");
         EDID_t parsed_edid;
@@ -776,26 +785,29 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
         edid->monitorName[dsEEDID_MAX_MON_NAME_LENGTH - 1] = '\0';
         if (dsQueryHdmiResolution() != dsERR_NONE) {
             hal_err("Failed to query HDMI resolution\n");
-            return dsERR_GENERAL;
+            ret = dsERR_GENERAL;
+            goto cleanup;
         }
         hal_dbg("numSupportedResn from Table - %d\n", numSupportedResn);
         if (numSupportedResn == 0) {
             hal_err("No supported resolutions found\n");
-            return dsERR_GENERAL;
+            ret = dsERR_GENERAL;
+            goto cleanup;
         }
         for (unsigned int i = 0; i < numSupportedResn; i++) {
             memcpy(&edid->suppResolutionList[i], &HdmiSupportedResolution[i], sizeof(dsVideoPortResolution_t));
             hal_dbg("Copied resolution %s\n", edid->suppResolutionList[i].name);
         }
         edid->numOfSupportedResolution = numSupportedResn;
-        if (NULL != raw) {
-            free(raw);
-        }
     } else {
         hal_err("Handle type %d is not supported(not dsVIDEOPORT_TYPE_HDMI)\n", vDispHandle->m_vType);
-        return dsERR_OPERATION_NOT_SUPPORTED;
+        ret = dsERR_OPERATION_NOT_SUPPORTED;
+        goto cleanup;
     }
-    return dsERR_NONE;
+
+cleanup:
+    free(raw);
+    return ret;
 }
 
 /**
