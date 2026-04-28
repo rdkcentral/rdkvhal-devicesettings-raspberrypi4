@@ -36,7 +36,7 @@ dsVideoPortTypeConfig_t kVideoPortConfigs[] = {
 		/*.dtcpSupported = */			false,
 		/*.hdcpSupported = */			false,
 		/*.restrictedResolution = */	-1,
-		/*.numSupportedResolutions = */ dsUTL_DIM(kResolutionsSettings), // 0 means "Info available at runtime"
+		/*.numSupportedResolutions = */ 0, // 0 means "Info available at runtime"
 		/*.supportedResolutons = */     kResolutionsSettings,
 	},
 };
