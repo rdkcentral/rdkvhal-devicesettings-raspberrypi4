@@ -16,7 +16,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-
+ 
 #ifndef _DS_VIDEODEVICESETTINGS_H_
 #define _DS_VIDEODEVICESETTINGS_H_
 
@@ -24,29 +24,20 @@
 #include "dsTypes.h"
 
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+dsVideoZoom_t kSupportedDFCs[] = { dsVIDEO_ZOOM_NONE, dsVIDEO_ZOOM_FULL, dsVIDEO_ZOOM_PLATFORM};
+dsVideoZoom_t kDefaultDFC 	   = dsVIDEO_ZOOM_NONE;
 
-namespace  {
-static const dsVideoZoom_t kSupportedDFCs[] = { dsVIDEO_ZOOM_NONE, dsVIDEO_ZOOM_FULL, dsVIDEO_ZOOM_PLATFORM};
-static const dsVideoZoom_t kDefaultDFC      = dsVIDEO_ZOOM_NONE;
+int kNumVideoDevices = 1;
 
-static const int kNumVideoDevices = 1;
 
-static const dsVideoConfig_t kConfigs[] = {
-    {
-        /*.numSupportedDFCs = */   dsUTL_DIM(kSupportedDFCs), // 0 means "Info available at runtime"
-        /*.supportedDFCs = */      kSupportedDFCs,
-        /*.defaultDFC = */         kDefaultDFC,
-    },
+dsVideoConfig_t kVideoDeviceConfigs[]= {
+		{
+		/*.numSupportedDFCs = */ 		dsUTL_DIM(kSupportedDFCs), // 0 means "Info available at runtime"
+		/*.supportedDFCs = */			kSupportedDFCs,
+		/*.defaultDFC = */			    dsVIDEO_ZOOM_NONE,
+		},
 };
 
-typedef int _SafetyCheck[(dsUTL_DIM(kConfigs) == kNumVideoDevices) ? 1 : -1];
+int kVideoDeviceConfigs_size = sizeof(kVideoDeviceConfigs)/sizeof(kVideoDeviceConfigs[0]);
 
-}
-#ifdef __cplusplus
-}
-#endif
-
-#endif /* _DS_VIDEODEVICESETTINGS_H_ */
+#endif /* RPVIDEODEVICESETTINGS_H_ */

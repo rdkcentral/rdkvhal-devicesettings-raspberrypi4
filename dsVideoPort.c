@@ -36,7 +36,7 @@
 #include "dsDisplay.h"
 #include "dshalUtils.h"
 #include "dshalLogger.h"
-#include "interface/vmcs_host/vc_hdmi.h"
+#include "dsVideoPortSettings.h"
 
 static bool _bIsVideoPortInitialized = false;
 static bool isValidVopHandle(intptr_t handle);
@@ -165,7 +165,7 @@ dsError_t  dsVideoPortInit()
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle);
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index);
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_isEnabled = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_isEnabled);
-    _resolution = kResolutions[kDefaultResIndex];
+    _resolution = kResolutionsSettings[kDefaultResIndex];
 
     /* HDCP callback registration removed: tvservice eliminated, HDCP status assumed authenticated by default */
     _bIsVideoPortInitialized = true;

@@ -25,8 +25,8 @@ pkg_check_modules(LIBDRM REQUIRED libdrm)
 pkg_check_modules(LIBUDEV REQUIRED libudev)
 
 # All source files
-file(GLOB ALL_SOURCES "*.c")
-set(SOURCES ${ALL_SOURCES})
+file(GLOB SOURCES "*.c")
+# Arun set(SOURCES ${ALL_SOURCES})
 
 include_directories(/usr/include/interface/vmcs_host/linux)
 
@@ -98,8 +98,8 @@ target_link_libraries(${LIBNAME} asound pthread m
 # Installation
 install(TARGETS ${LIBNAME} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 # Install headers ending with *Settings.h
-file(GLOB SETTINGS_HEADERS "${CMAKE_SOURCE_DIR}/*Settings.h")
-install(FILES ${SETTINGS_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/rdk/halif/ds-hal)
+#Arun file(GLOB SETTINGS_HEADERS "${CMAKE_SOURCE_DIR}/*Settings.h")
+#Arun install(FILES ${SETTINGS_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/rdk/halif/ds-hal)
 
 # Clean target
 add_custom_target(clean-all

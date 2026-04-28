@@ -26,6 +26,7 @@
 #include "dshalUtils.h"
 #include <alsa/asoundlib.h>
 #include "dshalLogger.h"
+#include "dsAudioSettings.h"
 
 #define ALSA_CARD_NAME "hw:0"
 #if (SND_LIB_MAJOR >= 1) && (SND_LIB_MINOR >= 2) && (KERNEL_ARPI_VERSION_MAJOR < 6)
@@ -806,10 +807,11 @@ dsError_t dsAudioPortTerm()
 
 bool dsCheckSurroundSupport()
 {
+    // FIXME: refactor and implement
     hal_info("invoked.\n");
     /* Audio format support detection removed (tvservice eliminated). */
-    /* Return true as default since most modern HDMI displays support AC3. */
-    return true;
+    /* Return false as default since RPI might not support AC3. */
+    return false;
 }
 
 dsError_t dsGetAudioFormat(intptr_t handle, dsAudioFormat_t *audioFormat)
