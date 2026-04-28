@@ -25,10 +25,8 @@ pkg_check_modules(LIBDRM REQUIRED libdrm)
 pkg_check_modules(LIBUDEV REQUIRED libudev)
 
 # All source files
-file(GLOB SOURCES "*.c")
-# Arun set(SOURCES ${ALL_SOURCES})
-
-include_directories(/usr/include/interface/vmcs_host/linux)
+file(GLOB ALL_SOURCES "*.c")
+set(SOURCES ${ALL_SOURCES})
 
 # add DRI_CARD to the compile flags
 if (DRI_CARD)
@@ -98,8 +96,14 @@ target_link_libraries(${LIBNAME} asound pthread m
 # Installation
 install(TARGETS ${LIBNAME} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 # Install headers ending with *Settings.h
-#Arun file(GLOB SETTINGS_HEADERS "${CMAKE_SOURCE_DIR}/*Settings.h")
-#Arun install(FILES ${SETTINGS_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/rdk/halif/ds-hal)
+file(GLOB SETTINGS_HEADERS
+	"${CMAKE_SOURCE_DIR}/dsAudioSettings.h"
+	"${CMAKE_SOURCE_DIR}/dsFPDSettings.h"
+	"${CMAKE_SOURCE_DIR}/dsVideoDeviceSettings.h"
+	"${CMAKE_SOURCE_DIR}/dsVideoPortSettings.h"
+	"${CMAKE_SOURCE_DIR}/dsVideoResolutionSettings.h"
+)
+install(FILES ${SETTINGS_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/rdk/halif/ds-hal)
 
 # Clean target
 add_custom_target(clean-all
