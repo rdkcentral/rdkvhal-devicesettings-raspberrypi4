@@ -23,48 +23,27 @@
 #include "dsUtl.h"
 #include "dsTypes.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif /* __cplusplus */
+
 /*
- * Setup the supported configurations here.
+ * Declarations of HAL-exported audio configuration tables.
+ * Definitions reside in dsAudioSettingsData.c and are exported from the HAL shared
+ * library. Use dlsym() / LoadDLSymbols() to obtain runtime pointers from the middleware;
+ * never define these symbols in middleware code to avoid multiple-definition issues.
  */
-dsAudioPortType_t 		kAudioSupportedPortTypes[] 			= { dsAUDIOPORT_TYPE_HDMI };
-dsAudioEncoding_t 		kSupportedHDMIEncodings[]			= { dsAUDIO_ENC_PCM, dsAUDIO_ENC_AC3};
-dsAudioCompression_t 	kSupportedHDMICompressions[] 		= { dsAUDIO_CMP_NONE, dsAUDIO_CMP_LIGHT, dsAUDIO_CMP_MEDIUM, dsAUDIO_CMP_HEAVY, };
-dsAudioStereoMode_t 	kSupportedHDMIStereoModes[] 		= { dsAUDIO_STEREO_STEREO, dsAUDIO_STEREO_SURROUND, };
-
-dsAudioTypeConfig_t 	kAudioConfigs[]= {
-	{
-		/*.typeId = */					dsAUDIOPORT_TYPE_HDMI,
-		/*.name = */					"HDMI", //HDMI
-		/*.numSupportedCompressions = */dsUTL_DIM(kSupportedHDMICompressions),
-		/*.compressions = */			kSupportedHDMICompressions,
-		/*.numSupportedEncodings = */	dsUTL_DIM(kSupportedHDMIEncodings),
-		/*.encodings = */				kSupportedHDMIEncodings,
-		/*.numSupportedStereoModes = */	dsUTL_DIM(kSupportedHDMIStereoModes),
-		/*.stereoModes = */				kSupportedHDMIStereoModes,
-	}
-};
-
-dsVideoPortPortId_t connectedVOPs[dsAUDIOPORT_TYPE_MAX][dsVIDEOPORT_TYPE_MAX] = {
-	{/*VOPs connected to LR Audio */
-
-	},
-	{/*VOPs connected to HDMI Audio */
-		{dsVIDEOPORT_TYPE_HDMI, 0},
-	}
-};
-
-dsAudioPortConfig_t kAudioPorts[] = {
-	{
-		/*.typeId = */ 					{dsAUDIOPORT_TYPE_HDMI, 0},
-		/*.connectedVOPs = */			connectedVOPs[dsAUDIOPORT_TYPE_HDMI],
-	}
-};
-
-int kAudioConfigs_size = sizeof(kAudioConfigs)/sizeof(kAudioConfigs[0]);
-int kAudioPorts_size = sizeof(kAudioPorts)/sizeof(kAudioPorts[0]);
+extern dsAudioTypeConfig_t  kAudioConfigs[];
+extern dsAudioPortConfig_t  kAudioPorts[];
+extern int                  kAudioConfigs_size;
+extern int                  kAudioPorts_size;
 
 /* Aliases expected by devicesettings middleware static fallback */
 #define kConfigs kAudioConfigs
 #define kPorts   kAudioPorts
 
-#endif
+#ifdef __cplusplus
+}
+#endif /* __cplusplus */
+
+#endif /* _DS_AUDIOOUTPUTPORTSETTINGS_H */

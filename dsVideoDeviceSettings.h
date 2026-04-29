@@ -23,24 +23,25 @@
 #include "dsUtl.h"
 #include "dsTypes.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif /* __cplusplus */
 
-dsVideoZoom_t kSupportedDFCs[] = { dsVIDEO_ZOOM_NONE, dsVIDEO_ZOOM_FULL, dsVIDEO_ZOOM_PLATFORM};
-dsVideoZoom_t kDefaultDFC 	   = dsVIDEO_ZOOM_NONE;
-
-int kNumVideoDevices = 1;
-
-
-dsVideoConfig_t kVideoDeviceConfigs[]= {
-		{
-		/*.numSupportedDFCs = */ 		dsUTL_DIM(kSupportedDFCs), // 0 means "Info available at runtime"
-		/*.supportedDFCs = */			kSupportedDFCs,
-		/*.defaultDFC = */			    dsVIDEO_ZOOM_NONE,
-		},
-};
-
-int kVideoDeviceConfigs_size = sizeof(kVideoDeviceConfigs)/sizeof(kVideoDeviceConfigs[0]);
+/*
+ * Declarations of HAL-exported video device configuration tables.
+ * Definitions reside in dsVideoDeviceSettingsData.c and are exported from the HAL
+ * shared library. Use dlsym() / LoadDLSymbols() to obtain runtime pointers from the
+ * middleware; never define these symbols in middleware code.
+ */
+extern dsVideoConfig_t  kVideoDeviceConfigs[];
+extern int              kVideoDeviceConfigs_size;
+extern int              kNumVideoDevices;
 
 /* Alias expected by devicesettings middleware static fallback */
 #define kConfigs kVideoDeviceConfigs
 
-#endif /* RPVIDEODEVICESETTINGS_H_ */
+#ifdef __cplusplus
+}
+#endif /* __cplusplus */
+
+#endif /* _DS_VIDEODEVICESETTINGS_H_ */

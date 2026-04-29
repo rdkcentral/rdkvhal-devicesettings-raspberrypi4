@@ -22,6 +22,10 @@
 
 #include "dsTypes.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif /* __cplusplus */
+
 /*
  * Platform-specific Front Panel Display settings for Raspberry Pi 4.
  *
@@ -40,49 +44,24 @@
 #define _DEFAULT_COLOR_MODE 0
 
 /*
- * Supported colors for the Power indicator (single green LED).
+ * Declarations of HAL-exported front panel configuration tables.
+ * Definitions reside in dsFPDSettingsData.c and are exported from the HAL shared
+ * library. Use dlsym() / LoadDLSymbols() to obtain runtime pointers from the
+ * middleware; never define these symbols in middleware code.
  */
-dsFPDColorConfig_t kFPDIndicatorColors[] = {
-    {
-        /*.Id = */    0,
-        /*.color = */ dsFPD_COLOR_GREEN,
-    },
-};
-
-/*
- * Front Panel Indicator configurations.
- *
- * Only the POWER indicator is supported on RPi4.
- */
-dsFPDIndicatorConfig_t kIndicators[] = {
-    {
-        /*.id = */              dsFPD_INDICATOR_POWER,
-        /*.supportedColors = */ kFPDIndicatorColors,
-        /*.maxBrightness   = */ _MAX_BRIGHTNESS,
-        /*.maxCycleRate    = */ _MAX_CYCLERATE,
-        /*.minBrightness   = */ _MIN_BRIGHTNESS,
-        /*.levels          = */ _DEFAULT_LEVELS,
-        /*.colorMode       = */ _DEFAULT_COLOR_MODE,
-    },
-};
-
-/*
- * Front Panel Text Display configurations.
- *
- * RPi4 has no 7-segment text display; this array is empty.
- */
-dsFPDTextDisplayConfig_t kFPDTextDisplays[] = {
-};
-
-// Size hardcoded to 0 as sizeof pattern is unsafe on empty arrays.
-int kFPDTextDisplays_size = 0;
-
-int kFPDIndicatorColors_size = sizeof(kFPDIndicatorColors)/sizeof(kFPDIndicatorColors[0]);
-
-int kIndicators_size = sizeof(kIndicators)/sizeof(kIndicators[0]);
+extern dsFPDColorConfig_t       kFPDIndicatorColors[];
+extern dsFPDIndicatorConfig_t   kIndicators[];
+extern dsFPDTextDisplayConfig_t kFPDTextDisplays[];
+extern int                      kFPDIndicatorColors_size;
+extern int                      kIndicators_size;
+extern int                      kFPDTextDisplays_size;
 
 /* Aliases expected by devicesettings middleware static fallback */
 #define kIndicatorColors kFPDIndicatorColors
 #define kTextDisplays    kFPDTextDisplays
+
+#ifdef __cplusplus
+}
+#endif /* __cplusplus */
 
 #endif /* _DS_FPD_SETTINGS_H_ */

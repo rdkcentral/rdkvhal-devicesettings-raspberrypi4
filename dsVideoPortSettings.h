@@ -24,35 +24,27 @@
 #include "dsUtl.h"
 #include "dsVideoResolutionSettings.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif /* __cplusplus */
+
 /*
- * Setup the supported configurations here.
+ * Declarations of HAL-exported video port configuration tables.
+ * Definitions reside in dsVideoPortSettingsData.c and are exported from the HAL shared
+ * library. Use dlsym() / LoadDLSymbols() to obtain runtime pointers from the middleware;
+ * never define these symbols in middleware code to avoid multiple-definition issues.
  */
-dsVideoPortType_t kVideoSupportedPortTypes[] = { dsVIDEOPORT_TYPE_HDMI };
-
-dsVideoPortTypeConfig_t kVideoPortConfigs[] = {
-	{
-		/*.typeId = */					dsVIDEOPORT_TYPE_HDMI,
-		/*.name = */ 					"HDMI",
-		/*.dtcpSupported = */			false,
-		/*.hdcpSupported = */			false,
-		/*.restrictedResolution = */	-1,
-		/*.numSupportedResolutions = */ 0, // 0 means "Info available at runtime"
-		/*.supportedResolutons = */     kResolutionsSettings,
-	},
-};
-dsVideoPortPortConfig_t kVideoPortPorts[] = {
-	{
-		/*.typeId = */ 					{dsVIDEOPORT_TYPE_HDMI, 0},
-		/*.connectedAOP */              {dsAUDIOPORT_TYPE_HDMI, 0},
-		/*.defaultResolution = */		"720p"
-	},
-};
-
-int kVideoPortConfigs_size = sizeof(kVideoPortConfigs)/sizeof(kVideoPortConfigs[0]);
-int kVideoPortPorts_size = sizeof(kVideoPortPorts)/sizeof(kVideoPortPorts[0]);
+extern dsVideoPortTypeConfig_t  kVideoPortConfigs[];
+extern dsVideoPortPortConfig_t  kVideoPortPorts[];
+extern int                      kVideoPortConfigs_size;
+extern int                      kVideoPortPorts_size;
 
 /* Aliases expected by devicesettings middleware */
 #define kConfigs kVideoPortConfigs
 #define kPorts   kVideoPortPorts
 
-#endif /* VIDEOOUTPUTPORTSETTINGS_H_ */
+#ifdef __cplusplus
+}
+#endif /* __cplusplus */
+
+#endif /* _DS_VIDEOOUTPUTPORTSETTINGS_H_ */

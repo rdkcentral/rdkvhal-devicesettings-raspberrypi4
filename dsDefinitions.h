@@ -16,8 +16,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-#ifndef _DS_DISPLAY_H_
-#define _DS_DISPLAY_H_
+#ifndef _DS_DEFINITIONS_H_
+#define _DS_DEFINITIONS_H_
 
 #define INVALID_HANDLE 0
 #define ISNULL(ptr) (ptr==NULL)
@@ -38,4 +38,4 @@ dsDisplayParam_t *dsVideoDisplayHandler = '\0';
 dsError_t dsDisplayHdlCheck(intptr_t handle);
 size_t videoDisplayMaxIndex = 0;
 
-#endif
+#endif /* _DS_DEFINITIONS_H_ */
