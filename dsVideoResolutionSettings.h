@@ -55,8 +55,8 @@ static int kDefaultResIndex DS_SETTINGS_FALLBACK_UNUSED = 0;
 
 /* Compatibility aliases expected by some HAL C files */
 #define kResolutionsSettings kResolutions
-static int kResolutionsSettings_size DS_SETTINGS_FALLBACK_UNUSED = dsUTL_DIM(kResolutions);
-static size_t kNumResolutionsSettings DS_SETTINGS_FALLBACK_UNUSED = dsUTL_DIM(kResolutions);
+static int kResolutionsSettings_size DS_SETTINGS_FALLBACK_UNUSED = (int)(sizeof(kResolutions)/sizeof(kResolutions[0]));
+static size_t kNumResolutionsSettings DS_SETTINGS_FALLBACK_UNUSED = sizeof(kResolutions)/sizeof(kResolutions[0]);
 #endif
 
 #endif /* _DS_VIDEORESOLUTIONSETTINGS_H_ */
