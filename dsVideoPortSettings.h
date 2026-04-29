@@ -37,7 +37,7 @@ extern dsVideoPortTypeConfig_t  kVideoPortConfigs[];
 extern dsVideoPortPortConfig_t  kVideoPortPorts[];
 extern int                      kVideoPortConfigs_size;
 extern int                      kVideoPortPorts_size;
-#else
+#else /* !DS_HAL_EXPORT_CONFIG_SYMBOLS */
 /* Static fallback tables for middleware compile-time dsUTL_DIM(kConfigs/kPorts). */
 static dsVideoPortTypeConfig_t kConfigs[] DS_SETTINGS_FALLBACK_UNUSED = {
 	{
@@ -58,6 +58,6 @@ static dsVideoPortPortConfig_t kPorts[] DS_SETTINGS_FALLBACK_UNUSED = {
 		"720p"
 	},
 };
-#endif
+#endif /* !DS_HAL_EXPORT_CONFIG_SYMBOLS */
 
 #endif /* _DS_VIDEOOUTPUTPORTSETTINGS_H_ */

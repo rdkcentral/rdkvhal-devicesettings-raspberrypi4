@@ -36,7 +36,7 @@ extern dsAudioTypeConfig_t  kAudioConfigs[];
 extern dsAudioPortConfig_t  kAudioPorts[];
 extern int                  kAudioConfigs_size;
 extern int                  kAudioPorts_size;
-#else
+#else /* !DS_HAL_EXPORT_CONFIG_SYMBOLS */
 /*
  * Static fallback tables for devicesettings compile-time usage (dsUTL_DIM on kConfigs/kPorts).
  * Runtime path still uses dlsym symbols from HAL exported tables when available.
@@ -73,6 +73,6 @@ static dsAudioPortConfig_t kPorts[] DS_SETTINGS_FALLBACK_UNUSED = {
 		kFallbackConnectedVOPs[dsAUDIOPORT_TYPE_HDMI],
 	},
 };
-#endif
+#endif /* !DS_HAL_EXPORT_CONFIG_SYMBOLS */
 
 #endif /* _DS_AUDIOOUTPUTPORTSETTINGS_H */

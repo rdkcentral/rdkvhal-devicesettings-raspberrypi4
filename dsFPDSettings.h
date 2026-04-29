@@ -54,7 +54,7 @@ extern dsFPDTextDisplayConfig_t kFPDTextDisplays[];
 extern int                      kFPDIndicatorColors_size;
 extern int                      kIndicators_size;
 extern int                      kFPDTextDisplays_size;
-#else
+#else /* !DS_HAL_EXPORT_CONFIG_SYMBOLS */
 /* Static fallback tables for middleware compile-time dsUTL_DIM checks. */
 static dsFPDColorConfig_t kIndicatorColors[] DS_SETTINGS_FALLBACK_UNUSED = {
 	{ 0, dsFPD_COLOR_GREEN },
@@ -74,6 +74,6 @@ static dsFPDIndicatorConfig_t kIndicators[] DS_SETTINGS_FALLBACK_UNUSED = {
 
 /* one inert entry keeps dsUTL_DIM(kTextDisplays) valid in C/C++ */
 static dsFPDTextDisplayConfig_t kTextDisplays[1] DS_SETTINGS_FALLBACK_UNUSED = { {0} };
-#endif
+#endif /* !DS_HAL_EXPORT_CONFIG_SYMBOLS */
 
 #endif /* _DS_FPD_SETTINGS_H_ */

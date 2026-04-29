@@ -38,7 +38,7 @@ extern dsVideoPortResolution_t kResolutionsSettings[];
 extern int                     kResolutionsSettings_size;
 extern size_t                  kNumResolutionsSettings;
 extern int                     kDefaultResIndex;
-#else
+#else /* !DS_HAL_EXPORT_CONFIG_SYMBOLS */
 /* Static fallback table for middleware compile-time dsUTL_DIM(kResolutions). */
 static dsVideoPortResolution_t kResolutions[] DS_SETTINGS_FALLBACK_UNUSED = {
 	{
@@ -57,6 +57,6 @@ static int kDefaultResIndex DS_SETTINGS_FALLBACK_UNUSED = 0;
 #define kResolutionsSettings kResolutions
 static int kResolutionsSettings_size DS_SETTINGS_FALLBACK_UNUSED = (int)(sizeof(kResolutions)/sizeof(kResolutions[0]));
 static size_t kNumResolutionsSettings DS_SETTINGS_FALLBACK_UNUSED = sizeof(kResolutions)/sizeof(kResolutions[0]);
-#endif
+#endif /* !DS_HAL_EXPORT_CONFIG_SYMBOLS */
 
 #endif /* _DS_VIDEORESOLUTIONSETTINGS_H_ */
