@@ -39,6 +39,10 @@
 #define _MAX_VERT_ITER      0
 #define _DEFAULT_COLOR_MODE 0
 
+#ifndef DS_SETTINGS_FALLBACK_UNUSED
+#define DS_SETTINGS_FALLBACK_UNUSED __attribute__((unused))
+#endif
+
 #ifdef DS_HAL_EXPORT_CONFIG_SYMBOLS
 extern dsFPDColorConfig_t       kFPDIndicatorColors[];
 extern dsFPDIndicatorConfig_t   kIndicators[];
@@ -48,11 +52,11 @@ extern int                      kIndicators_size;
 extern int                      kFPDTextDisplays_size;
 #else
 /* Static fallback tables for middleware compile-time dsUTL_DIM checks. */
-static dsFPDColorConfig_t kIndicatorColors[] = {
+static dsFPDColorConfig_t kIndicatorColors[] DS_SETTINGS_FALLBACK_UNUSED = {
 	{ 0, dsFPD_COLOR_GREEN },
 };
 
-static dsFPDIndicatorConfig_t kIndicators[] = {
+static dsFPDIndicatorConfig_t kIndicators[] DS_SETTINGS_FALLBACK_UNUSED = {
 	{
 		dsFPD_INDICATOR_POWER,
 		kIndicatorColors,
@@ -65,9 +69,7 @@ static dsFPDIndicatorConfig_t kIndicators[] = {
 };
 
 /* one inert entry keeps dsUTL_DIM(kTextDisplays) valid in C/C++ */
-static dsFPDTextDisplayConfig_t kTextDisplays[] = {
-	{ 0, 0, 0, 0 },
-};
+static dsFPDTextDisplayConfig_t kTextDisplays[1] DS_SETTINGS_FALLBACK_UNUSED = { {0} };
 #endif
 
 #endif /* _DS_FPD_SETTINGS_H_ */

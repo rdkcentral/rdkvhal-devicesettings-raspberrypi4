@@ -23,6 +23,10 @@
 #include "dsUtl.h"
 #include "dsTypes.h"
 
+#ifndef DS_SETTINGS_FALLBACK_UNUSED
+#define DS_SETTINGS_FALLBACK_UNUSED __attribute__((unused))
+#endif
+
 #ifdef DS_HAL_EXPORT_CONFIG_SYMBOLS
 extern dsVideoConfig_t  kVideoDeviceConfigs[];
 extern int              kVideoDeviceConfigs_size;
@@ -31,9 +35,9 @@ extern int              kNumVideoDevices;
 /* Static fallback tables for middleware compile-time dsUTL_DIM(kConfigs). */
 static dsVideoZoom_t kFallbackSupportedDFCs[] = {
 	dsVIDEO_ZOOM_NONE, dsVIDEO_ZOOM_FULL, dsVIDEO_ZOOM_PLATFORM
-};
+} DS_SETTINGS_FALLBACK_UNUSED;
 
-static const int kNumVideoDevices = 1;
+#define kNumVideoDevices 1
 
 static dsVideoConfig_t kConfigs[] = {
 	{
@@ -41,9 +45,7 @@ static dsVideoConfig_t kConfigs[] = {
 		kFallbackSupportedDFCs,
 		dsVIDEO_ZOOM_NONE,
 	},
-};
-
-typedef int _SafetyCheck[(dsUTL_DIM(kConfigs) == kNumVideoDevices) ? 1 : -1];
+} DS_SETTINGS_FALLBACK_UNUSED;
 #endif
 
 #endif /* _DS_VIDEODEVICESETTINGS_H_ */

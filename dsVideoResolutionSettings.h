@@ -25,6 +25,10 @@
 #define  _INTERLACED true
 #define _PROGRESSIVE false
 
+#ifndef DS_SETTINGS_FALLBACK_UNUSED
+#define DS_SETTINGS_FALLBACK_UNUSED __attribute__((unused))
+#endif
+
 #ifdef DS_HAL_EXPORT_CONFIG_SYMBOLS
 extern dsVideoPortResolution_t kResolutionsSettings[];
 extern int                     kResolutionsSettings_size;
@@ -32,7 +36,7 @@ extern size_t                  kNumResolutionsSettings;
 extern int                     kDefaultResIndex;
 #else
 /* Static fallback table for middleware compile-time dsUTL_DIM(kResolutions). */
-static dsVideoPortResolution_t kResolutions[] = {
+static dsVideoPortResolution_t kResolutions[] DS_SETTINGS_FALLBACK_UNUSED = {
 	{
 		"720p",
 		dsVIDEO_PIXELRES_1280x720,
@@ -43,7 +47,7 @@ static dsVideoPortResolution_t kResolutions[] = {
 	},
 };
 
-static int kDefaultResIndex = 0;
+static int kDefaultResIndex DS_SETTINGS_FALLBACK_UNUSED = 0;
 #endif
 
 #endif /* _DS_VIDEORESOLUTIONSETTINGS_H_ */

@@ -23,6 +23,10 @@
 #include "dsUtl.h"
 #include "dsTypes.h"
 
+#ifndef DS_SETTINGS_FALLBACK_UNUSED
+#define DS_SETTINGS_FALLBACK_UNUSED __attribute__((unused))
+#endif
+
 #ifdef DS_HAL_EXPORT_CONFIG_SYMBOLS
 extern dsAudioTypeConfig_t  kAudioConfigs[];
 extern dsAudioPortConfig_t  kAudioPorts[];
@@ -33,20 +37,20 @@ extern int                  kAudioPorts_size;
  * Static fallback tables for devicesettings compile-time usage (dsUTL_DIM on kConfigs/kPorts).
  * Runtime path still uses dlsym symbols from HAL exported tables when available.
  */
-static dsAudioEncoding_t kFallbackHDMIEncodings[] = { dsAUDIO_ENC_PCM, dsAUDIO_ENC_AC3 };
-static dsAudioCompression_t kFallbackHDMICompressions[] = {
+static dsAudioEncoding_t kFallbackHDMIEncodings[] DS_SETTINGS_FALLBACK_UNUSED = { dsAUDIO_ENC_PCM, dsAUDIO_ENC_AC3 };
+static dsAudioCompression_t kFallbackHDMICompressions[] DS_SETTINGS_FALLBACK_UNUSED = {
 	dsAUDIO_CMP_NONE, dsAUDIO_CMP_LIGHT, dsAUDIO_CMP_MEDIUM, dsAUDIO_CMP_HEAVY,
 };
-static dsAudioStereoMode_t kFallbackHDMIStereoModes[] = {
+static dsAudioStereoMode_t kFallbackHDMIStereoModes[] DS_SETTINGS_FALLBACK_UNUSED = {
 	dsAUDIO_STEREO_STEREO, dsAUDIO_STEREO_SURROUND,
 };
 
-static dsVideoPortPortId_t kFallbackConnectedVOPs[dsAUDIOPORT_TYPE_MAX][dsVIDEOPORT_TYPE_MAX] = {
+static dsVideoPortPortId_t kFallbackConnectedVOPs[dsAUDIOPORT_TYPE_MAX][dsVIDEOPORT_TYPE_MAX] DS_SETTINGS_FALLBACK_UNUSED = {
 	{ },
 	{ {dsVIDEOPORT_TYPE_HDMI, 0}, },
 };
 
-static dsAudioTypeConfig_t kConfigs[] = {
+static dsAudioTypeConfig_t kConfigs[] DS_SETTINGS_FALLBACK_UNUSED = {
 	{
 		dsAUDIOPORT_TYPE_HDMI,
 		"HDMI",
@@ -59,7 +63,7 @@ static dsAudioTypeConfig_t kConfigs[] = {
 	},
 };
 
-static dsAudioPortConfig_t kPorts[] = {
+static dsAudioPortConfig_t kPorts[] DS_SETTINGS_FALLBACK_UNUSED = {
 	{
 		{dsAUDIOPORT_TYPE_HDMI, 0},
 		kFallbackConnectedVOPs[dsAUDIOPORT_TYPE_HDMI],

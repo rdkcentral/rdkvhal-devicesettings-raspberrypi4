@@ -24,6 +24,10 @@
 #include "dsUtl.h"
 #include "dsVideoResolutionSettings.h"
 
+#ifndef DS_SETTINGS_FALLBACK_UNUSED
+#define DS_SETTINGS_FALLBACK_UNUSED __attribute__((unused))
+#endif
+
 #ifdef DS_HAL_EXPORT_CONFIG_SYMBOLS
 extern dsVideoPortTypeConfig_t  kVideoPortConfigs[];
 extern dsVideoPortPortConfig_t  kVideoPortPorts[];
@@ -31,7 +35,7 @@ extern int                      kVideoPortConfigs_size;
 extern int                      kVideoPortPorts_size;
 #else
 /* Static fallback tables for middleware compile-time dsUTL_DIM(kConfigs/kPorts). */
-static dsVideoPortTypeConfig_t kConfigs[] = {
+static dsVideoPortTypeConfig_t kConfigs[] DS_SETTINGS_FALLBACK_UNUSED = {
 	{
 		dsVIDEOPORT_TYPE_HDMI,
 		"HDMI",
@@ -43,7 +47,7 @@ static dsVideoPortTypeConfig_t kConfigs[] = {
 	},
 };
 
-static dsVideoPortPortConfig_t kPorts[] = {
+static dsVideoPortPortConfig_t kPorts[] DS_SETTINGS_FALLBACK_UNUSED = {
 	{
 		{dsVIDEOPORT_TYPE_HDMI, 0},
 		{dsAUDIOPORT_TYPE_HDMI, 0},
