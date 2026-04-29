@@ -40,7 +40,11 @@
 #define _DEFAULT_COLOR_MODE 0
 
 #ifndef DS_SETTINGS_FALLBACK_UNUSED
+#if defined(__GNUC__) || defined(__clang__)
 #define DS_SETTINGS_FALLBACK_UNUSED __attribute__((unused))
+#else
+#define DS_SETTINGS_FALLBACK_UNUSED
+#endif
 #endif
 
 #ifdef DS_HAL_EXPORT_CONFIG_SYMBOLS

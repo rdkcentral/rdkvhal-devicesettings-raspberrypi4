@@ -26,7 +26,11 @@
 #define _PROGRESSIVE false
 
 #ifndef DS_SETTINGS_FALLBACK_UNUSED
+#if defined(__GNUC__) || defined(__clang__)
 #define DS_SETTINGS_FALLBACK_UNUSED __attribute__((unused))
+#else
+#define DS_SETTINGS_FALLBACK_UNUSED
+#endif
 #endif
 
 #ifdef DS_HAL_EXPORT_CONFIG_SYMBOLS
@@ -48,6 +52,11 @@ static dsVideoPortResolution_t kResolutions[] DS_SETTINGS_FALLBACK_UNUSED = {
 };
 
 static int kDefaultResIndex DS_SETTINGS_FALLBACK_UNUSED = 0;
+
+/* Compatibility aliases expected by some HAL C files */
+#define kResolutionsSettings kResolutions
+static int kResolutionsSettings_size DS_SETTINGS_FALLBACK_UNUSED = dsUTL_DIM(kResolutions);
+static size_t kNumResolutionsSettings DS_SETTINGS_FALLBACK_UNUSED = dsUTL_DIM(kResolutions);
 #endif
 
 #endif /* _DS_VIDEORESOLUTIONSETTINGS_H_ */

@@ -25,7 +25,6 @@
  */
 
 #include "dsTypes.h"
-#define DS_HAL_EXPORT_CONFIG_SYMBOLS
 #include "dsVideoResolutionSettings.h"
 
 /* Exported resolution table - looked up via dlsym() by the middleware */

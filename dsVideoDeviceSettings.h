@@ -24,7 +24,11 @@
 #include "dsTypes.h"
 
 #ifndef DS_SETTINGS_FALLBACK_UNUSED
+#if defined(__GNUC__) || defined(__clang__)
 #define DS_SETTINGS_FALLBACK_UNUSED __attribute__((unused))
+#else
+#define DS_SETTINGS_FALLBACK_UNUSED
+#endif
 #endif
 
 #ifdef DS_HAL_EXPORT_CONFIG_SYMBOLS
@@ -33,19 +37,19 @@ extern int              kVideoDeviceConfigs_size;
 extern int              kNumVideoDevices;
 #else
 /* Static fallback tables for middleware compile-time dsUTL_DIM(kConfigs). */
-static dsVideoZoom_t kFallbackSupportedDFCs[] = {
+static dsVideoZoom_t kFallbackSupportedDFCs[] DS_SETTINGS_FALLBACK_UNUSED = {
 	dsVIDEO_ZOOM_NONE, dsVIDEO_ZOOM_FULL, dsVIDEO_ZOOM_PLATFORM
-} DS_SETTINGS_FALLBACK_UNUSED;
+};
 
 #define kNumVideoDevices 1
 
-static dsVideoConfig_t kConfigs[] = {
+static dsVideoConfig_t kConfigs[] DS_SETTINGS_FALLBACK_UNUSED = {
 	{
 		dsUTL_DIM(kFallbackSupportedDFCs),
 		kFallbackSupportedDFCs,
 		dsVIDEO_ZOOM_NONE,
 	},
-} DS_SETTINGS_FALLBACK_UNUSED;
+};
 #endif
 
 #endif /* _DS_VIDEODEVICESETTINGS_H_ */
