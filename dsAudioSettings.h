@@ -23,27 +23,48 @@
 #include "dsUtl.h"
 #include "dsTypes.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif /* __cplusplus */
-
-/*
- * Declarations of HAL-exported audio configuration tables.
- * Definitions reside in dsAudioSettingsData.c and are exported from the HAL shared
- * library. Use dlsym() / LoadDLSymbols() to obtain runtime pointers from the middleware;
- * never define these symbols in middleware code to avoid multiple-definition issues.
- */
+#ifdef DS_HAL_EXPORT_CONFIG_SYMBOLS
 extern dsAudioTypeConfig_t  kAudioConfigs[];
 extern dsAudioPortConfig_t  kAudioPorts[];
 extern int                  kAudioConfigs_size;
 extern int                  kAudioPorts_size;
+#else
+/*
+ * Static fallback tables for devicesettings compile-time usage (dsUTL_DIM on kConfigs/kPorts).
+ * Runtime path still uses dlsym symbols from HAL exported tables when available.
+ */
+static dsAudioEncoding_t kFallbackHDMIEncodings[] = { dsAUDIO_ENC_PCM, dsAUDIO_ENC_AC3 };
+static dsAudioCompression_t kFallbackHDMICompressions[] = {
+	dsAUDIO_CMP_NONE, dsAUDIO_CMP_LIGHT, dsAUDIO_CMP_MEDIUM, dsAUDIO_CMP_HEAVY,
+};
+static dsAudioStereoMode_t kFallbackHDMIStereoModes[] = {
+	dsAUDIO_STEREO_STEREO, dsAUDIO_STEREO_SURROUND,
+};
 
-/* Aliases expected by devicesettings middleware static fallback */
-#define kConfigs kAudioConfigs
-#define kPorts   kAudioPorts
+static dsVideoPortPortId_t kFallbackConnectedVOPs[dsAUDIOPORT_TYPE_MAX][dsVIDEOPORT_TYPE_MAX] = {
+	{ },
+	{ {dsVIDEOPORT_TYPE_HDMI, 0}, },
+};
 
-#ifdef __cplusplus
-}
-#endif /* __cplusplus */
+static dsAudioTypeConfig_t kConfigs[] = {
+	{
+		dsAUDIOPORT_TYPE_HDMI,
+		"HDMI",
+		dsUTL_DIM(kFallbackHDMICompressions),
+		kFallbackHDMICompressions,
+		dsUTL_DIM(kFallbackHDMIEncodings),
+		kFallbackHDMIEncodings,
+		dsUTL_DIM(kFallbackHDMIStereoModes),
+		kFallbackHDMIStereoModes,
+	},
+};
+
+static dsAudioPortConfig_t kPorts[] = {
+	{
+		{dsAUDIOPORT_TYPE_HDMI, 0},
+		kFallbackConnectedVOPs[dsAUDIOPORT_TYPE_HDMI],
+	},
+};
+#endif
 
 #endif /* _DS_AUDIOOUTPUTPORTSETTINGS_H */

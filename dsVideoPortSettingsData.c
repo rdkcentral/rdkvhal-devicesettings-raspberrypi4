@@ -29,6 +29,7 @@
 
 #include "dsTypes.h"
 #include "dsUtl.h"
+#define DS_HAL_EXPORT_CONFIG_SYMBOLS
 #include "dsVideoPortSettings.h"  /* pulls in dsVideoResolutionSettings.h for kResolutionsSettings extern */
 
 /* Exported configuration tables - looked up via dlsym() by the middleware */

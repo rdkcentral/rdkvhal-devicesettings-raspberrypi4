@@ -28,6 +28,7 @@
  */
 
 #include "dsTypes.h"
+#define DS_HAL_EXPORT_CONFIG_SYMBOLS
 #include "dsFPDSettings.h"
 
 /*

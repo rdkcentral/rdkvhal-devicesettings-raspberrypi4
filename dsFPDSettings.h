@@ -22,10 +22,6 @@
 
 #include "dsTypes.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif /* __cplusplus */
-
 /*
  * Platform-specific Front Panel Display settings for Raspberry Pi 4.
  *
@@ -43,25 +39,35 @@ extern "C" {
 #define _MAX_VERT_ITER      0
 #define _DEFAULT_COLOR_MODE 0
 
-/*
- * Declarations of HAL-exported front panel configuration tables.
- * Definitions reside in dsFPDSettingsData.c and are exported from the HAL shared
- * library. Use dlsym() / LoadDLSymbols() to obtain runtime pointers from the
- * middleware; never define these symbols in middleware code.
- */
+#ifdef DS_HAL_EXPORT_CONFIG_SYMBOLS
 extern dsFPDColorConfig_t       kFPDIndicatorColors[];
 extern dsFPDIndicatorConfig_t   kIndicators[];
 extern dsFPDTextDisplayConfig_t kFPDTextDisplays[];
 extern int                      kFPDIndicatorColors_size;
 extern int                      kIndicators_size;
 extern int                      kFPDTextDisplays_size;
+#else
+/* Static fallback tables for middleware compile-time dsUTL_DIM checks. */
+static dsFPDColorConfig_t kIndicatorColors[] = {
+	{ 0, dsFPD_COLOR_GREEN },
+};
 
-/* Aliases expected by devicesettings middleware static fallback */
-#define kIndicatorColors kFPDIndicatorColors
-#define kTextDisplays    kFPDTextDisplays
+static dsFPDIndicatorConfig_t kIndicators[] = {
+	{
+		dsFPD_INDICATOR_POWER,
+		kIndicatorColors,
+		_MAX_BRIGHTNESS,
+		_MAX_CYCLERATE,
+		_MIN_BRIGHTNESS,
+		_DEFAULT_LEVELS,
+		_DEFAULT_COLOR_MODE,
+	},
+};
 
-#ifdef __cplusplus
-}
-#endif /* __cplusplus */
+/* one inert entry keeps dsUTL_DIM(kTextDisplays) valid in C/C++ */
+static dsFPDTextDisplayConfig_t kTextDisplays[] = {
+	{ 0, 0, 0, 0 },
+};
+#endif
 
 #endif /* _DS_FPD_SETTINGS_H_ */

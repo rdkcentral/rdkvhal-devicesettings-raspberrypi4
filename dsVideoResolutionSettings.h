@@ -22,29 +22,28 @@
 
 #include "dsTypes.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif /* __cplusplus */
-
 #define  _INTERLACED true
 #define _PROGRESSIVE false
 
-/*
- * Declarations of HAL-exported video resolution table.
- * Definitions reside in dsVideoResolutionSettingsData.c and are exported from the HAL
- * shared library. Use dlsym() / LoadDLSymbols() to obtain runtime pointers from the
- * middleware; never define these symbols in middleware code.
- */
+#ifdef DS_HAL_EXPORT_CONFIG_SYMBOLS
 extern dsVideoPortResolution_t kResolutionsSettings[];
 extern int                     kResolutionsSettings_size;
 extern size_t                  kNumResolutionsSettings;
 extern int                     kDefaultResIndex;
+#else
+/* Static fallback table for middleware compile-time dsUTL_DIM(kResolutions). */
+static dsVideoPortResolution_t kResolutions[] = {
+	{
+		"720p",
+		dsVIDEO_PIXELRES_1280x720,
+		dsVIDEO_ASPECT_RATIO_16x9,
+		dsVIDEO_SSMODE_2D,
+		dsVIDEO_FRAMERATE_60,
+		_PROGRESSIVE,
+	},
+};
 
-/* Alias expected by devicesettings middleware */
-#define kResolutions kResolutionsSettings
-
-#ifdef __cplusplus
-}
-#endif /* __cplusplus */
+static int kDefaultResIndex = 0;
+#endif
 
 #endif /* _DS_VIDEORESOLUTIONSETTINGS_H_ */

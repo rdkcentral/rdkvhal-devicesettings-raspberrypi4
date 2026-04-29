@@ -23,25 +23,27 @@
 #include "dsUtl.h"
 #include "dsTypes.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif /* __cplusplus */
-
-/*
- * Declarations of HAL-exported video device configuration tables.
- * Definitions reside in dsVideoDeviceSettingsData.c and are exported from the HAL
- * shared library. Use dlsym() / LoadDLSymbols() to obtain runtime pointers from the
- * middleware; never define these symbols in middleware code.
- */
+#ifdef DS_HAL_EXPORT_CONFIG_SYMBOLS
 extern dsVideoConfig_t  kVideoDeviceConfigs[];
 extern int              kVideoDeviceConfigs_size;
 extern int              kNumVideoDevices;
+#else
+/* Static fallback tables for middleware compile-time dsUTL_DIM(kConfigs). */
+static dsVideoZoom_t kFallbackSupportedDFCs[] = {
+	dsVIDEO_ZOOM_NONE, dsVIDEO_ZOOM_FULL, dsVIDEO_ZOOM_PLATFORM
+};
 
-/* Alias expected by devicesettings middleware static fallback */
-#define kConfigs kVideoDeviceConfigs
+static const int kNumVideoDevices = 1;
 
-#ifdef __cplusplus
-}
-#endif /* __cplusplus */
+static dsVideoConfig_t kConfigs[] = {
+	{
+		dsUTL_DIM(kFallbackSupportedDFCs),
+		kFallbackSupportedDFCs,
+		dsVIDEO_ZOOM_NONE,
+	},
+};
+
+typedef int _SafetyCheck[(dsUTL_DIM(kConfigs) == kNumVideoDevices) ? 1 : -1];
+#endif
 
 #endif /* _DS_VIDEODEVICESETTINGS_H_ */

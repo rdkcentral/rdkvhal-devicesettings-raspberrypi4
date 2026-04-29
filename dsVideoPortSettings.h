@@ -24,27 +24,32 @@
 #include "dsUtl.h"
 #include "dsVideoResolutionSettings.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif /* __cplusplus */
-
-/*
- * Declarations of HAL-exported video port configuration tables.
- * Definitions reside in dsVideoPortSettingsData.c and are exported from the HAL shared
- * library. Use dlsym() / LoadDLSymbols() to obtain runtime pointers from the middleware;
- * never define these symbols in middleware code to avoid multiple-definition issues.
- */
+#ifdef DS_HAL_EXPORT_CONFIG_SYMBOLS
 extern dsVideoPortTypeConfig_t  kVideoPortConfigs[];
 extern dsVideoPortPortConfig_t  kVideoPortPorts[];
 extern int                      kVideoPortConfigs_size;
 extern int                      kVideoPortPorts_size;
+#else
+/* Static fallback tables for middleware compile-time dsUTL_DIM(kConfigs/kPorts). */
+static dsVideoPortTypeConfig_t kConfigs[] = {
+	{
+		dsVIDEOPORT_TYPE_HDMI,
+		"HDMI",
+		false,
+		false,
+		-1,
+		dsUTL_DIM(kResolutions),
+		kResolutions,
+	},
+};
 
-/* Aliases expected by devicesettings middleware */
-#define kConfigs kVideoPortConfigs
-#define kPorts   kVideoPortPorts
-
-#ifdef __cplusplus
-}
-#endif /* __cplusplus */
+static dsVideoPortPortConfig_t kPorts[] = {
+	{
+		{dsVIDEOPORT_TYPE_HDMI, 0},
+		{dsAUDIOPORT_TYPE_HDMI, 0},
+		"720p"
+	},
+};
+#endif
 
 #endif /* _DS_VIDEOOUTPUTPORTSETTINGS_H_ */

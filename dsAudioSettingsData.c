@@ -31,6 +31,7 @@
 
 #include "dsUtl.h"
 #include "dsTypes.h"
+#define DS_HAL_EXPORT_CONFIG_SYMBOLS
 #include "dsAudioSettings.h"
 
 /* Supporting arrays - file-local; not exported and not looked up by dlsym */
