@@ -31,6 +31,7 @@
 #define ALSA_CARD_NAME "hw:1"
 /* vc4hdmi0 exposes IEC958 controls; PCM/HDMI simple mixer elements are not present on this card. */
 #define ALSA_ELEMENT_NAME "IEC958"
+#define ALSA_IEC958_CTL_NAME "IEC958 Playback Default"
 
 #define MAX_LINEAR_DB_SCALE 24
 
@@ -169,6 +170,104 @@ static bool dsEncodingToIec958Switch(dsAudioEncoding_t encoding, int *iec958_ena
     }
 }
 
+static int dsIec958CtlReadSwitch(const char *s_card, int *iec958_enabled)
+{
+    if ((s_card == NULL) || (iec958_enabled == NULL)) {
+        return -1;
+    }
+
+    snd_ctl_t *ctl = NULL;
+    snd_ctl_elem_id_t *id = NULL;
+    snd_ctl_elem_value_t *value = NULL;
+    snd_aes_iec958_t iec958;
+    int ret;
+
+    ret = snd_ctl_open(&ctl, s_card, 0);
+    if (ret < 0) {
+        return ret;
+    }
+
+    if ((ret = snd_ctl_elem_id_malloc(&id)) < 0) {
+        snd_ctl_close(ctl);
+        return ret;
+    }
+
+    if ((ret = snd_ctl_elem_value_malloc(&value)) < 0) {
+        snd_ctl_elem_id_free(id);
+        snd_ctl_close(ctl);
+        return ret;
+    }
+
+    snd_ctl_elem_id_set_interface(id, SND_CTL_ELEM_IFACE_PCM);
+    snd_ctl_elem_id_set_name(id, ALSA_IEC958_CTL_NAME);
+    snd_ctl_elem_id_set_index(id, 0);
+    snd_ctl_elem_id_set_device(id, 0);
+
+    snd_ctl_elem_value_set_id(value, id);
+    ret = snd_ctl_elem_read(ctl, value);
+    if (ret == 0) {
+        snd_ctl_elem_value_get_iec958(value, &iec958);
+        *iec958_enabled = ((iec958.status[0] & IEC958_AES0_NONAUDIO) != 0) ? 1 : 0;
+    }
+
+    snd_ctl_elem_value_free(value);
+    snd_ctl_elem_id_free(id);
+    snd_ctl_close(ctl);
+    return ret;
+}
+
+static int dsIec958CtlWriteSwitch(const char *s_card, int iec958_enabled)
+{
+    if (s_card == NULL) {
+        return -1;
+    }
+
+    snd_ctl_t *ctl = NULL;
+    snd_ctl_elem_id_t *id = NULL;
+    snd_ctl_elem_value_t *value = NULL;
+    snd_aes_iec958_t iec958;
+    int ret;
+
+    ret = snd_ctl_open(&ctl, s_card, 0);
+    if (ret < 0) {
+        return ret;
+    }
+
+    if ((ret = snd_ctl_elem_id_malloc(&id)) < 0) {
+        snd_ctl_close(ctl);
+        return ret;
+    }
+
+    if ((ret = snd_ctl_elem_value_malloc(&value)) < 0) {
+        snd_ctl_elem_id_free(id);
+        snd_ctl_close(ctl);
+        return ret;
+    }
+
+    snd_ctl_elem_id_set_interface(id, SND_CTL_ELEM_IFACE_PCM);
+    snd_ctl_elem_id_set_name(id, ALSA_IEC958_CTL_NAME);
+    snd_ctl_elem_id_set_index(id, 0);
+    snd_ctl_elem_id_set_device(id, 0);
+
+    snd_ctl_elem_value_set_id(value, id);
+    ret = snd_ctl_elem_read(ctl, value);
+    if (ret == 0) {
+        snd_ctl_elem_value_get_iec958(value, &iec958);
+        if (iec958_enabled) {
+            iec958.status[0] |= IEC958_AES0_NONAUDIO;
+        } else {
+            iec958.status[0] &= (unsigned char)~IEC958_AES0_NONAUDIO;
+        }
+        snd_ctl_elem_value_set_iec958(value, &iec958);
+        ret = snd_ctl_elem_write(ctl, value);
+    }
+
+    snd_ctl_elem_value_free(value);
+    snd_ctl_elem_id_free(id);
+    snd_ctl_close(ctl);
+    return ret;
+}
+
 /**
  * @brief Initializes the audio port sub-system of Device Settings HAL.
  *
@@ -302,11 +401,14 @@ dsError_t dsGetAudioEncoding(intptr_t handle, dsAudioEncoding_t *encoding)
 #else /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
     const char *s_card = ALSA_CARD_NAME;
     snd_mixer_elem_t *iec958_elem = NULL;
+    int iec958_enabled = 0;
 
-    /* IEC958 playback switch is commonly used to indicate compressed passthrough. */
-    if ((initAlsa("IEC958", s_card, &iec958_elem) == 0) && (iec958_elem != NULL) &&
+    /* vc4hdmi0 exposes IEC958 primarily via snd_ctl (matches amixer controls/contents). */
+    if (dsIec958CtlReadSwitch(s_card, &iec958_enabled) == 0) {
+        *encoding = dsEncodingFromIec958Switch(iec958_enabled, _encoding);
+        _encoding = *encoding;
+    } else if ((initAlsa("IEC958", s_card, &iec958_elem) == 0) && (iec958_elem != NULL) &&
             snd_mixer_selem_has_playback_switch(iec958_elem)) {
-        int iec958_enabled = 0;
         if (snd_mixer_selem_get_playback_switch(iec958_elem, SND_MIXER_SCHN_FRONT_LEFT,
                 &iec958_enabled) == 0) {
             *encoding = dsEncodingFromIec958Switch(iec958_enabled, _encoding);
@@ -655,6 +757,11 @@ dsError_t dsIsAudioPortEnabled(intptr_t handle, bool *enabled)
     ret = dsIsAudioMute(handle, &audioEnabled);
     if (ret == dsERR_NONE) {
         *enabled = !audioEnabled;
+    } else if (ret == dsERR_OPERATION_NOT_SUPPORTED) {
+        /* vc4hdmi0 may not expose mixer mute controls; use HAL enabled state. */
+        AOPHandle_t *audioPort = (AOPHandle_t *)handle;
+        *enabled = audioPort->m_IsEnabled;
+        ret = dsERR_NONE;
     } else {
         hal_err("dsIsAudioMute returned error.\n");
     }
@@ -684,6 +791,7 @@ dsError_t dsIsAudioPortEnabled(intptr_t handle, bool *enabled)
 dsError_t dsEnableAudioPort(intptr_t handle, bool enabled)
 {
     hal_info("invoked.\n");
+    dsError_t ret = dsERR_NONE;
     if (false == _bIsAudioInitialized)
     {
         return dsERR_NOT_INITIALIZED;
@@ -693,7 +801,15 @@ dsError_t dsEnableAudioPort(intptr_t handle, bool enabled)
         hal_err("Invalid parameters; handle(%p).\n", handle);
         return dsERR_INVALID_PARAM;
     }
-    return dsSetAudioMute(handle, !enabled);
+    AOPHandle_t *audioPort = (AOPHandle_t *)handle;
+    audioPort->m_IsEnabled = enabled;
+
+    ret = dsSetAudioMute(handle, !enabled);
+    if (ret == dsERR_OPERATION_NOT_SUPPORTED) {
+        /* Keep enable/disable behavior interface-agnostic when mute control is unsupported. */
+        return dsERR_NONE;
+    }
+    return ret;
 }
 
 /**
@@ -950,15 +1066,18 @@ dsError_t dsSetAudioEncoding(intptr_t handle, dsAudioEncoding_t encoding)
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
-    if ((initAlsa("IEC958", s_card, &iec958_elem) == 0) && (iec958_elem != NULL) &&
-            snd_mixer_selem_has_playback_switch(iec958_elem)) {
-        if (snd_mixer_selem_set_playback_switch_all(iec958_elem, iec958_enabled) != 0) {
-            hal_err("Failed to set IEC958 playback switch for encoding(%d).\n", encoding);
-            return dsERR_GENERAL;
+    /* Prefer snd_ctl path for vc4hdmi0 and fall back to mixer where available. */
+    if (dsIec958CtlWriteSwitch(s_card, iec958_enabled) != 0) {
+        if ((initAlsa("IEC958", s_card, &iec958_elem) == 0) && (iec958_elem != NULL) &&
+                snd_mixer_selem_has_playback_switch(iec958_elem)) {
+            if (snd_mixer_selem_set_playback_switch_all(iec958_elem, iec958_enabled) != 0) {
+                hal_err("Failed to set IEC958 playback switch for encoding(%d).\n", encoding);
+                return dsERR_GENERAL;
+            }
+        } else {
+            hal_err("IEC958 control not available; cannot set encoding(%d).\n", encoding);
+            return dsERR_OPERATION_NOT_SUPPORTED;
         }
-    } else {
-        hal_err("IEC958 control not available; cannot set encoding(%d).\n", encoding);
-        return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
     _encoding = encoding;
