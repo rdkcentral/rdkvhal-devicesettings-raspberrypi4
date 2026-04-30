@@ -1,0 +1,20 @@
+[Unit]
+Description=RPi ALSA SoftMaster Control Initialization
+Documentation=man:asound.conf(5)
+After=sound.target alsa-state.service
+Before=dsmgr.service
+ConditionVirtualization=none
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rpi-audio-softvol
+
+# Prime the softvol PCM to create SoftMaster control before HAL access
+# Uses timeout to prevent hanging if device or sink is disconnected
+ExecStart=/bin/sh -c 'timeout 3 speaker-test -D default -c 2 -F S16_LE -r 48000 -t sine -f 440 -l 1 >/dev/null 2>&1 || true'
+
+[Install]
+WantedBy=multi-user.target dsmgr.service
