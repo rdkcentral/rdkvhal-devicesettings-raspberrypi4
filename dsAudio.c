@@ -29,11 +29,8 @@
 #include "dsAudioSettings.h"
 
 #define ALSA_CARD_NAME "hw:1"
-#if (SND_LIB_MAJOR >= 1) && (SND_LIB_MINOR >= 2) && (KERNEL_ARPI_VERSION_MAJOR < 6)
-#define ALSA_ELEMENT_NAME "HDMI"
-#else
-#define ALSA_ELEMENT_NAME "PCM"
-#endif
+/* vc4hdmi0 exposes IEC958 controls; PCM/HDMI simple mixer elements are not present on this card. */
+#define ALSA_ELEMENT_NAME "IEC958"
 
 #define MAX_LINEAR_DB_SCALE 24
 
