@@ -28,7 +28,7 @@
 #include "dshalLogger.h"
 #include "dsAudioSettings.h"
 
-#define ALSA_CARD_NAME "hw:0"
+#define ALSA_CARD_NAME "hw:1"
 #if (SND_LIB_MAJOR >= 1) && (SND_LIB_MINOR >= 2) && (KERNEL_ARPI_VERSION_MAJOR < 6)
 #define ALSA_ELEMENT_NAME "HDMI"
 #else
@@ -542,12 +542,12 @@ dsError_t dsIsAudioMute(intptr_t handle, bool *muted)
     const char *element_name = ALSA_ELEMENT_NAME;
     snd_mixer_elem_t *mixer_elem = NULL;
     if (initAlsa(element_name, s_card, &mixer_elem) != 0) {
-        hal_err("failed to initialize alsa!\n");
-        return dsERR_GENERAL;
+        hal_warn("ALSA mixer not available on HDMI card; mute query unsupported.\n");
+        return dsERR_OPERATION_NOT_SUPPORTED;
     }
     if (mixer_elem == NULL) {
-        hal_err("initAlsa returned mixer_elem as NULL!\n");
-        return dsERR_GENERAL;
+        hal_warn("No simple mixer control on HDMI card; mute query unsupported.\n");
+        return dsERR_OPERATION_NOT_SUPPORTED;
     }
     int mute_status;
     if (snd_mixer_selem_has_playback_switch(mixer_elem)) {
@@ -558,8 +558,8 @@ dsError_t dsIsAudioMute(intptr_t handle, bool *muted)
             *muted = false;
         }
     } else {
-        hal_err("snd_mixer_selem_has_playback_switch failed\n");
-        return dsERR_GENERAL;
+        hal_warn("No playback switch on HDMI card; mute query unsupported.\n");
+        return dsERR_OPERATION_NOT_SUPPORTED;
     }
     return dsERR_NONE;
 }
@@ -601,12 +601,12 @@ dsError_t dsSetAudioMute(intptr_t handle, bool mute)
     const char *element_name = ALSA_ELEMENT_NAME;
     snd_mixer_elem_t *mixer_elem = NULL;
     if (initAlsa(element_name, s_card, &mixer_elem) != 0) {
-        hal_err("failed to initialize alsa!\n");
-        return dsERR_GENERAL;
+        hal_warn("ALSA mixer not available on HDMI card; mute control unsupported.\n");
+        return dsERR_OPERATION_NOT_SUPPORTED;
     }
     if (mixer_elem == NULL) {
-        hal_err("initAlsa returned mixer_elem as NULL!\n");
-        return dsERR_GENERAL;
+        hal_warn("No simple mixer control on HDMI card; mute control unsupported.\n");
+        return dsERR_OPERATION_NOT_SUPPORTED;
     }
     if (snd_mixer_selem_has_playback_switch(mixer_elem)) {
         snd_mixer_selem_set_playback_switch_all(mixer_elem, !mute);
@@ -617,8 +617,8 @@ dsError_t dsSetAudioMute(intptr_t handle, bool mute)
         }
         return dsERR_NONE;
     }
-    hal_err("snd_mixer_selem_has_playback_switch failed\n");
-    return dsERR_GENERAL;
+    hal_warn("No playback switch on HDMI card; mute control unsupported.\n");
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
@@ -742,13 +742,13 @@ dsError_t dsGetAudioGain(intptr_t handle, float *gain)
     double normalized= 0, min_norm = 0;
     snd_mixer_elem_t *mixer_elem;
     if (initAlsa(element_name, s_card, &mixer_elem) != 0) {
-        hal_err("failed to initialize alsa!\n");
-        return dsERR_GENERAL;
+        hal_warn("ALSA mixer not available on HDMI card; gain query unsupported.\n");
+        return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
     if (mixer_elem == NULL) {
-        hal_err("initAlsa returned mixer_elem as NULL!\n");
-        return dsERR_GENERAL;
+        hal_warn("No simple mixer control on HDMI card; gain query unsupported.\n");
+        return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
     snd_mixer_selem_get_playback_dB_range(mixer_elem, &vol_min, &vol_max);
@@ -797,8 +797,8 @@ dsError_t dsGetAudioDB(intptr_t handle, float *db)
     snd_mixer_elem_t *mixer_elem = NULL;
     initAlsa(element_name,s_card,&mixer_elem);
     if (mixer_elem == NULL) {
-        hal_err("failed to initialize alsa!\n");
-        return dsERR_GENERAL;
+        hal_warn("No simple mixer control on HDMI card; dB query unsupported.\n");
+        return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
     if (!snd_mixer_selem_get_playback_dB(mixer_elem, SND_MIXER_SCHN_FRONT_LEFT, &db_value)) {
@@ -844,17 +844,17 @@ dsError_t dsGetAudioLevel(intptr_t handle, float *level)
     }
 
     long vol_value, min, max;
-    const char *s_card = "default";
+    const char *s_card = ALSA_CARD_NAME;
     const char *element_name = ALSA_ELEMENT_NAME;
 
     snd_mixer_elem_t *mixer_elem = NULL;
     if (initAlsa(element_name, s_card, &mixer_elem) != 0) {
-        hal_err("failed to initialize alsa!\n");
-        return dsERR_GENERAL;
+        hal_warn("ALSA mixer not available on HDMI card; level query unsupported.\n");
+        return dsERR_OPERATION_NOT_SUPPORTED;
     }
     if (mixer_elem == NULL) {
-        hal_err("initAlsa returned mixer_elem as NULL!\n");
-        return dsERR_GENERAL;
+        hal_warn("No simple mixer control on HDMI card; level query unsupported.\n");
+        return dsERR_OPERATION_NOT_SUPPORTED;
     }
     if (!snd_mixer_selem_get_playback_volume(mixer_elem, SND_MIXER_SCHN_FRONT_LEFT, &vol_value)) {
         snd_mixer_selem_get_playback_volume_range(mixer_elem, &min, &max);
@@ -864,8 +864,8 @@ dsError_t dsGetAudioLevel(intptr_t handle, float *level)
         *level = round((float)((vol_value - min)*100.0/(max - min)));
         return dsERR_NONE;
     }
-    hal_err("snd_mixer_selem_get_playback_volume failed.\n");
-    return dsERR_GENERAL;
+    hal_warn("No playback volume control on HDMI card; level query unsupported.\n");
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 dsError_t dsGetAudioMaxDB(intptr_t handle, float *maxDb)
@@ -1321,8 +1321,8 @@ dsError_t dsSetAudioLevel(intptr_t handle, float level)
     snd_mixer_elem_t *mixer_elem = NULL;
 
     if (initAlsa(element_name, s_card, &mixer_elem) != 0 || mixer_elem == NULL) {
-        hal_err("Failed to initialize ALSA!\n");
-        return dsERR_GENERAL;
+        hal_warn("No simple mixer control on HDMI card; level control unsupported.\n");
+        return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
     long min, max;

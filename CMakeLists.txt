@@ -106,6 +106,9 @@ file(GLOB SETTINGS_HEADERS
 )
 install(FILES ${SETTINGS_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/rdk/halif/ds-hal)
 
+# Install ALSA default config for HDMI audio routing
+install(FILES ${CMAKE_SOURCE_DIR}/config/asound.conf DESTINATION ${CMAKE_INSTALL_SYSCONFDIR})
+
 # Clean target
 add_custom_target(clean-all
     COMMAND ${CMAKE_BUILD_TOOL} clean
