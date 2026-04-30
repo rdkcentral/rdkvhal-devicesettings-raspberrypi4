@@ -31,6 +31,7 @@
 
 #include "dsTypes.h"
 #include "dsDisplay.h"
+#include "dsAudio.h"
 #include "dsUtl.h"
 #include "dsError.h"
 #include "dshalLogger.h"
@@ -42,9 +43,17 @@ extern size_t kNumResolutionsSettings;
 #include "halif-versions.h"
 
 dsDisplayEventCallback_t _halcallback = NULL;
+extern dsAudioOutPortConnectCB_t _halhdmiaudioCB;
 dsVideoPortResolution_t *HdmiSupportedResolution = NULL;
 static unsigned int numSupportedResn = 0;
 static bool _bDisplayInited = false;
+
+static void notify_audio_hotplug(bool connected)
+{
+    if (_halhdmiaudioCB != NULL) {
+        _halhdmiaudioCB(dsAUDIOPORT_TYPE_HDMI, 0, connected);
+    }
+}
 
 /* Forward declaration used by watcher helpers defined before full struct body. */
 typedef struct _VDISPHandle_t VDISPHandle_t;
@@ -130,12 +139,15 @@ static void* hdmi_watcher_thread(void *arg)
                     if (currentConnected) {
                         hal_dbg("HDMI cable connected, triggering CONNECTED event\n");
                         _halcallback(nativeHandle, dsDISPLAY_EVENT_CONNECTED, &eventData);
+                        notify_audio_hotplug(true);
                     } else {
                         hal_dbg("HDMI cable disconnected, triggering DISCONNECTED event\n");
                         _halcallback(nativeHandle, dsDISPLAY_EVENT_DISCONNECTED, &eventData);
+                        notify_audio_hotplug(false);
                     }
                 } else {
                     hal_warn("_halcallback is NULL, cannot report event\n");
+                    notify_audio_hotplug(currentConnected);
                 }
             }
 
@@ -284,10 +296,14 @@ static void* report_initial_hdmi_state(void *arg)
             if (currentConnected) {
                 hal_dbg("Reporting initial HDMI CONNECTED state\n");
                 callback(nativeHandle, dsDISPLAY_EVENT_CONNECTED, &eventData);
+                notify_audio_hotplug(true);
             } else {
                 hal_dbg("Reporting initial HDMI DISCONNECTED state\n");
                 callback(nativeHandle, dsDISPLAY_EVENT_DISCONNECTED, &eventData);
+                notify_audio_hotplug(false);
             }
+        } else {
+            notify_audio_hotplug(currentConnected);
         }
     } else {
         hal_err("Failed to query initial HDMI state\n");

@@ -53,6 +53,24 @@ static dsAudioStereoMode_t _stereoModeHDMI = dsAUDIO_STEREO_STEREO;
 static bool _bIsAudioInitialized = false;
 
 dsAudioOutPortConnectCB_t _halhdmiaudioCB = NULL;
+dsAudioFormatUpdateCB_t _halaudioformatCB = NULL;
+
+static dsAudioFormat_t dsFormatFromEncoding(dsAudioEncoding_t encoding)
+{
+    switch (encoding) {
+        case dsAUDIO_ENC_PCM:
+            return dsAUDIO_FORMAT_PCM;
+        case dsAUDIO_ENC_AC3:
+            return dsAUDIO_FORMAT_DOLBY_AC3;
+        case dsAUDIO_ENC_EAC3:
+            return dsAUDIO_FORMAT_DOLBY_EAC3;
+        case dsAUDIO_ENC_NONE:
+            return dsAUDIO_FORMAT_NONE;
+        case dsAUDIO_ENC_DISPLAY:
+        default:
+            return dsAUDIO_FORMAT_UNKNOWN;
+    }
+}
 
 static void dsGetdBRange();
 
@@ -120,6 +138,40 @@ static int8_t initAlsa(const char *selemname, const char *s_card, snd_mixer_elem
     return ret;
 }
 
+static dsAudioEncoding_t dsEncodingFromIec958Switch(int iec958_enabled, dsAudioEncoding_t cached)
+{
+    if (!iec958_enabled) {
+        return dsAUDIO_ENC_PCM;
+    }
+
+    /* IEC958 only tells passthrough ON/OFF; preserve AC3/EAC3 when cached. */
+    if (cached == dsAUDIO_ENC_EAC3) {
+        return dsAUDIO_ENC_EAC3;
+    }
+    return dsAUDIO_ENC_AC3;
+}
+
+static bool dsEncodingToIec958Switch(dsAudioEncoding_t encoding, int *iec958_enabled)
+{
+    if (iec958_enabled == NULL) {
+        return false;
+    }
+
+    switch (encoding) {
+        case dsAUDIO_ENC_NONE:
+        case dsAUDIO_ENC_PCM:
+            *iec958_enabled = 0;
+            return true;
+        case dsAUDIO_ENC_AC3:
+        case dsAUDIO_ENC_EAC3:
+            *iec958_enabled = 1;
+            return true;
+        case dsAUDIO_ENC_DISPLAY:
+        default:
+            return false;
+    }
+}
+
 /**
  * @brief Initializes the audio port sub-system of Device Settings HAL.
  *
@@ -136,6 +188,8 @@ static int8_t initAlsa(const char *selemname, const char *s_card, snd_mixer_elem
  *
  *
  * @warning  This API is Not thread safe.
+ *
+ * @post dsAudioPortTerm() must be called to release resources.
  *
  * @see dsAudioPortTerm()
  *
@@ -183,9 +237,12 @@ static void dsGetdBRange()
     const char *s_card = ALSA_CARD_NAME;
     const char *element_name = ALSA_ELEMENT_NAME;
     snd_mixer_elem_t *mixer_elem = NULL;
-    initAlsa(element_name,s_card,&mixer_elem);
-    if (mixer_elem == NULL) {
+    if (initAlsa(element_name, s_card, &mixer_elem) != 0) {
         hal_err("failed to initialize alsa!\n");
+        return;
+    }
+    if (mixer_elem == NULL) {
+        hal_err("initAlsa returned mixer_elem as NULL!\n");
         return;
     }
     if (!snd_mixer_selem_get_playback_dB_range(mixer_elem, &min_dB_value, &max_dB_value)) {
@@ -196,6 +253,27 @@ static void dsGetdBRange()
     }
 }
 
+/**
+ * @brief Gets the audio port handle.
+ *
+ * This function returns the handle for the type of audio port requested. It must return
+ * dsERR_OPERATION_NOT_SUPPORTED if an unavailable audio port is requested.
+ *
+ * @param[in] type     - Type of audio port (HDMI, SPDIF and so on). Please refer ::dsAudioPortType_t
+ * @param[in] index    - Index of audio port depending on the available ports(0, 1, ...). Maximum value of number of ports is platform specific. Please refer ::dsAudioPortConfig_t
+ * @param[out] handle  - Pointer to hold the handle of the audio port
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid(port is not present or index is out of range)
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
 dsError_t dsGetAudioPort(dsAudioPortType_t type, int index, intptr_t *handle)
 {
     hal_info("invoked.\n");
@@ -222,10 +300,53 @@ dsError_t dsGetAudioEncoding(intptr_t handle, dsAudioEncoding_t *encoding)
         hal_err("Invalid parameters; encoding(%p) or handle(%p).\n", encoding, handle);
         return dsERR_INVALID_PARAM;
     }
+#ifndef DSHAL_ENABLE_ALSA_EXPERIMENTAL
     *encoding = _encoding;
+#else /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
+    const char *s_card = ALSA_CARD_NAME;
+    snd_mixer_elem_t *iec958_elem = NULL;
+
+    /* IEC958 playback switch is commonly used to indicate compressed passthrough. */
+    if ((initAlsa("IEC958", s_card, &iec958_elem) == 0) && (iec958_elem != NULL) &&
+            snd_mixer_selem_has_playback_switch(iec958_elem)) {
+        int iec958_enabled = 0;
+        if (snd_mixer_selem_get_playback_switch(iec958_elem, SND_MIXER_SCHN_FRONT_LEFT,
+                &iec958_enabled) == 0) {
+            *encoding = dsEncodingFromIec958Switch(iec958_enabled, _encoding);
+            _encoding = *encoding;
+        } else {
+            *encoding = _encoding;
+            hal_warn("Failed to query IEC958 playback switch; returning cached encoding (%d).\n", *encoding);
+        }
+    } else {
+        *encoding = _encoding;
+        hal_warn("IEC958 control not available; returning cached encoding (%d).\n", *encoding);
+    }
+#endif /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
     return dsERR_NONE;
 }
 
+/**
+ * @brief Gets the audio compression of the specified audio port.
+ *
+ * This function returns the audio compression level used in the audio port corresponding to specified port handle.
+ *
+ * @param[in] handle       - Handle for the output audio port
+ * @param[out] compression - Pointer to hold the compression value of the specified audio port. (Value ranges from 0 to 10)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetAudioCompression()
+ */
 dsError_t dsGetAudioCompression(intptr_t handle, int *compression)
 {
     hal_info("invoked.\n");
@@ -238,9 +359,46 @@ dsError_t dsGetAudioCompression(intptr_t handle, int *compression)
         hal_err("Invalid parameters; compression(%p) or handle(%p).\n", compression, handle);
         return dsERR_INVALID_PARAM;
     }
+#ifndef DSHAL_ENABLE_ALSA_EXPERIMENTAL
     return dsERR_OPERATION_NOT_SUPPORTED;
+#else /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
+    /* Compression level is not directly exposed via ALSA; return 0 for PCM and 1 for compressed. */
+    dsAudioEncoding_t encoding;
+    dsError_t ret = dsGetAudioEncoding(handle, &encoding);
+    if (ret != dsERR_NONE) {
+        hal_err("dsGetAudioEncoding returned error: %d\n", ret);
+        return ret;
+    }
+    /* There is no platform selected compression level, so return 0 for PCM and 1 for any compressed format. */
+    *compression = (encoding == dsAUDIO_ENC_PCM) ? 0 : 1;
+    return dsERR_NONE;
+#endif /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
 }
 
+/**
+ * @brief Gets the digital audio output mode of digital interfaces.
+ *
+ * For sink devices, this function returns the digital audio output mode(PCM, Passthrough, DD, DD+) only for the digital interfaces(HDMI ARC/eARC, SPDIF).
+ * For source devices, this function returns the digital audio output mode(PCM, Passthrough, DD, DD+, Surround) only for the digital interfaces(HDMI, SPDIF).
+ *
+ * @param[in] handle      - Handle for the output audio port
+ * @param[out] stereoMode - Pointer to hold the stereo mode setting of the
+ *                            specified digital interface. Please refer ::dsAudioStereoMode_t
+ *
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetStereoMode()
+ */
 dsError_t dsGetStereoMode(intptr_t handle, dsAudioStereoMode_t *stereoMode)
 {
     hal_info("invoked.\n");
@@ -253,7 +411,50 @@ dsError_t dsGetStereoMode(intptr_t handle, dsAudioStereoMode_t *stereoMode)
         hal_err("Invalid parameters; stereoMode(%p) or handle(%p).\n", stereoMode, handle);
         return dsERR_INVALID_PARAM;
     }
+#ifndef DSHAL_ENABLE_ALSA_EXPERIMENTAL
     *stereoMode = _stereoModeHDMI;
+#else /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
+    const char *s_card = ALSA_CARD_NAME;
+    const char *element_name = ALSA_ELEMENT_NAME;
+    snd_mixer_elem_t *mixer_elem = NULL;
+    dsAudioEncoding_t encoding = dsAUDIO_ENC_PCM;
+    dsError_t ret = dsGetAudioEncoding(handle, &encoding);
+
+    if (ret != dsERR_NONE) {
+        hal_err("dsGetAudioEncoding returned error: %d\n", ret);
+        return ret;
+    }
+
+    if ((initAlsa(element_name, s_card, &mixer_elem) == 0) && (mixer_elem != NULL) &&
+            snd_mixer_selem_is_playback_mono(mixer_elem)) {
+        *stereoMode = dsAUDIO_STEREO_MONO;
+        _stereoModeHDMI = *stereoMode;
+        hal_info("Audio is Mono; returning %d\n", *stereoMode);
+        return dsERR_NONE;
+    }
+
+    switch (encoding) {
+        case dsAUDIO_ENC_PCM:
+            *stereoMode = dsAUDIO_STEREO_STEREO;
+            break;
+        case dsAUDIO_ENC_AC3:
+            *stereoMode = dsAUDIO_STEREO_DD;
+            break;
+        case dsAUDIO_ENC_EAC3:
+            *stereoMode = dsAUDIO_STEREO_DDPLUS;
+            break;
+        case dsAUDIO_ENC_DISPLAY:
+            *stereoMode = dsAUDIO_STEREO_PASSTHRU;
+            break;
+        case dsAUDIO_ENC_NONE:
+        default:
+            *stereoMode = dsAUDIO_STEREO_UNKNOWN;
+            break;
+    }
+
+    _stereoModeHDMI = *stereoMode;
+    hal_info("resolved stereo mode - returning %d\n", *stereoMode);
+#endif /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
     return dsERR_NONE;
 }
 
@@ -266,7 +467,30 @@ dsError_t dsGetPersistedStereoMode(intptr_t handle, dsAudioStereoMode_t *stereoM
     return dsERR_NONE;
 }
 
-dsError_t dsGetStereoAuto (intptr_t handle, int *autoMode)
+/**
+ * @brief Checks if auto mode is enabled or not for the digital interfaces.
+ *
+ * For sink devices, this function checks whether the digital audio mode auto is enabled for the digital interfaces (HDMI, HDMI ARC/eARC, SPDIF).
+ * For source devices, this function returns dsERR_OPERATION_NOT_SUPPORTED always.
+ *
+ * @param[in] handle     - Handle for the output audio port
+ * @param[out] autoMode  - Pointer to hold the auto mode setting ( @a true if enabled, @a false if disabled) of the specified digital interface
+ *
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetStereoAuto()
+ */
+dsError_t dsGetStereoAuto(intptr_t handle, int *autoMode)
 {
     hal_info("invoked.\n");
     if (false == _bIsAudioInitialized)
@@ -278,9 +502,32 @@ dsError_t dsGetStereoAuto (intptr_t handle, int *autoMode)
         hal_err("Invalid parameters; autoMode(%p) or handle(%p).\n", autoMode, handle);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi is a source device, so this operation is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Gets the audio mute status of an audio port corresponding to the specified port handle.
+ *
+ * This function is used to check whether the audio on a specified port is muted or not.
+ *
+ * @param[in] handle  - Handle for the output audio port
+ * @param[out] muted  - Mute status of the specified audio port
+ *                        ( @a true if audio is muted, @a false otherwise)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetAudioMute()
+ */
 dsError_t dsIsAudioMute(intptr_t handle, bool *muted)
 {
     hal_info("invoked.\n");
@@ -294,9 +541,12 @@ dsError_t dsIsAudioMute(intptr_t handle, bool *muted)
     const char *s_card = ALSA_CARD_NAME;
     const char *element_name = ALSA_ELEMENT_NAME;
     snd_mixer_elem_t *mixer_elem = NULL;
-    initAlsa(element_name,s_card,&mixer_elem);
-    if (mixer_elem == NULL) {
+    if (initAlsa(element_name, s_card, &mixer_elem) != 0) {
         hal_err("failed to initialize alsa!\n");
+        return dsERR_GENERAL;
+    }
+    if (mixer_elem == NULL) {
+        hal_err("initAlsa returned mixer_elem as NULL!\n");
         return dsERR_GENERAL;
     }
     int mute_status;
@@ -314,6 +564,28 @@ dsError_t dsIsAudioMute(intptr_t handle, bool *muted)
     return dsERR_NONE;
 }
 
+/**
+ * @brief Mutes or un-mutes an audio port.
+ *
+ * This function mutes or un-mutes the audio port corresponding to the specified port handle.
+ *
+ * @param[in] handle  - Handle for the output audio port
+ * @param[in] mute    - Flag to mute/un-mute the audio port
+ *                        ( @a true to mute, @a false to un-mute)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsIsAudioMute()
+ */
 dsError_t dsSetAudioMute(intptr_t handle, bool mute)
 {
     hal_info("invoked.\n");
@@ -328,9 +600,12 @@ dsError_t dsSetAudioMute(intptr_t handle, bool mute)
     const char *s_card = ALSA_CARD_NAME;
     const char *element_name = ALSA_ELEMENT_NAME;
     snd_mixer_elem_t *mixer_elem = NULL;
-    initAlsa(element_name,s_card,&mixer_elem);
-    if (mixer_elem == NULL) {
+    if (initAlsa(element_name, s_card, &mixer_elem) != 0) {
         hal_err("failed to initialize alsa!\n");
+        return dsERR_GENERAL;
+    }
+    if (mixer_elem == NULL) {
+        hal_err("initAlsa returned mixer_elem as NULL!\n");
         return dsERR_GENERAL;
     }
     if (snd_mixer_selem_has_playback_switch(mixer_elem)) {
@@ -346,6 +621,26 @@ dsError_t dsSetAudioMute(intptr_t handle, bool mute)
     return dsERR_GENERAL;
 }
 
+/**
+ * @brief Indicates whether the specified Audio port is enabled or not.
+ *
+ * @param[in] handle    - Handle of the output audio port
+ * @param[out] enabled  - Audio port enabled/disabled state
+ *                          ( @a true when audio port is enabled, @a false otherwise)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsEnableAudioPort()
+ */
 dsError_t dsIsAudioPortEnabled(intptr_t handle, bool *enabled)
 {
     hal_info("invoked.\n");
@@ -369,6 +664,26 @@ dsError_t dsIsAudioPortEnabled(intptr_t handle, bool *enabled)
     return ret;
 }
 
+/**
+ * @brief Enables or Disables the Audio port corresponding to the specified port handle.
+ *
+ * @param[in] handle   - Handle of the output audio port
+ * @param[in] enabled  - Flag to control the audio port state
+ *                         ( @a true to enable, @a false to disable)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsIsAudioPortEnabled()
+ */
 dsError_t dsEnableAudioPort(intptr_t handle, bool enabled)
 {
     hal_info("invoked.\n");
@@ -384,6 +699,29 @@ dsError_t dsEnableAudioPort(intptr_t handle, bool enabled)
     return dsSetAudioMute(handle, !enabled);
 }
 
+/**
+ * @brief Gets the audio gain of an audio port.
+ *
+ * For sink devices, this function returns the current Dolby DAP Post gain for Speaker(dsAUDIOPORT_TYPE_SPEAKER).
+ * For source devices, this function returns dsERR_OPERATION_NOT_SUPPORTED always.
+ *
+ * @param[in] handle  - Handle for the output audio port
+ * @param[out] gain   - Pointer to hold the audio gain value of the specified audio port
+                          The gain ranges between -2080 and 480
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetAudioGain()
+ */
 dsError_t dsGetAudioGain(intptr_t handle, float *gain)
 {
     hal_info("invoked.\n");
@@ -403,9 +741,13 @@ dsError_t dsGetAudioGain(intptr_t handle, float *gain)
     long vol_min = 0, vol_max = 0;
     double normalized= 0, min_norm = 0;
     snd_mixer_elem_t *mixer_elem;
-    initAlsa(element_name,s_card,&mixer_elem);
-    if (mixer_elem == NULL) {
+    if (initAlsa(element_name, s_card, &mixer_elem) != 0) {
         hal_err("failed to initialize alsa!\n");
+        return dsERR_GENERAL;
+    }
+
+    if (mixer_elem == NULL) {
+        hal_err("initAlsa returned mixer_elem as NULL!\n");
         return dsERR_GENERAL;
     }
 
@@ -467,6 +809,28 @@ dsError_t dsGetAudioDB(intptr_t handle, float *db)
     return dsERR_GENERAL;
 }
 
+/**
+ * @brief Gets the current audio volume level of an audio port.
+ *
+ * For sink devices, this function returns the current audio volume level of Speaker(dsAUDIOPORT_TYPE_SPEAKER) and Headphone(dsAUDIOPORT_TYPE_HEADPHONE) ports.
+ * For source devices, this function returns dsERR_OPERATION_NOT_SUPPORTED always.
+ *
+ * @param[in] handle - Handle for the output audio port
+ * @param[out] level - Pointer to hold the audio level value (ranging from 0 to 100) of the specified audio port
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetAudioLevel()
+ */
 dsError_t dsGetAudioLevel(intptr_t handle, float *level)
 {
     hal_info("invoked.\n");
@@ -484,9 +848,12 @@ dsError_t dsGetAudioLevel(intptr_t handle, float *level)
     const char *element_name = ALSA_ELEMENT_NAME;
 
     snd_mixer_elem_t *mixer_elem = NULL;
-    initAlsa(element_name,s_card,&mixer_elem);
-    if (mixer_elem == NULL) {
+    if (initAlsa(element_name, s_card, &mixer_elem) != 0) {
         hal_err("failed to initialize alsa!\n");
+        return dsERR_GENERAL;
+    }
+    if (mixer_elem == NULL) {
+        hal_err("initAlsa returned mixer_elem as NULL!\n");
         return dsERR_GENERAL;
     }
     if (!snd_mixer_selem_get_playback_volume(mixer_elem, SND_MIXER_SCHN_FRONT_LEFT, &vol_value)) {
@@ -563,6 +930,8 @@ dsError_t dsSetAudioEncoding(intptr_t handle, dsAudioEncoding_t encoding)
 {
     hal_info("invoked.\n");
     dsError_t ret = dsERR_NONE;
+    dsAudioFormat_t oldFormat = dsFormatFromEncoding(_encoding);
+    dsAudioFormat_t newFormat = dsFormatFromEncoding(encoding);
     if (false == _bIsAudioInitialized)
     {
         return dsERR_NOT_INITIALIZED;
@@ -572,7 +941,35 @@ dsError_t dsSetAudioEncoding(intptr_t handle, dsAudioEncoding_t encoding)
         hal_err("Invalid parameters; handle(%p).\n", handle);
         return dsERR_INVALID_PARAM;
     }
+#ifndef DSHAL_ENABLE_ALSA_EXPERIMENTAL
     _encoding = encoding;
+#else /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
+    const char *s_card = ALSA_CARD_NAME;
+    snd_mixer_elem_t *iec958_elem = NULL;
+    int iec958_enabled = 0;
+
+    if (!dsEncodingToIec958Switch(encoding, &iec958_enabled)) {
+        hal_err("Unsupported encoding(%d) for ALSA experimental path.\n", encoding);
+        return dsERR_OPERATION_NOT_SUPPORTED;
+    }
+
+    if ((initAlsa("IEC958", s_card, &iec958_elem) == 0) && (iec958_elem != NULL) &&
+            snd_mixer_selem_has_playback_switch(iec958_elem)) {
+        if (snd_mixer_selem_set_playback_switch_all(iec958_elem, iec958_enabled) != 0) {
+            hal_err("Failed to set IEC958 playback switch for encoding(%d).\n", encoding);
+            return dsERR_GENERAL;
+        }
+    } else {
+        hal_err("IEC958 control not available; cannot set encoding(%d).\n", encoding);
+        return dsERR_OPERATION_NOT_SUPPORTED;
+    }
+
+    _encoding = encoding;
+#endif /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
+
+    if (_halaudioformatCB != NULL && oldFormat != newFormat) {
+        _halaudioformatCB(newFormat);
+    }
     return ret;
 }
 
@@ -607,9 +1004,33 @@ dsError_t dsSetAudioCompression(intptr_t handle, int compression)
         hal_err("Invalid parameter, handle(%p) or compression(%d).\n", handle, compression);
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    // Map compression level to encoding:
+    // 0 → PCM (no compression)
+    // 1-10 → AC3 (or EAC3, cached preference)
+    dsAudioEncoding_t encoding = (compression == 0) ? dsAUDIO_ENC_PCM : dsAUDIO_ENC_AC3;
+    return dsSetAudioEncoding(handle, encoding);
 }
 
+/**
+ * @brief Checks whether the audio port supports Dolby MS11 Multistream Decode.
+ *
+ * This function checks whether specified audio port supports Dolby MS11 Multistream decode or not.
+ *
+ * @param[in]  handle         - Handle for the output audio port
+ * @param[out] HasMS11Decode  - MS11 Multistream Decode setting for the specified audio port
+ *                                ( @a true if audio port supports Dolby MS11 Multistream Decoding or @a false otherwise )
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
 dsError_t dsIsAudioMSDecode(intptr_t handle, bool *ms11Enabled)
 {
     hal_info("invoked.\n");
@@ -623,10 +1044,33 @@ dsError_t dsIsAudioMSDecode(intptr_t handle, bool *ms11Enabled)
         hal_err("Invalid parameters; handle(%p) or ms11Enabled(%p).\n", handle, ms11Enabled);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi is a source device; MS11 feature is not supported. */
     *ms11Enabled = _isms11Enabled;
     return ret;
 }
 
+/**
+ * @brief Sets the digital audio output mode of digital interfaces.
+ *
+ * For sink devices, this function sets the digital audio output mode(PCM, Passthrough, DD, DD+) to be used only for the digital interfaces(HDMI, HDMI ARC/eARC, SPDIF).
+ * For source devices, this function sets the digital audio output mode(PCM, Passthrough, DD, DD+, Surround) to be used only for the digital interfaces(HDMI, SPDIF).
+ *
+ * @param[in] handle  - Handle for the output audio port
+ * @param[in] mode    - Stereo mode to be used on the specified digital interface. Please refer ::dsAudioStereoMode_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetStereoMode()
+ */
 dsError_t dsSetStereoMode(intptr_t handle, dsAudioStereoMode_t mode)
 {
     hal_info("invoked.\n");
@@ -640,10 +1084,72 @@ dsError_t dsSetStereoMode(intptr_t handle, dsAudioStereoMode_t mode)
         hal_err("Invalid parameters; handle(%p) or mode(%d).\n", handle, mode);
         return dsERR_INVALID_PARAM;
     }
+
+#ifndef DSHAL_ENABLE_ALSA_EXPERIMENTAL
     return dsERR_OPERATION_NOT_SUPPORTED;
+#else /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
+    dsAudioEncoding_t targetEncoding;
+    dsError_t ret = dsERR_NONE;
+
+    /* Map stereo mode to encoding for ALSA control */
+    switch (mode) {
+        case dsAUDIO_STEREO_STEREO:
+            targetEncoding = dsAUDIO_ENC_PCM;
+            break;
+        case dsAUDIO_STEREO_DD:
+            targetEncoding = dsAUDIO_ENC_AC3;
+            break;
+        case dsAUDIO_STEREO_DDPLUS:
+            targetEncoding = dsAUDIO_ENC_EAC3;
+            break;
+        case dsAUDIO_STEREO_PASSTHRU:
+            /* Passthrough: preserve current encoding if AC3/EAC3, else default to AC3 */
+            if (_encoding == dsAUDIO_ENC_AC3 || _encoding == dsAUDIO_ENC_EAC3) {
+                targetEncoding = _encoding;
+            } else {
+                targetEncoding = dsAUDIO_ENC_AC3;
+            }
+            break;
+        case dsAUDIO_STEREO_MONO: /* No standard ALSA "set mono" API */
+        case dsAUDIO_STEREO_SURROUND:
+        case dsAUDIO_STEREO_UNKNOWN:
+        default:
+            hal_err("Unsupported stereo mode(%d) for ALSA experimental path.\n", mode);
+            return dsERR_OPERATION_NOT_SUPPORTED;
+    }
+
+    ret = dsSetAudioEncoding(handle, targetEncoding);
+    if (ret == dsERR_NONE) {
+        _stereoModeHDMI = mode;
+        hal_info("Set stereo mode to %d via encoding(%d).\n", mode, targetEncoding);
+    }
+    return ret;
+#endif /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
 }
 
-dsError_t dsSetStereoAuto (intptr_t handle, int autoMode)
+/**
+ * @brief Sets the Auto Mode to be used on the audio port.
+ *
+ * For sink devices, this function enables or disables the digital audio mode auto to be used specifically for the digital interfaces(HDMI ARC/eARC, SPDIF).
+ * For source devices, this function returns dsERR_OPERATION_NOT_SUPPORTED always.
+ *
+ * @param[in] handle    - Handle for the output audio port
+ * @param[in] autoMode  - Indicates the auto mode ( @a true if enabled, @a false if disabled ) to be used on specified digital interface
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetStereoAuto()
+ */
+dsError_t dsSetStereoAuto(intptr_t handle, int autoMode)
 {
     hal_info("invoked.\n");
     if (false == _bIsAudioInitialized)
@@ -655,9 +1161,33 @@ dsError_t dsSetStereoAuto (intptr_t handle, int autoMode)
         hal_err("Invalid parameters; handle(%p) or autoMode(%d).\n", handle, autoMode);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi is a source device, so this operation is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Sets the audio gain of an audio port.
+ *
+ * For sink devices, this function sets the Dolby DAP Post gain to be used for Speaker(dsAUDIOPORT_TYPE_SPEAKER).
+ * For source devices, this function returns dsERR_OPERATION_NOT_SUPPORTED always.
+ *
+ * @param[in] handle  - Handle for the output audio port
+ * @param[in] gain    - Audio Gain to be used on the audio port value
+ *                         The Gain ranges between -2080 and 480
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetAudioGain()
+ */
 dsError_t dsSetAudioGain(intptr_t handle, float gain)
 {
     hal_info("invoked.\n");
@@ -669,7 +1199,11 @@ dsError_t dsSetAudioGain(intptr_t handle, float gain)
         hal_err("Invalid parameters; handle(%p).\n", handle);
         return dsERR_INVALID_PARAM;
     }
-
+#ifndef DSHAL_ENABLE_ALSA_EXPERIMENTAL
+    /* RPi is a source device, so this operation is not supported. */
+    hal_dbg("Audio gain control is not supported on source devices.\n");
+    return dsERR_OPERATION_NOT_SUPPORTED;
+#else /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
     const char *s_card = ALSA_CARD_NAME;
     const char *element_name = ALSA_ELEMENT_NAME;
     bool enabled = false;
@@ -709,6 +1243,7 @@ dsError_t dsSetAudioGain(intptr_t handle, float gain)
     }
 
     return dsERR_NONE;
+#endif /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
 }
 
 dsError_t dsSetAudioDB(intptr_t handle, float db)
@@ -742,6 +1277,28 @@ dsError_t dsSetAudioDB(intptr_t handle, float db)
     return dsERR_GENERAL;
 }
 
+/**
+ * @brief Sets the audio volume level of an audio port.
+ *
+ * For sink devices, this function sets the audio volume level to be used for Speaker(dsAUDIOPORT_TYPE_SPEAKER) and Headphone(dsAUDIOPORT_TYPE_HEADPHONE) ports.
+ * For source devices, this function returns dsERR_OPERATION_NOT_SUPPORTED always.
+ *
+ * @param[in] handle  - Handle for the output audio port
+ * @param[in] level   - Volume level value (ranging from 0 to 100) to be used on the specified audio port
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetAudioLevel()
+ */
 dsError_t dsSetAudioLevel(intptr_t handle, float level)
 {
     hal_info("invoked.\n");
@@ -754,6 +1311,11 @@ dsError_t dsSetAudioLevel(intptr_t handle, float level)
         return dsERR_INVALID_PARAM;
     }
 
+#ifndef DSHAL_ENABLE_ALSA_EXPERIMENTAL
+    /* RPi is a source device, so this operation is not supported. */
+    hal_dbg("Audio level control is not supported on source devices.\n");
+    return dsERR_OPERATION_NOT_SUPPORTED;
+#else /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
     const char *s_card = ALSA_CARD_NAME;
     const char *element_name = ALSA_ELEMENT_NAME;
     snd_mixer_elem_t *mixer_elem = NULL;
@@ -777,6 +1339,7 @@ dsError_t dsSetAudioLevel(intptr_t handle, float level)
     }
 
     return dsERR_NONE;
+#endif /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
 }
 
 dsError_t dsEnableLoopThru(intptr_t handle, bool loopThru)
@@ -793,6 +1356,22 @@ dsError_t dsEnableLoopThru(intptr_t handle, bool loopThru)
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Terminate the Audio Port sub-system of Device Settings HAL.
+ *
+ * This function terminates all the audio output ports by releasing the audio port specific handles
+ * and the allocated resources.
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
 dsError_t dsAudioPortTerm()
 {
     hal_info("invoked.\n");
@@ -803,6 +1382,7 @@ dsError_t dsAudioPortTerm()
     }
     /* HDMI audio status callbacks removed: now managed by display module */
     _halhdmiaudioCB = NULL;
+    _halaudioformatCB = NULL;
     _bIsAudioInitialized = false;
     return ret;
 }
@@ -816,6 +1396,25 @@ bool dsCheckSurroundSupport()
     return false;
 }
 
+/**
+ * @brief Gets the current audio format.
+ *
+ * This function returns the audio format of the current playback content(like PCM, DOLBY AC3 etc.) and it is port independent. Please refer ::dsAudioFormat_t
+ *
+ * @param[in] handle         - Handle for the output audio port
+ * @param[out] audioFormat   - Pointer to hold the audio format
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
 dsError_t dsGetAudioFormat(intptr_t handle, dsAudioFormat_t *audioFormat)
 {
     hal_info("invoked.\n");
@@ -828,9 +1427,62 @@ dsError_t dsGetAudioFormat(intptr_t handle, dsAudioFormat_t *audioFormat)
         hal_err("Invalid parameters; audioFormat(%p) or handle(%p).\n", audioFormat, handle);
         return dsERR_INVALID_PARAM;
     }
+#ifndef DSHAL_ENABLE_ALSA_EXPERIMENTAL
     return dsERR_OPERATION_NOT_SUPPORTED;
+#else /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
+    dsAudioEncoding_t encoding;
+    dsError_t ret = dsGetAudioEncoding(handle, &encoding);
+    if (ret != dsERR_NONE) {
+        hal_err("dsGetAudioEncoding returned error: %d\n", ret);
+        return ret;
+    }
+
+    /* Map encoding to audio format */
+    switch (encoding) {
+        case dsAUDIO_ENC_PCM:
+            *audioFormat = dsAUDIO_FORMAT_PCM;
+            break;
+        case dsAUDIO_ENC_AC3:
+            *audioFormat = dsAUDIO_FORMAT_DOLBY_AC3;
+            break;
+        case dsAUDIO_ENC_EAC3:
+            *audioFormat = dsAUDIO_FORMAT_DOLBY_EAC3;
+            break;
+        case dsAUDIO_ENC_NONE:
+            *audioFormat = dsAUDIO_FORMAT_NONE;
+            break;
+        case dsAUDIO_ENC_DISPLAY:
+        default:
+            /* Platform-selected or unknown; cannot determine exact format */
+            *audioFormat = dsAUDIO_FORMAT_UNKNOWN;
+            break;
+    }
+    hal_info("Resolved audio format: %d from encoding: %d\n", *audioFormat, encoding);
+    return dsERR_NONE;
+#endif /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
 }
 
+/**
+ * @brief Gets the Dialog Enhancement level of the audio port.
+ *
+ * This function returns the dialog enhancement level of the audio port corresponding to the specified port handle.
+ *
+ * @param[in] handle - Handle for the output audio port
+ * @param[out] level - Pointer to Dialog Enhancement level (Value ranges from 0 to 12(as per 2.6 IDK) or 0 to 16(as per 2.4.1 IDK))
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetDialogEnhancement()
+ */
 dsError_t dsGetDialogEnhancement(intptr_t handle, int *level)
 {
     hal_info("invoked.\n");
@@ -843,9 +1495,31 @@ dsError_t dsGetDialogEnhancement(intptr_t handle, int *level)
         hal_err("Invalid parameters; level(%p) or handle(%p).\n", level, handle);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12, hence dialog enhancement is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Sets the Dialog Enhancement level of an audio port.
+ *
+ * This function sets the dialog enhancement level to be used in the audio port corresponding to specified port handle.
+ *
+ * @param[in] handle  - Handle for the output audio port.
+ * @param[in] level   - Dialog Enhancement level. Level ranges from 0 to 12(as per 2.6 IDK) or 0 to 16(as per 2.4.1 IDK)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetDialogEnhancement()
+ */
 dsError_t dsSetDialogEnhancement(intptr_t handle, int level)
 {
     hal_info("invoked.\n");
@@ -858,9 +1532,32 @@ dsError_t dsSetDialogEnhancement(intptr_t handle, int level)
         hal_err("Invalid parameters; handle(%p) or level(%d).\n", handle, level);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12, hence dialog enhancement is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Gets the dolby audio mode status of an audio port.
+ *
+ * This function returns the dolby audio mode status used in the audio port corresponding to the specified port handle.
+ *
+ * @param[in] handle  - Handle for the output audio port
+ * @param[out] mode   - Dolby volume mode
+ *                        ( @a true if Dolby Volume mode is enabled, and @a false if disabled)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetDolbyVolumeMode()
+ */
 dsError_t dsGetDolbyVolumeMode(intptr_t handle, bool *mode)
 {
     hal_info("invoked.\n");
@@ -873,9 +1570,32 @@ dsError_t dsGetDolbyVolumeMode(intptr_t handle, bool *mode)
         hal_err("Invalid parameters; mode(%p) or handle(%p).\n", mode, handle);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12, hence Dolby Volume mode is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief To enable/disable Dolby Volume Mode.
+ *
+ * This function sets the dolby audio mode status to the audio port corresponding to port handle.
+ *
+ * @param[in] handle  - Handle for the output audio port
+ * @param[in] mode    - Dolby volume mode.
+ *                        ( @a true to enable Dolby volume mode and @a false to disable Dolby volume mode )
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetDolbyVolumeMode()
+ */
 dsError_t dsSetDolbyVolumeMode(intptr_t handle, bool mode)
 {
     hal_info("invoked with mode %d.\n", mode);
@@ -887,9 +1607,34 @@ dsError_t dsSetDolbyVolumeMode(intptr_t handle, bool mode)
         hal_err("Invalid parameters; handle(%p).\n", handle);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12, hence Dolby Volume mode is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Gets the Intelligent Equalizer Mode.
+ *
+ * This function returns the Intelligent Equalizer Mode setting used in the audio port corresponding to specified Port handle.
+ * For source devices, if MS12 DAP Intelligent Equalizer not supported, then this function returns dsERR_OPERATION_NOT_SUPPORTED.
+ *
+ * @param[in] handle - Handle for the output audio port.
+ * @param[out] mode  - Pointer to Intelligent Equalizer mode. 0 = OFF, 1 = Open, 2 = Rich, 3 = Focused,
+ *                       4 = Balanced, 5 = Warm, 6 = Detailed
+ *
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetIntelligentEqualizerMode()
+ */
 dsError_t dsGetIntelligentEqualizerMode(intptr_t handle, int *mode)
 {
     hal_info("invoked.\n");
@@ -902,9 +1647,33 @@ dsError_t dsGetIntelligentEqualizerMode(intptr_t handle, int *mode)
         hal_err("Invalid parameters; mode(%p) or handle(%p).\n", mode, handle);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12 DAP, hence Intelligent Equalizer mode is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Sets the Intelligent Equalizer Mode.
+ *
+ * This function sets the Intelligent Equalizer Mode to be used in the audio port corresponding to the specified port handle.
+ * For source devices, if MS12 DAP Intelligent Equalizer not supported, then this function retuns dsERR_OPERATION_NOT_SUPPORTED.
+ *
+ * @param[in] handle  - Handle for the output audio port.
+ * @param[in] mode    - Intelligent Equalizer mode. 0 = OFF, 1 = Open, 2 = Rich, 3 = Focused,
+ *                        4 = Balanced, 5 = Warm, 6 = Detailed
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetIntelligentEqualizerMode()
+ */
 dsError_t dsSetIntelligentEqualizerMode(intptr_t handle, int mode)
 {
     hal_info("invoked.\n");
@@ -917,9 +1686,31 @@ dsError_t dsSetIntelligentEqualizerMode(intptr_t handle, int mode)
         hal_err("Invalid parameters; handle(%p) or mode(%d).\n", handle, mode);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12 DAP, hence Intelligent Equalizer mode is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Gets the Dolby volume leveller settings.
+ *
+ * This function returns the Volume leveller(mode and level) value used in the audio port corresponding to specified port handle.
+ *
+ * @param[in] handle       - Handle for the output Audio port
+ * @param[out] volLeveller - Pointer to Volume Leveller. Please refer ::dsVolumeLeveller_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetVolumeLeveller()
+ */
 dsError_t dsGetVolumeLeveller(intptr_t handle, dsVolumeLeveller_t* volLeveller)
 {
     hal_info("invoked.\n");
@@ -932,9 +1723,31 @@ dsError_t dsGetVolumeLeveller(intptr_t handle, dsVolumeLeveller_t* volLeveller)
         hal_err("Invalid parameters; volLeveller(%p) or handle(%p).\n", volLeveller, handle);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12, hence Volume Leveller is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Sets the Dolby volume leveller settings.
+ *
+ * This function sets the Volume leveller(mode and level) value to be used in the audio port corresponding to specified port handle.
+ *
+ * @param[in] handle       - Handle for the output Audio port
+ * @param[in] volLeveller  - Volume Leveller setting. Please refer ::dsVolumeLeveller_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetVolumeLeveller()
+ */
 dsError_t dsSetVolumeLeveller(intptr_t handle, dsVolumeLeveller_t volLeveller)
 {
     hal_info("invoked.\n");
@@ -951,9 +1764,32 @@ dsError_t dsSetVolumeLeveller(intptr_t handle, dsVolumeLeveller_t volLeveller)
                 handle, volLeveller.mode, volLeveller.level);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12, hence Volume Leveller is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Gets the audio Bass
+ *
+ * This function returns the Bass used in a given audio port.
+ * For source devices, if MS12 DAP bass enhancer is not supported, then this function returns dsERR_OPERATION_NOT_SUPPORTED.
+ *
+ * @param[in] handle  - Handle for the output Audio port
+ * @param[out] boost  - Pointer to Bass Enhancer boost value (ranging from 0 to 100)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetBassEnhancer()
+ */
 dsError_t dsGetBassEnhancer(intptr_t handle, int *boost)
 {
     hal_info("invoked.\n");
@@ -966,9 +1802,32 @@ dsError_t dsGetBassEnhancer(intptr_t handle, int *boost)
         hal_err("Invalid parameters; boost(%p) or handle(%p).\n", boost, handle);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12 DAP, hence Bass Enhancer is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Sets the audio Bass
+ *
+ * This function sets the Bass to be used in the audio port corresponding to specified port handle.
+ * For source devices, if MS12 DAP bass enhancer is not supported, then this function returns dsERR_OPERATION_NOT_SUPPORTED.
+ *
+ * @param[in] handle  - Handle for the output Audio port
+ * @param[in] boost   - Bass Enhancer boost value (ranging from 0 to 100)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetBassEnhancer()
+ */
 dsError_t dsSetBassEnhancer(intptr_t handle, int boost)
 {
     hal_info("invoked.\n");
@@ -981,9 +1840,32 @@ dsError_t dsSetBassEnhancer(intptr_t handle, int boost)
         hal_err("Invalid parameters; handle(%p) or boost(%d).\n", handle, boost);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12 DAP, hence Bass Enhancer is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Gets the audio Surround Decoder enabled/disabled status
+ *
+ * This function returns enable/disable status of surround decoder.
+ * For source devices, if MS12 DAP surround decoder is not supported, then this function returns dsERR_OPERATION_NOT_SUPPORTED.
+ *
+ * @param[in] handle   - Handle for the output Audio port
+ * @param[out] enabled - Pointer to Surround Decoder enabled(1)/disabled(0) value
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsEnableSurroundDecoder()
+ */
 dsError_t dsIsSurroundDecoderEnabled(intptr_t handle, bool *enabled)
 {
     hal_info("invoked.\n");
@@ -994,9 +1876,32 @@ dsError_t dsIsSurroundDecoderEnabled(intptr_t handle, bool *enabled)
         hal_err("Invalid parameters; enabled(%p) or handle(%p).\n", enabled, handle);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12 DAP, hence surround decoder is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Enables / Disables the audio Surround Decoder.
+ *
+ * This function will enable/disable surround decoder of the audio port corresponding to specified port handle.
+ * For source devices, if MS12 DAP surround decoder is not supported, then this function returns dsERR_OPERATION_NOT_SUPPORTED.
+ *
+ * @param[in] handle   - Handle for the output Audio port
+ * @param[in] enabled  - Surround Decoder enabled(1)/disabled(0) value
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsIsSurroundDecoderEnabled()
+ */
 dsError_t dsEnableSurroundDecoder(intptr_t handle, bool enabled)
 {
     hal_info("invoked with enabled %d.\n", enabled);
@@ -1007,9 +1912,31 @@ dsError_t dsEnableSurroundDecoder(intptr_t handle, bool enabled)
         hal_err("Invalid parameters; handle(%p).\n", handle);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12 DAP, hence surround decoder is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Gets the DRC Mode of the specified Audio Port.
+ *
+ * This function returns the Dynamic Range Control used in the audio port corresponding to specified port handle.
+ *
+ * @param[in] handle - Handle for the output Audio port
+ * @param[out] mode  - Pointer to DRC mode (0 for DRC line mode and 1 for DRC RF mode)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetDRCMode()
+ */
 dsError_t dsGetDRCMode(intptr_t handle, int *mode)
 {
     hal_info("invoked.\n");
@@ -1020,9 +1947,31 @@ dsError_t dsGetDRCMode(intptr_t handle, int *mode)
         hal_err("Invalid parameters; mode(%p) or handle(%p).\n", mode, handle);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12, hence DRC mode is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Sets the DRC Mode of specified audio port.
+ *
+ * This function sets the Dynamic Range Control to be used in the audio port corresponding to port handle.
+ *
+ * @param[in] handle  - Handle for the output Audio port
+ * @param[in] mode    - DRC mode (0 for DRC Line Mode and 1 for DRC RF mode)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetDRCMode()
+ */
 dsError_t dsSetDRCMode(intptr_t handle, int mode)
 {
     hal_info("invoked.\n");
@@ -1033,9 +1982,32 @@ dsError_t dsSetDRCMode(intptr_t handle, int mode)
         hal_err("Invalid parameters; handle(%p) or mode(%d).\n", handle, mode);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12, hence DRC mode is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Gets the audio Surround Virtualizer level.
+ *
+ * This function returns the Surround Virtualizer level(mode and boost) used in the audio port corresponding to specified port handle.
+ * For source devices, if MS12 DAP surround virtualizer is not supported, then this function returns dsERR_OPERATION_NOT_SUPPORTED.
+ *
+ * @param[in] handle       - Handle for the output Audio port
+ * @param[out] virtualizer - Surround virtualizer setting. Please refer ::dsSurroundVirtualizer_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetSurroundVirtualizer()
+ */
 dsError_t dsGetSurroundVirtualizer(intptr_t handle, dsSurroundVirtualizer_t *virtualizer)
 {
     hal_info("invoked.\n");
@@ -1046,9 +2018,32 @@ dsError_t dsGetSurroundVirtualizer(intptr_t handle, dsSurroundVirtualizer_t *vir
         hal_err("Invalid parameters; virtualizer(%p) or handle(%p).\n", virtualizer, handle);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12 DAP, hence Surround Virtualizer is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Sets the audio Surround Virtualizer level
+ *
+ * This function sets the Surround Virtualizer level(mode and boost) to be used in the audio port corresponding to specified port handle.
+ * For source devices, if MS12 DAP surround virtualizer is not supported, then this function returns dsERR_OPERATION_NOT_SUPPORTED.
+ *
+ * @param[in] handle       - Handle for the output Audio port
+ * @param[in] virtualizer  - Surround virtualizer setting. Please refer ::dsSurroundVirtualizer_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetSurroundVirtualizer()
+ */
 dsError_t dsSetSurroundVirtualizer(intptr_t handle, dsSurroundVirtualizer_t virtualizer)
 {
     hal_info("invoked.\n");
@@ -1067,9 +2062,32 @@ dsError_t dsSetSurroundVirtualizer(intptr_t handle, dsSurroundVirtualizer_t virt
         hal_err("Invalid boost; boost(%d).\n", virtualizer.boost);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12 DAP, hence Surround Virtualizer is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Gets the Media Intelligent Steering of the audio port.
+ *
+ * For sink devices, this function returns enable/disable status of Media Intelligent Steering for the audio port corresponding to specified port handle.
+ * For source devices, if MS12 DAP Media Intelligent Steering is not supported, then this function returns dsERR_OPERATION_NOT_SUPPORTED always.
+ *
+ * @param[in] handle    - Handle for the output Audio port
+ * @param[out] enabled  - MI Steering enabled(1)/disabled(0) value
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetMISteering()
+ */
 dsError_t dsGetMISteering(intptr_t handle, bool *enabled)
 {
     hal_info("invoked.\n");
@@ -1080,9 +2098,32 @@ dsError_t dsGetMISteering(intptr_t handle, bool *enabled)
         hal_err("Invalid parameters; enabled(%p) or handle(%p).\n", enabled, handle);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12 DAP, hence Media Intelligent Steering is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Set the Media Intelligent Steering of the audio port.
+ *
+ * For sink devices, this function sets the enable/disable status of Media Intelligent Steering for the audio port corresponding to specified port handle.
+ * For source devices, if MS12 DAP Media Intelligent Steering is not supported, then this function returns dsERR_OPERATION_NOT_SUPPORTED always.
+ *
+ * @param[in] handle   - Handle for the output Audio port
+ * @param[in] enabled  - MI Steering enabled(1)/disabled(0) value
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetMISteering()
+ */
 dsError_t dsSetMISteering(intptr_t handle, bool enabled)
 {
     hal_info("invoked with enabled %d.\n", enabled);
@@ -1093,9 +2134,33 @@ dsError_t dsSetMISteering(intptr_t handle, bool enabled)
         hal_err("Invalid parameters; handle(%p).\n", handle);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12 DAP, hence Media Intelligent Steering is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Gets the Graphic Equalizer Mode.
+ *
+ * For sink devices, this function returns the Graphic Equalizer Mode setting used in the audio port corresponding to the specified port handle.
+ * For source devices, if MS12 DAP Graphic Equalizer Mode is not supported, then this function returns dsERR_OPERATION_NOT_SUPPORTED always.
+ *
+ * @param[in] handle - Handle for the output audio port.
+ * @param[out] mode  - Graphic Equalizer Mode. 0 = EQ OFF, 1 = EQ Open, 2 = EQ Rich and 3 = EQ Focused
+ *
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetGraphicEqualizerMode()
+ */
 dsError_t dsGetGraphicEqualizerMode(intptr_t handle, int *mode)
 {
     hal_info("invoked.\n");
@@ -1106,9 +2171,32 @@ dsError_t dsGetGraphicEqualizerMode(intptr_t handle, int *mode)
         hal_err("Invalid parameters; mode(%p) or handle(%p).\n", mode, handle);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12 DAP, hence Graphic Equalizer mode is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Sets the Graphic Equalizer Mode.
+ *
+ * For sink devices, this function sets the Graphic Equalizer Mode setting to be used in the audio port corresponding to the specified port handle.
+ * For source devices, if MS12 DAP Graphic Equalizer Mode is not supported, then this function returns dsERR_OPERATION_NOT_SUPPORTED always.
+ *
+ * @param[in] handle  - Handle for the output audio port.
+ * @param[in] mode    - Graphic Equalizer mode. 0 for EQ OFF, 1 for EQ Open, 2 for EQ Rich and 3 for EQ Focused
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetGraphicEqualizerMode()
+ */
 dsError_t dsSetGraphicEqualizerMode(intptr_t handle, int mode)
 {
     hal_info("invoked.\n");
@@ -1119,9 +2207,32 @@ dsError_t dsSetGraphicEqualizerMode(intptr_t handle, int mode)
         hal_err("Invalid parameters; handle(%p) or mode(%d).\n", handle, mode);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12 DAP, hence Graphic Equalizer mode is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Gets the supported MS12 audio profiles
+ *
+ * For sink devices, this function will get the list of supported MS12 audio profiles.
+ * For source devices, this function returns dsERR_OPERATION_NOT_SUPPORTED always.
+ *
+ * @param[in] handle     - Handle for the output Audio port
+ * @param[out] profiles  - List of supported audio profiles. Please refer ::dsMS12AudioProfileList_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetMS12AudioProfile()
+ */
 dsError_t dsGetMS12AudioProfileList(intptr_t handle, dsMS12AudioProfileList_t *profiles)
 {
     hal_info("invoked.\n");
@@ -1132,9 +2243,32 @@ dsError_t dsGetMS12AudioProfileList(intptr_t handle, dsMS12AudioProfileList_t *p
         hal_err("Invalid parameters; profiles(%p) or handle(%p).\n", profiles, handle);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi is a source device, hence MS12 audio profiles are not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Gets current audio profile selection
+ *
+ * For sink devices, this function gets the current audio profile configured.
+ * For source devices, this function returns dsERR_OPERATION_NOT_SUPPORTED always.
+ *
+ * @param[in] handle    - Handle for the output Audio port
+ * @param[out] profile  - Audio profile configured currently
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetMS12AudioProfile()
+ */
 dsError_t dsGetMS12AudioProfile(intptr_t handle, char *profile)
 {
     hal_info("invoked.\n");
@@ -1145,9 +2279,31 @@ dsError_t dsGetMS12AudioProfile(intptr_t handle, char *profile)
         hal_err("Invalid parameters; profile(%p) or handle(%p).\n", profile, handle);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi is a source device, hence MS12 audio profiles are not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Gets the supported ARC types of the connected ARC/eARC device
+ *
+ * For sink devices, this function gets the supported ARC types of the connected device on ARC/eARC port.
+ * For source devices, this function returns dsERR_OPERATION_NOT_SUPPORTED always.
+ *
+ * @param[in] handle - Handle for the HDMI ARC/eARC port
+ * @param[out] types - Value of supported ARC types. Please refer ::dsAudioARCTypes_t
+ *
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
 dsError_t dsGetSupportedARCTypes(intptr_t handle, int *types)
 {
     hal_info("invoked.\n");
@@ -1158,6 +2314,7 @@ dsError_t dsGetSupportedARCTypes(intptr_t handle, int *types)
         hal_err("Invalid parameters; types(%p) or handle(%p).\n", types, handle);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi is a source device, hence ARC types are not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -1232,6 +2389,29 @@ dsError_t dsAudioEnableARC(intptr_t handle, dsAudioARCStatus_t arcStatus)
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Gets the audio delay (in ms) of an audio port
+ *
+ * For sink devices, this function returns the digital audio delay (in milliseconds) of the digital interfaces(HDMI ARC/eARC, SPDIF).
+ * The Audio delay ranges from 0 to 200 milliseconds.
+ * For source devices, this function returns the digital audio delay (in milliseconds) of the digital interfaces(HDMI, SPDIF)
+ *
+ * @param[in] handle        - Handle for the output Audio port
+ * @param[out] audioDelayMs - Pointer to Audio delay
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetAudioDelay()
+ */
 dsError_t dsGetAudioDelay(intptr_t handle, uint32_t *audioDelayMs)
 {
     hal_info("invoked.\n");
@@ -1242,6 +2422,7 @@ dsError_t dsGetAudioDelay(intptr_t handle, uint32_t *audioDelayMs)
         hal_err("Invalid parameters; audioDelayMs(%p) or handle(%p).\n", audioDelayMs, handle);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi vc4-hdmi driver does not expose a configurable audio delay via ALSA or sysfs. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -1291,6 +2472,7 @@ dsError_t dsGetAudioDelayOffset(intptr_t handle, uint32_t *audioDelayOffsetMs)
         hal_err("Invalid parameters; audioDelayOffsetMs(%p) or handle(%p).\n", audioDelayOffsetMs, handle);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi vc4-hdmi driver does not expose a configurable audio delay offset via ALSA or sysfs. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -1307,6 +2489,25 @@ dsError_t dsSetAudioDelayOffset(intptr_t handle, const uint32_t audioDelayOffset
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Sets the audio ATMOS output mode.
+ *
+ * This function will set the dolby atmos lock provided by MS12 and it is port independent.
+ *
+ * @param[in] handle  - Handle for the output Audio port
+ * @param[in] enable  - Audio ATMOS output mode( @a true to enable  @a false to disable)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
 dsError_t dsSetAudioAtmosOutputMode(intptr_t handle, bool enable)
 {
     hal_info("invoked with enable %d.\n", enable);
@@ -1317,9 +2518,29 @@ dsError_t dsSetAudioAtmosOutputMode(intptr_t handle, bool enable)
         hal_err("Invalid parameters; handle(%p).\n", handle);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12, hence Dolby Atmos output mode is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Gets the ATMOS capability of the sink device.
+ *
+ * This function returns the ATMOS capability of the sink device.
+ *
+ * @param[in] handle       - Handle for the output Audio port
+ * @param[out] capability  - ATMOS capability of sink device. Please refer ::dsATMOSCapability_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
 dsError_t dsGetSinkDeviceAtmosCapability(intptr_t handle, dsATMOSCapability_t *capability)
 {
     hal_info("invoked.\n");
@@ -1330,10 +2551,36 @@ dsError_t dsGetSinkDeviceAtmosCapability(intptr_t handle, dsATMOSCapability_t *c
         hal_err("Invalid parameters; capability(%p) or handle(%p).\n", capability, handle);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12, hence ATMOS capability is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
-dsError_t  dsEnableMS12Config(intptr_t handle, dsMS12FEATURE_t feature, const bool enable)
+/**
+ * @note This API is deprecated.
+ *
+ * @brief Enables or Disables MS12 DAPV2 and DE feature
+ *
+ * For sink and source devices,this function returns dsERR_OPERATION_NOT_SUPPORTED always.
+ *
+ * @param[in] handle   - Handle of the output audio port
+ * @param[in] feature  - Enums for MS12 features. Please refer ::dsMS12FEATURE_t
+ * @param[in] enable   - Flag to control the MS12 features
+ *                         ( @a true to enable, @a false to disable)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetMS12AudioProfileList(), dsGetMS12AudioProfile()
+ */
+dsError_t dsEnableMS12Config(intptr_t handle, dsMS12FEATURE_t feature, const bool enable)
 {
     hal_info("invoked with enable %d.\n", enable);
     if (false == _bIsAudioInitialized) {
@@ -1343,9 +2590,32 @@ dsError_t  dsEnableMS12Config(intptr_t handle, dsMS12FEATURE_t feature, const bo
         hal_err("Invalid parameters; handle(%p).\n", handle);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12, hence MS12 features are not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Enables or Disables Loudness Equivalence feature.
+ *
+ * For source devices,if LE not supported, then this function returns dsERR_OPERATION_NOT_SUPPORTED.
+ *
+ * @param[in] handle  - Handle of the output audio port
+ * @param[in] enable  - Flag to control the LE features
+ *                        ( @a true to enable, @a false to disable)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetLEConfig()
+ */
 dsError_t dsEnableLEConfig(intptr_t handle, const bool enable)
 {
     hal_info("invoked with enable %d.\n", enable);
@@ -1356,9 +2626,33 @@ dsError_t dsEnableLEConfig(intptr_t handle, const bool enable)
         hal_err("Invalid parameters; handle(%p).\n", handle);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support LE, hence LE features are not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Gets the LE (Loudness Equivalence) configuration.
+ *
+ * This function is used to get LE (Loudness Equivalence) feature of the audio port corresponding to specified port handle.
+ * For source devices, if LE not supported, then this function returns dsERR_OPERATION_NOT_SUPPORTED.
+ *
+ * @param[in] handle   - Handle for the output Audio port
+ * @param[out] enable  - Flag which return status of LE features
+ *                         ( @a true to enable, @a false to disable)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsEnableLEConfig()
+ */
 dsError_t dsGetLEConfig(intptr_t handle, bool *enable)
 {
     hal_info("invoked.\n");
@@ -1369,9 +2663,32 @@ dsError_t dsGetLEConfig(intptr_t handle, bool *enable)
         hal_err("Invalid parameters; handle(%p) or enable(%p).\n", handle, enable);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12, hence Loudness Equivalence (LE) is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Sets the MS12 audio profile
+ *
+ * For sink devices, this function will configure the user selected ms12 audio profile.
+ * For source devices, this function returns dsERR_OPERATION_NOT_SUPPORTED always.
+ *
+ * @param[in] handle   - Handle for the output audio port
+ * @param[in] profile  - Audio profile to be used from the supported list. Please refer ::_dsMS12AudioProfileList_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetMS12AudioProfile(), dsGetMS12AudioProfileList()
+ */
 dsError_t dsSetMS12AudioProfile(intptr_t handle, const char* profile)
 {
     hal_info("invoked.\n");
@@ -1382,6 +2699,7 @@ dsError_t dsSetMS12AudioProfile(intptr_t handle, const char* profile)
         hal_err("Invalid parameters; handle(%p) or profile(%p).\n", handle, profile);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12, hence setting MS12 audio profile is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -1400,6 +2718,27 @@ dsError_t dsSetAudioDucking(intptr_t handle, dsAudioDuckingAction_t action, dsAu
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Checks whether the audio port supports Dolby MS12 Multistream Decode.
+ *
+ * This function checks whether specified audio port supports Dolby MS12 Multistream decode or not.
+ *
+ * @param[in] handle          - Handle for the output audio port
+ * @param[out] hasMS12Decode  - MS12 Multistream Decode setting
+ *                                ( @a true if audio port supports Dolby MS12 Multistream Decoding or @a false otherwise )
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ */
 dsError_t dsIsAudioMS12Decode(intptr_t handle, bool *hasMS12Decode)
 {
     hal_info("invoked.\n");
@@ -1410,9 +2749,31 @@ dsError_t dsIsAudioMS12Decode(intptr_t handle, bool *hasMS12Decode)
         hal_err("Invalid parameters; handle(%p) or hasMS12Decode(%p).\n", handle, hasMS12Decode);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12, hence checking MS12 audio decode is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Checks if the audio output port is connected or not.
+ *
+ * For sink devices, this function is used to check if the headphone port is connected or not.
+ * For source devices, this function returns dsERR_OPERATION_NOT_SUPPORTED always.
+ *
+ * @param[in] handle        - Handle for the output Audio port
+ * @param[out] isConnected  - Flag for audio port connection status
+ *                              ( @a true if audio port is connected and @a false if Not Connected)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
 dsError_t dsAudioOutIsConnected(intptr_t handle, bool* isConnected)
 {
     hal_info("invoked.\n");
@@ -1437,6 +2798,26 @@ dsError_t dsAudioOutIsConnected(intptr_t handle, bool* isConnected)
     return dsERR_GENERAL;
 }
 
+/**
+ * @brief Registers for the Audio Output Port Connect Event
+ *
+ * For sink devices, this function is used to register for Audio Output Connect Event. This callback is Headphone specific
+ * and will be triggered whenever there is a change in Headphone connection status change.
+ * For source devices, this function returns dsERR_OPERATION_NOT_SUPPORTED always.
+ *
+ * @param[in] CBFunc  - Audio output port connect callback function.
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
 dsError_t dsAudioOutRegisterConnectCB(dsAudioOutPortConnectCB_t CBFunc)
 {
     hal_info("invoked.\n");
@@ -1454,6 +2835,24 @@ dsError_t dsAudioOutRegisterConnectCB(dsAudioOutPortConnectCB_t CBFunc)
     return dsERR_NONE;
 }
 
+/**
+ * @brief Registers for the Audio Format Update Event
+ *
+ * This function is used to register for the Audio Format Update Event
+ *
+ * @param[in] cbFun  - Audio format update callback function.
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
 dsError_t dsAudioFormatUpdateRegisterCB(dsAudioFormatUpdateCB_t cbFun)
 {
     hal_info("invoked.\n");
@@ -1464,9 +2863,29 @@ dsError_t dsAudioFormatUpdateRegisterCB(dsAudioFormatUpdateCB_t cbFun)
         hal_err("Invalid parameters; cbFun(%p).\n", cbFun);
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    if (NULL != _halaudioformatCB) {
+        hal_warn("cbFun already registered; overriding with new callback handle.\n");
+    }
+    _halaudioformatCB = cbFun;
+    return dsERR_NONE;
 }
 
+/**
+ * @brief Register for the Atmos capability change event of the sink device
+ *
+ * @param[in] cbFun  - Atmos Capability chance callback function.
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+**/
 dsError_t dsAudioAtmosCapsChangeRegisterCB(dsAtmosCapsChangeCB_t cbFun)
 {
     hal_info("invoked.\n");
@@ -1480,6 +2899,26 @@ dsError_t dsAudioAtmosCapsChangeRegisterCB(dsAtmosCapsChangeCB_t cbFun)
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Gets the Audio Format capabilities.
+ *
+ * This function is used to get the supported Audio capabilities of the platform.
+ *
+ * @param[in]  handle        - Handle for the output audio port
+ * @param[out] capabilities  - Bitwise OR value of supported Audio standards. Please refer ::dsAudioCapabilities_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
 dsError_t dsGetAudioCapabilities(intptr_t handle, int *capabilities)
 {
     hal_info("invoked.\n");
@@ -1490,9 +2929,36 @@ dsError_t dsGetAudioCapabilities(intptr_t handle, int *capabilities)
         hal_err("Invalid parameters; handle(%p) or capabilities(%p).\n", handle, capabilities);
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    /* RPi supports PCM always; DD and DD+ are available via IEC958 passthrough when ALSA experimental is enabled. */
+#ifndef DSHAL_ENABLE_ALSA_EXPERIMENTAL
+    *capabilities = dsAUDIOSUPPORT_NONE;
+#else
+    /* RPi vc4-hdmi driver supports passthrough of DD & DD+ when ALSA experimental features are enabled. */
+    *capabilities = dsAUDIOSUPPORT_DD | dsAUDIOSUPPORT_DDPLUS;
+#endif
+    return dsERR_NONE;
 }
 
+/**
+ * @brief Gets the MS12 capabilities supported by the platform.
+ *
+ * This function is used to get the supported MS12 capabilities of the platform and it is port independent.
+ *
+ * @param[in]  handle        - Handle for the output audio port
+ * @param[out] capabilities  - OR-ed value of supported MS12 standards. Please refer ::dsMS12Capabilities_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
 dsError_t dsGetMS12Capabilities(intptr_t handle, int *capabilities)
 {
     hal_info("invoked.\n");
@@ -1503,7 +2969,9 @@ dsError_t dsGetMS12Capabilities(intptr_t handle, int *capabilities)
         hal_err("Invalid parameters; handle(%p) or capabilities(%p).\n", handle, capabilities);
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    /* RPi does not support MS12 features; report explicit NONE capability. */
+    *capabilities = dsMS12SUPPORT_NONE;
+    return dsERR_NONE;
 }
 
 dsError_t dsResetDialogEnhancement(intptr_t handle)
@@ -1558,6 +3026,29 @@ dsError_t dsResetVolumeLeveller(intptr_t handle)
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Enables/Disables associated audio mixing feature.
+ *
+ * This function will enable/disable associated audio mixing feature of playback content and it is port independent.
+ *
+ * @param[in] handle  - Handle for the output audio port
+ * @param[in] mixing  - Flag to control audio mixing feature
+ *                        ( @a true to enable, @a false to disable)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_OPERATION_FAILED         -  The attempted operation failed
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetAssociatedAudioMixing()
+ */
 dsError_t dsSetAssociatedAudioMixing(intptr_t handle, bool mixing)
 {
     hal_info("invoked with mixing %d.\n", mixing);
@@ -1568,9 +3059,32 @@ dsError_t dsSetAssociatedAudioMixing(intptr_t handle, bool mixing)
         hal_err("Invalid parameters; handle(%p).\n", handle);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12 associated audio mixing, hence this operation is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Gets the Associated Audio Mixing status - enabled/disabled
+ *
+ * This function is used to get the audio mixing status(enabled/disabled) of playback content and it is port independent.
+ *
+ * @param[in] handle   - Handle for the output Audio port
+ * @param[out] mixing  - Associated Audio Mixing status
+ *                         ( @a true if enabled and @a false if disabled)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetAssociatedAudioMixing()
+ */
 dsError_t dsGetAssociatedAudioMixing(intptr_t handle, bool *mixing)
 {
     hal_info("invoked.\n");
@@ -1581,9 +3095,31 @@ dsError_t dsGetAssociatedAudioMixing(intptr_t handle, bool *mixing)
         hal_err("Invalid parameters; handle(%p) or mixing(%p).\n", handle, mixing);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12 associated audio mixing, hence this operation is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Sets the mixerbalance between main and associated audio
+ *
+ * This function will set the mixerbalance between main and associated audio of audio port corresponding to specified port handle.
+ *
+ * @param[in] handle        - Handle for the output Audio port
+ * @param[in] mixerbalance  - int value -32(mute associated audio) to +32(mute main audio)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetFaderControl()
+ */
 dsError_t dsSetFaderControl(intptr_t handle, int mixerbalance)
 {
     hal_info("invoked.\n");
@@ -1594,9 +3130,31 @@ dsError_t dsSetFaderControl(intptr_t handle, int mixerbalance)
         hal_err("Invalid parameters; handle(%p) or mixerbalance(%d).\n", handle, mixerbalance);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12 fader control, hence this operation is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief To get the mixer balance between main and associated audio
+ *
+ * This function will get the mixer balance between main and associated audio of audio port corresponding to specified port handle.
+ *
+ * @param[in]  handle        - Handle for the output Audio port
+ * @param[out] mixerbalance  - int value -32(mute associated audio) to +32(mute main audio)
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetFaderControl()
+ */
 dsError_t dsGetFaderControl(intptr_t handle, int* mixerbalance)
 {
     hal_info("invoked.\n");
@@ -1607,9 +3165,31 @@ dsError_t dsGetFaderControl(intptr_t handle, int* mixerbalance)
         hal_err("Invalid parameters; handle(%p) or mixerbalance(%p).\n", handle, mixerbalance);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support MS12 fader control, hence this operation is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Sets AC4 Primary language
+ *
+ * This function will set AC4 Primary language of the playback content and it is port independent.
+ *
+ * @param[in] handle  - Handle for the output Audio port
+ * @param[in] pLang   - char* 3 letter language code string as per ISO 639-3
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetPrimaryLanguage()
+ */
 dsError_t dsSetPrimaryLanguage(intptr_t handle, const char* pLang)
 {
     hal_info("invoked.\n");
@@ -1620,9 +3200,31 @@ dsError_t dsSetPrimaryLanguage(intptr_t handle, const char* pLang)
         hal_err("Invalid parameters; handle(%p) or pLang(%p).\n", handle, pLang);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support AC4 language selection controls, hence this operation is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief To get AC4 Primary language
+ *
+ * This function will get AC4 Primary language of the playback content and it is port independent.
+ *
+ * @param[in] handle  - Handle for the output Audio port
+ * @param[out] pLang  - char* 3 letter lang code should be used as per ISO 639-3
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetPrimaryLanguage()
+ */
 dsError_t dsGetPrimaryLanguage(intptr_t handle, char* pLang)
 {
     hal_info("invoked.\n");
@@ -1633,9 +3235,34 @@ dsError_t dsGetPrimaryLanguage(intptr_t handle, char* pLang)
         hal_err("Invalid parameters; handle(%p) or pLang(%p).\n", handle, pLang);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support AC4 language selection controls, hence this operation is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief To set AC4 Secondary language
+ *
+ * This function will set AC4 Secondary language of the playback content and it is port independent.
+ * Since language selection is preference-based, the primary language takes the highest priority.
+ * If the primary language is not set or its corresponding audio track is unavailable, playback will
+ * default to the secondary language configuration if set.
+ *
+ * @param[in] handle  - Handle for the output Audio port (Not Used as setting is not port specific)
+ * @param[in] sLang   - char* 3 letter lang code should be used as per ISO 639-3
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsGetSecondaryLanguage()
+ */
 dsError_t dsSetSecondaryLanguage(intptr_t handle, const char* sLang)
 {
     hal_info("invoked.\n");
@@ -1645,9 +3272,31 @@ dsError_t dsSetSecondaryLanguage(intptr_t handle, const char* sLang)
     if (!dsAudioIsValidHandle(handle) ||  sLang == NULL) {
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support AC4 language selection controls, hence this operation is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Gets the AC4 Secondary language
+ *
+ * This function will get AC4 Secondary language of the playback content and it is port independent.
+ *
+ * @param[in] handle  - Handle for the output Audio port (Not Used as setting is not port specific)
+ * @param[out] sLang  - char* 3 letter lang code should be used as per ISO 639-3
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre  dsAudioPortInit() and dsGetAudioPort() should be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ *
+ * @see dsSetSecondaryLanguage()
+ */
 dsError_t dsGetSecondaryLanguage(intptr_t handle, char* sLang)
 {
     hal_info("invoked.\n");
@@ -1658,6 +3307,7 @@ dsError_t dsGetSecondaryLanguage(intptr_t handle, char* sLang)
         hal_err("Invalid parameters; handle(%p) or sLang(%p).\n", handle, sLang);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support AC4 language selection controls, hence this operation is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -1671,9 +3321,32 @@ dsError_t dsGetHDMIARCPortId(int *portId)
         hal_err("Invalid parameters; portId(%p).\n", portId);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support HDMI ARC port ID retrieval, hence this operation is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+* @brief Sets the Mixer Volume level of sink device for the given input
+* This API is specific to sink devices
+*
+* For sink devices, this function sets the mixer volume level for either primary(main audio) or system audio input(System Beep) and it is port independent.
+* For source devices, this function returns dsERR_OPERATION_NOT_SUPPORTED always.
+*
+* @param[in] handle  - A valid handle refers to a specific audio port handle on the platform, or a NULL handle refers to use the current active port
+* @param[in] aInput  - dsAudioInputPrimary / dsAudioInputSystem. Please refer ::dsAudioInput_t
+* @param[in] volume  - volume to be set (0 to 100)
+*
+* @return dsError_t                        - Status
+* @retval dsERR_NONE                       - Success
+* @retval dsERR_NOT_INITIALIZED            - Module is not initialised
+* @retval dsERR_INVALID_PARAM              - Parameter passed to this function is invalid
+* @retval dsERR_OPERATION_NOT_SUPPORTED    - The attempted operation is not supported; e.g: source devices
+* @retval dsERR_GENERAL                    - Underlying undefined platform error
+*
+* @pre dsAudioPortInit() should be called before calling this API
+*      dsGetAudioPort() should be called if a valid handle is used other than NULL
+*
+*/
 dsError_t dsSetAudioMixerLevels(intptr_t handle, dsAudioInput_t aInput, int volume)
 {
     hal_info("invoked.\n");
@@ -1686,5 +3359,6 @@ dsError_t dsSetAudioMixerLevels(intptr_t handle, dsAudioInput_t aInput, int volu
         hal_err("Invalid parameters; handle(%p) or volume(%d) or aInput(%d).\n", handle, volume, aInput);
         return dsERR_INVALID_PARAM;
     }
+    /* RPi does not support audio mixer level controls, hence this operation is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
