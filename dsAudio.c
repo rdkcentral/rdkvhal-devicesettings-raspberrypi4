@@ -21,6 +21,7 @@
 #include "dsAudio.h"
 #include <stdint.h>
 #include <math.h>
+#include <pthread.h>
 #include "dsError.h"
 #include "dsUtl.h"
 #include "dshalUtils.h"

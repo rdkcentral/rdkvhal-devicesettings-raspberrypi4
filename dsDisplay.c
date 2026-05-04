@@ -350,8 +350,6 @@ static void* report_initial_hdmi_state(void *arg)
 
 static dsError_t dsQueryHdmiResolution(const unsigned char *edid_raw, int edid_len);
 static bool drm_get_preferred_hdmi_mode(char *mode, size_t len);
-TV_SUPPORTED_MODE_T dsVideoPortgetVideoFormatFromInfo(dsVideoResolution_t res,
-        unsigned frameRate, bool interlaced);
 static dsVideoPortResolution_t *dsgetResolutionInfo(const char *res_name);
 
 typedef struct _VDISPHandle_t {
@@ -1038,75 +1036,6 @@ static dsVideoPortResolution_t* dsgetResolutionInfo(const char *res_name)
     return NULL;
 }
 
-TV_SUPPORTED_MODE_T dsVideoPortgetVideoFormatFromInfo(dsVideoResolution_t res, unsigned frameRate, bool interlaced)
-{
-    hal_info("Invoked\n");
-    TV_SUPPORTED_MODE_T format = {0};
-    switch (res) {
-        case dsVIDEO_PIXELRES_720x480:
-            format.height = 480;
-            break;
-        case dsVIDEO_PIXELRES_720x576:
-            format.height = 576;
-            break;
-        case dsVIDEO_PIXELRES_1280x720:
-            format.height = 720;
-            break;
-        case dsVIDEO_PIXELRES_1366x768:
-            format.height = 768;
-            break;
-        case dsVIDEO_PIXELRES_1920x1080:
-            format.height = 1080;
-            break;
-        case dsVIDEO_PIXELRES_3840x2160:
-            format.height = 2160;
-            break;
-        case dsVIDEO_PIXELRES_4096x2160:
-            format.height = 2160;
-            break;
-        case dsVIDEO_PIXELRES_MAX:
-        default:
-            break;
-    }
-
-    switch (frameRate) {
-        case dsVIDEO_FRAMERATE_24:
-            format.frame_rate = 24;
-            break;
-        case dsVIDEO_FRAMERATE_25:
-            format.frame_rate = 25;
-            break;
-        case dsVIDEO_FRAMERATE_30:
-            format.frame_rate = 30;
-            break;
-        case dsVIDEO_FRAMERATE_60:
-            format.frame_rate = 60;
-            break;
-        case dsVIDEO_FRAMERATE_23dot98:
-            format.frame_rate = 23.98;
-            break;
-        case dsVIDEO_FRAMERATE_29dot97:
-            format.frame_rate = 29.97;
-            break;
-        case dsVIDEO_FRAMERATE_50:
-            format.frame_rate = 50;
-            break;
-        case dsVIDEO_FRAMERATE_59dot94:
-            format.frame_rate = 59.94;
-            break;
-        case dsVIDEO_FRAMERATE_MAX:
-        case dsVIDEO_FRAMERATE_UNKNOWN:
-        default:
-            break;
-    }
-    if (interlaced) {
-        format.scan_mode = 1; // Interlaced
-    } else {
-        format.scan_mode = 0; // Progressive
-    }
-    return format;
-}
-
 /**
  * @brief Gets the EDID buffer and EDID length of connected display device.
  *
@@ -1137,6 +1066,7 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
     VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
     bool drmConnected = false, drmEnabled = false;
     char edid_path[PATH_MAX] = {0};
+    char status_path[PATH_MAX] = {0};
     char connector_name[64] = {0};
     char cardName[PATH_MAX] = {0};
 
@@ -1171,8 +1101,33 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
         if (strncmp(entry->d_name, cardName, strlen(cardName)) != 0) {
             continue; /* Skip entries not matching our card */
         }
-        if (strstr(entry->d_name, "HDMI-A") == NULL) {
-            continue; /* Skip non-HDMI connectors */
+        if (strstr(entry->d_name, "HDMI-A-1") == NULL) {
+            continue; /* Focus on HDMI0 connector only */
+        }
+
+        int status_len = snprintf(status_path, sizeof(status_path), "/sys/class/drm/%s/status", entry->d_name);
+        if (status_len < 0 || (size_t)status_len >= sizeof(status_path)) {
+            hal_warn("Status path truncated for connector '%s'\n", entry->d_name);
+            continue;
+        }
+
+        FILE *status_file = fopen(status_path, "r");
+        if (status_file == NULL) {
+            hal_warn("Failed to open connector status at %s\n", status_path);
+            continue;
+        }
+
+        char status[16] = {0};
+        if (fgets(status, sizeof(status), status_file) == NULL) {
+            fclose(status_file);
+            hal_warn("Failed to read connector status from %s\n", status_path);
+            continue;
+        }
+        fclose(status_file);
+
+        if (strncmp(status, "connected", strlen("connected")) != 0) {
+            hal_dbg("Skipping disconnected connector %s (status=%s)\n", entry->d_name, status);
+            continue;
         }
 
         int path_len = snprintf(edid_path, sizeof(edid_path), "/sys/class/drm/%s/edid", entry->d_name);
@@ -1195,18 +1150,18 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
             return dsERR_GENERAL;
         }
 
-        hal_dbg("Read %d bytes of EDID from %s\n", *length, edid_path);
         strncpy(connector_name, entry->d_name, sizeof(connector_name) - 1);
+        hal_dbg("Read %d bytes of EDID from %s(%s)\n", *length, edid_path, connector_name);
         break;
     }
     closedir(drm_class);
 
     if (*length == 0) {
-        hal_err("EDID not found for any HDMI connector\n");
+        hal_err("EDID not found for connected HDMI0 connector\n");
         return dsERR_GENERAL;
     }
 
-#ifdef DSHAL_ENABLE_EDID_DUMP
+#ifdef 0 // Kept for debugging.
     FILE *file = fopen("/tmp/.hal-edid-bytes.dat", "wb");
     if (file != NULL) {
         for (int i = 0; i < *length; i++) {

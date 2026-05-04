@@ -40,8 +40,7 @@
 
 static bool _bIsVideoPortInitialized = false;
 static bool isValidVopHandle(intptr_t handle);
-static const char *dsVideoGetResolution(uint32_t mode);
-static uint32_t dsGetHdmiMode(dsVideoPortResolution_t *resolution);
+static const char *dsVideoGetResolution(void);
 #define MAX_HDMI_MODE_ID (127)
 
 /* EDID and CTA-861 related constants */
@@ -647,10 +646,8 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         hal_err("handle(%p) is invalid or resolution(%p) is NULL.\n", handle, resolution);
         return dsERR_INVALID_PARAM;
     }
-    /* Query the active mode from westeros-gl-console/DRM; dsVideoGetResolution()
-     * ignores the hdmiMode argument and always reads the live connector mode,
-     * so pass 0 rather than deriving it from the uninitialised resolution->name. */
-    const char *resolution_name = dsVideoGetResolution(0);
+    /* Query the active mode from westeros-gl-console/DRM. */
+    const char *resolution_name = dsVideoGetResolution();
     if (resolution_name) {
         strncpy(resolution->name, resolution_name, sizeof(resolution->name) - 1);
         resolution->name[sizeof(resolution->name) - 1] = '\0';
@@ -658,7 +655,7 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
     return dsERR_NONE;
 }
 
-static const char* dsVideoGetResolution(uint32_t hdmiMode)
+static const char* dsVideoGetResolution(void)
 {
     hal_info("invoked.\n");
     char resName[32] = {'\0'};
@@ -721,29 +718,13 @@ static const char* dsVideoGetResolution(uint32_t hdmiMode)
             }
         }
     }
-
-    hal_info("resolution_name %s\n", resolution_name);
+    if (resolution_name != NULL) {
+        hal_info("resolution_name %s\n", resolution_name);
+    } else {
+        hal_err("Failed to find matching resolution for '%s'\n", resName);
+    }
 
     return resolution_name;
-}
-
-static uint32_t dsGetHdmiMode(dsVideoPortResolution_t *resolution)
-{
-    hal_info("invoked.\n");
-    uint32_t hdmi_mode = 0;
-    for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
-        size_t length = strlen(resolution->name) > strlen(resolutionMap[i].rdkRes) ? strlen(resolution->name) : strlen(resolutionMap[i].rdkRes);
-        if (!strncmp(resolution->name, resolutionMap[i].rdkRes, length))
-        {
-            hdmi_mode = resolutionMap[i].mode;
-            break;
-        }
-    }
-    if (!hdmi_mode) {
-        hal_dbg("Given resolution not found, setting default Resolution HDMI_CEA_720p60\n");
-        hdmi_mode = HDMI_CEA_720p60;
-    }
-    return hdmi_mode;
 }
 
 /**
