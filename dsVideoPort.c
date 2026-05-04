@@ -1133,13 +1133,19 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
         /* Enumerate only the VICs advertised in the connected display's EDID
          * to avoid reporting unsupported modes from the static resolution map. */
         intptr_t dispHandle = (intptr_t)NULL;
-        unsigned char edid_buf[512] = {0};
+        unsigned char *edid_buf = (unsigned char *)calloc(MAX_EDID_BYTES_LEN, sizeof(unsigned char));
         int edid_len = 0;
+
+        if (edid_buf == NULL) {
+            hal_err("Failed to allocate EDID buffer\n");
+            return dsERR_GENERAL;
+        }
 
         if (dsGetDisplay(dsVIDEOPORT_TYPE_HDMI, 0, &dispHandle) != dsERR_NONE ||
             dsGetEDIDBytes(dispHandle, edid_buf, &edid_len) != dsERR_NONE ||
             edid_len < 128) {
             hal_warn("EDID unavailable; cannot report supported TV resolutions\n");
+            free(edid_buf);
             return dsERR_NONE;
         }
 
@@ -1174,6 +1180,8 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
                 pos += 1 + length;
             }
         }
+
+        free(edid_buf);
     } else {
         hal_err("Get supported resolution for TV on Non HDMI Port\n");
         return dsERR_INVALID_PARAM;
@@ -1381,6 +1389,25 @@ dsError_t dsGetForceDisable4KSupport(intptr_t handle, bool *disable)
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Gets the current video Electro-Optical Transfer Function (EOT) value.
+ *
+ * This function is used to get the current HDR format on a specified video port.
+ *
+ * @param[in]  handle       - Handle of the video port returned from dsGetVideoPort()
+ * @param[out] video_eotf   - EOTF value.  Please refer ::dsHDRStandard_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre dsVideoPortInit() and dsGetVideoPort() must be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
 dsError_t dsGetVideoEOTF(intptr_t handle, dsHDRStandard_t *video_eotf)
 {
     hal_info("invoked.\n");
@@ -1419,6 +1446,9 @@ dsError_t dsGetVideoEOTF(intptr_t handle, dsHDRStandard_t *video_eotf)
 dsError_t dsGetMatrixCoefficients(intptr_t handle, dsDisplayMatrixCoefficients_t *matrix_coefficients)
 {
     hal_info("invoked.\n");
+    bool drmConnected = false;
+    bool drmEnabled = false;
+
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
@@ -1432,7 +1462,12 @@ dsError_t dsGetMatrixCoefficients(intptr_t handle, dsDisplayMatrixCoefficients_t
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
-    /* tvservice display state query removed. Assume HDMI attached and default to standard matrix coefficients */
+    if (!drm_get_hdmi_connector_state(&drmConnected, &drmEnabled) || !drmConnected) {
+        *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_UNKNOWN;
+        hal_warn("HDMI not connected (DRM), matrix coefficients UNKNOWN\n");
+        return dsERR_NONE;
+    }
+
     *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_BT_709;
     hal_dbg("Matrix coefficient defaulted to BT_709: %u\n", *matrix_coefficients);
     return dsERR_NONE;
@@ -1476,7 +1511,7 @@ dsError_t dsGetColorDepth(intptr_t handle, unsigned int *color_depth)
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
-    /* tvservice display state query removed. Assume HDMI attached and default to 8-bit color depth */
+    /* HDMI will be attached when this gets invoked - default to 8-bit color depth */
     *color_depth = dsDISPLAY_COLORDEPTH_8BIT;
     hal_dbg("Color depth defaulted to 8-bit (RPi4 hardware limitation)\n");
     return dsERR_NONE;

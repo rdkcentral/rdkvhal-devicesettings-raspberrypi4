@@ -49,7 +49,7 @@ dsVideoPortResolution_t *HdmiSupportedResolution = NULL;
 static unsigned int numSupportedResn = 0;
 static bool _bDisplayInited = false;
 
-static pthread_mutex_t gHdmiAudioCbMutex = PTHREAD_MUTEX_INITIALIZER;
+extern pthread_mutex_t gHdmiAudioCbMutex;
 
 static dsAudioOutPortConnectCB_t get_hdmi_audio_cb(void)
 {

@@ -55,6 +55,7 @@ static long _softvolSavedVolume = -1;
 
 dsAudioOutPortConnectCB_t _halhdmiaudioCB = NULL;
 dsAudioFormatUpdateCB_t _halaudioformatCB = NULL;
+pthread_mutex_t gHdmiAudioCbMutex = PTHREAD_MUTEX_INITIALIZER;
 
 static int8_t initAlsa(const char *selemname, const char *s_card, snd_mixer_elem_t **element);
 static int dsIec958CtlReadSwitch(const char *s_card, int *iec958_enabled);
@@ -1618,7 +1619,9 @@ dsError_t dsAudioPortTerm()
         return dsERR_NOT_INITIALIZED;
     }
     /* HDMI audio status callbacks removed: now managed by display module */
+    pthread_mutex_lock(&gHdmiAudioCbMutex);
     _halhdmiaudioCB = NULL;
+    pthread_mutex_unlock(&gHdmiAudioCbMutex);
     _halaudioformatCB = NULL;
     _bIsAudioInitialized = false;
     return ret;
@@ -3065,10 +3068,12 @@ dsError_t dsAudioOutRegisterConnectCB(dsAudioOutPortConnectCB_t CBFunc)
         hal_err("Invalid parameters; CBFunc(%p).\n", CBFunc);
         return dsERR_INVALID_PARAM;
     }
+    pthread_mutex_lock(&gHdmiAudioCbMutex);
     if (NULL != _halhdmiaudioCB) {
         hal_warn("CBFunc already registered; overriding with new callback handle.\n");
     }
     _halhdmiaudioCB = CBFunc;
+    pthread_mutex_unlock(&gHdmiAudioCbMutex);
     return dsERR_NONE;
 }
 
