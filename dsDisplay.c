@@ -26,6 +26,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <sys/poll.h>
 #include <libudev.h>
 
@@ -78,7 +79,7 @@ static bool drm_get_hdmi_connector_state(bool *connected, bool *enabled)
 
 /* HDMI connection watcher thread state (udev + libdrm) */
 static pthread_t gHdmiWatcherThread = (pthread_t)(-1);
-static bool gHdmiWatcherRunning = false;
+static atomic_bool gHdmiWatcherRunning = ATOMIC_VAR_INIT(false);
 static bool gLastHdmiConnected = false;
 static pthread_mutex_t gHdmiWatcherMutex = PTHREAD_MUTEX_INITIALIZER;
 static struct udev *gUdevCtx = NULL;
@@ -98,7 +99,7 @@ static void* hdmi_watcher_thread(void *arg)
 
     hal_info("HDMI watcher thread (udev + libdrm) started\n");
 
-    while (gHdmiWatcherRunning) {
+    while (atomic_load(&gHdmiWatcherRunning)) {
         /* Wait for udev DRM hotplug notifications and poll periodically as a safety net. */
         struct pollfd pfd = {0};
         pfd.fd = gUdevFd;
@@ -127,31 +128,40 @@ static void* hdmi_watcher_thread(void *arg)
 
         /* Refresh connector state for both udev events and timeout wakeups. */
         if (drm_get_hdmi_connector_state(&currentConnected, &currentEnabled)) {
+            bool stateChanged = false;
+            bool notifyConnected = false;
+            dsDisplayEventCallback_t callback = NULL;
+
             pthread_mutex_lock(&gHdmiWatcherMutex);
 
-            /* Detect state change and notify. */
+            /* Detect state change and snapshot callback under lock. */
             if (currentConnected != lastConnected) {
                 hal_info("HDMI connection state changed: connected=%d (was %d)\n", currentConnected, lastConnected);
                 lastConnected = currentConnected;
                 gLastHdmiConnected = currentConnected;
-
-                if (NULL != _halcallback) {
-                    if (currentConnected) {
-                        hal_dbg("HDMI cable connected, triggering CONNECTED event\n");
-                        _halcallback(nativeHandle, dsDISPLAY_EVENT_CONNECTED, &eventData);
-                        notify_audio_hotplug(true);
-                    } else {
-                        hal_dbg("HDMI cable disconnected, triggering DISCONNECTED event\n");
-                        _halcallback(nativeHandle, dsDISPLAY_EVENT_DISCONNECTED, &eventData);
-                        notify_audio_hotplug(false);
-                    }
-                } else {
-                    hal_warn("_halcallback is NULL, cannot report event\n");
-                    notify_audio_hotplug(currentConnected);
-                }
+                callback = _halcallback;
+                stateChanged = true;
+                notifyConnected = currentConnected;
             }
 
             pthread_mutex_unlock(&gHdmiWatcherMutex);
+
+            /* Invoke callbacks outside lock to avoid callback re-entry deadlock. */
+            if (stateChanged) {
+                if (NULL != callback) {
+                    if (notifyConnected) {
+                        hal_dbg("HDMI cable connected, triggering CONNECTED event\n");
+                        callback(nativeHandle, dsDISPLAY_EVENT_CONNECTED, &eventData);
+                    } else {
+                        hal_dbg("HDMI cable disconnected, triggering DISCONNECTED event\n");
+                        callback(nativeHandle, dsDISPLAY_EVENT_DISCONNECTED, &eventData);
+                    }
+                } else {
+                    hal_warn("_halcallback is NULL, cannot report event\n");
+                }
+
+                notify_audio_hotplug(notifyConnected);
+            }
         }
     }
 
@@ -161,7 +171,7 @@ static void* hdmi_watcher_thread(void *arg)
 
 static bool start_hdmi_watcher(int nativeHandle)
 {
-    if (gHdmiWatcherRunning) {
+    if (atomic_load(&gHdmiWatcherRunning)) {
         hal_warn("HDMI watcher already running\n");
         return true;
     }
@@ -218,11 +228,11 @@ static bool start_hdmi_watcher(int nativeHandle)
         return false;
     }
 
-    gHdmiWatcherRunning = true;
+    atomic_store(&gHdmiWatcherRunning, true);
     int ret = pthread_create(&gHdmiWatcherThread, NULL, hdmi_watcher_thread, (void *)(intptr_t)nativeHandle);
     if (ret != 0) {
         hal_err("Failed to create HDMI watcher thread: %d\n", ret);
-        gHdmiWatcherRunning = false;
+        atomic_store(&gHdmiWatcherRunning, false);
         gUdevFd = -1;
         udev_monitor_unref(gUdevMonitor);
         gUdevMonitor = NULL;
@@ -237,11 +247,11 @@ static bool start_hdmi_watcher(int nativeHandle)
 
 static bool stop_hdmi_watcher(void)
 {
-    if (!gHdmiWatcherRunning) {
+    if (!atomic_load(&gHdmiWatcherRunning)) {
         return true;
     }
 
-    gHdmiWatcherRunning = false;
+    atomic_store(&gHdmiWatcherRunning, false);
 
     if (gHdmiWatcherThread != (pthread_t)(-1)) {
         int ret = pthread_join(gHdmiWatcherThread, NULL);

@@ -44,6 +44,7 @@ static dsAudioStereoMode_t  kSupportedHDMIStereoModes[]  = {
 
 static dsVideoPortPortId_t connectedVOPs[dsAUDIOPORT_TYPE_MAX][dsVIDEOPORT_TYPE_MAX] = {
     { /* VOPs connected to LR Audio (none) */
+        {0},
     },
     { /* VOPs connected to HDMI Audio */
         {dsVIDEOPORT_TYPE_HDMI, 0},

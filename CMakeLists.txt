@@ -109,6 +109,11 @@ install(FILES ${SETTINGS_HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/rdk/ha
 # Install ALSA default config for HDMI audio routing
 install(FILES ${CMAKE_SOURCE_DIR}/config/asound.conf DESTINATION ${CMAKE_INSTALL_SYSCONFDIR})
 
+# Install systemd unit required for runtime audio softvol initialization.
+# Note: service enablement should be handled by the target package or deployment flow.
+install(FILES ${CMAKE_SOURCE_DIR}/systemd/rpiAudioSoftvol.service
+	DESTINATION /lib/systemd/system)
+
 # Clean target
 add_custom_target(clean-all
     COMMAND ${CMAKE_BUILD_TOOL} clean

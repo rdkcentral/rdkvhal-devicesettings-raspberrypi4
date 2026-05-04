@@ -58,12 +58,14 @@ dsFPDIndicatorConfig_t kIndicators[] = {
 
 /*
  * Front Panel Text Display configurations.
- * RPi4 has no 7-segment text display; this array is empty.
+ * RPi4 has no 7-segment text display; expose a 1-element inert array and
+ * keep the exported logical size at 0 for standard C compatibility.
  */
-dsFPDTextDisplayConfig_t kFPDTextDisplays[] = {
+dsFPDTextDisplayConfig_t kFPDTextDisplays[1] = {
+	{0},
 };
 
-/* Size hardcoded to 0 as sizeof pattern is unsafe on empty arrays */
+/* Size hardcoded to 0 as sizeof pattern is unsafe for a logically empty table */
 int kFPDTextDisplays_size    = 0;
 int kFPDIndicatorColors_size = sizeof(kFPDIndicatorColors) / sizeof(kFPDIndicatorColors[0]);
 int kIndicators_size         = sizeof(kIndicators)         / sizeof(kIndicators[0]);
