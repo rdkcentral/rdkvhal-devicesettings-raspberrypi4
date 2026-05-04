@@ -19,6 +19,9 @@
 #ifndef _DS_DEFINITIONS_H_
 #define _DS_DEFINITIONS_H_
 
+#include "dsTypes.h"
+#include "dsError.h"
+
 #define INVALID_HANDLE 0
 #define ISNULL(ptr) (ptr==NULL)
 #define _RETURN_IF_ERROR(cond, err) do {\
@@ -34,8 +37,8 @@ typedef struct _dsDisplayParam_t {
         dsVideoPortPortId_t portId;
 } dsDisplayParam_t;
 
-dsDisplayParam_t *dsVideoDisplayHandler = '\0';
+extern dsDisplayParam_t *dsVideoDisplayHandler;
 dsError_t dsDisplayHdlCheck(intptr_t handle);
-size_t videoDisplayMaxIndex = 0;
+extern size_t videoDisplayMaxIndex;
 
 #endif /* _DS_DEFINITIONS_H_ */

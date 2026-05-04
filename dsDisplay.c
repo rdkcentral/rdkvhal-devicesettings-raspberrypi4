@@ -27,7 +27,7 @@
 #include <limits.h>
 #include <pthread.h>
 #include <stdatomic.h>
-#include <sys/poll.h>
+#include <poll.h>
 #include <libudev.h>
 
 #include "dsTypes.h"
@@ -1118,7 +1118,7 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
         return dsERR_GENERAL;
     }
 
-#if 1 // Print EDID bytes for debugging
+#ifdef DSHAL_ENABLE_EDID_DUMP
     FILE *file = fopen("/tmp/.hal-edid-bytes.dat", "wb");
     if (file != NULL) {
         for (int i = 0; i < *length; i++) {

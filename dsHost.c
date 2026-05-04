@@ -21,6 +21,7 @@
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
+#include <inttypes.h>
 
 #include "dsTypes.h"
 #include "dsError.h"
@@ -294,7 +295,7 @@ dsError_t dsGetFreeSystemGraphicsMemory(uint64_t *memory)
     /* GPU memory query via tvservice removed (Pi4 GPU memory is fixed at boot). */
     /* Return a sensible default estimate: 128MB free GPU memory (typical on Pi4). */
     *memory = 128 * 1024 * 1024;  /* 128 MB in bytes */
-    hal_info("Returning default GPU free memory: %llu bytes\n", *memory);
+    hal_info("Returning default GPU free memory: %" PRIu64 " bytes\n", *memory);
     return dsERR_NONE;
 }
 
@@ -308,6 +309,6 @@ dsError_t dsGetTotalSystemGraphicsMemory(uint64_t *memory)
     /* GPU memory query via tvservice removed (Pi4 GPU memory is fixed at boot). */
     /* Return a sensible default estimate: 256MB total GPU memory (typical on Pi4). */
     *memory = 256 * 1024 * 1024;  /* 256 MB in bytes */
-    hal_info("Returning default GPU total memory: %llu bytes\n", *memory);
+    hal_info("Returning default GPU total memory: %" PRIu64 " bytes\n", *memory);
     return dsERR_NONE;
 }

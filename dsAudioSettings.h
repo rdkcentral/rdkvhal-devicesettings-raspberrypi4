@@ -50,7 +50,7 @@ static dsAudioStereoMode_t kFallbackHDMIStereoModes[] DS_SETTINGS_FALLBACK_UNUSE
 };
 
 static dsVideoPortPortId_t kFallbackConnectedVOPs[dsAUDIOPORT_TYPE_MAX][dsVIDEOPORT_TYPE_MAX] DS_SETTINGS_FALLBACK_UNUSED = {
-	{ },
+	{ 0 },
 	{ {dsVIDEOPORT_TYPE_HDMI, 0}, },
 };
 

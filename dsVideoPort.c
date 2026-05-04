@@ -962,6 +962,8 @@ dsError_t dsIsVideoPortActive(intptr_t handle, bool *active)
 {
     hal_info("invoked.\n");
     VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
+    bool connected = false;
+    bool enabled = false;
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
@@ -973,9 +975,11 @@ dsError_t dsIsVideoPortActive(intptr_t handle, bool *active)
     *active = false;
 
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
-        /* tvservice display state query removed. Default to true (HDMI assumed connected/active) */
-        /* If actual connectivity check needed, use DRM sysfs directly */
-        *active = true;
+        if (!drm_get_hdmi_connector_state(&connected, &enabled)) {
+            hal_err("Failed to get HDMI connector state\n");
+            return dsERR_GENERAL;
+        }
+        *active = (connected && enabled);
     } else {
         hal_err("Video port type not supported\n");
         return dsERR_INVALID_PARAM;
