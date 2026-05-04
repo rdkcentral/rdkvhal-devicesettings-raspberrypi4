@@ -639,8 +639,6 @@ dsError_t dsIsHDCPEnabled(intptr_t handle, bool *pContentProtected)
 dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 {
     hal_info("invoked.\n");
-    const char *resolution_name = NULL;
-    uint32_t hdmi_mode;
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
@@ -649,13 +647,14 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         hal_err("handle(%p) is invalid or resolution(%p) is NULL.\n", handle, resolution);
         return dsERR_INVALID_PARAM;
     }
-    /* tvservice display state query removed; use fallback resolution lookup */
-    if (resolution_name == NULL) {
-        hdmi_mode = dsGetHdmiMode(resolution);
-        resolution_name = dsVideoGetResolution(hdmi_mode);
+    /* Query the active mode from westeros-gl-console/DRM; dsVideoGetResolution()
+     * ignores the hdmiMode argument and always reads the live connector mode,
+     * so pass 0 rather than deriving it from the uninitialised resolution->name. */
+    const char *resolution_name = dsVideoGetResolution(0);
+    if (resolution_name) {
+        strncpy(resolution->name, resolution_name, sizeof(resolution->name) - 1);
+        resolution->name[sizeof(resolution->name) - 1] = '\0';
     }
-    if (resolution_name)
-        strncpy(resolution->name, resolution_name, strlen(resolution_name));
     return dsERR_NONE;
 }
 
