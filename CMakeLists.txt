@@ -111,8 +111,11 @@ install(FILES ${CMAKE_SOURCE_DIR}/config/asound.conf DESTINATION ${CMAKE_INSTALL
 
 # Install systemd unit required for runtime audio softvol initialization.
 # Note: service enablement should be handled by the target package or deployment flow.
+# SYSTEMD_UNIT_DIR can be overridden on the cmake command line for cross/sysroot builds.
+set(SYSTEMD_UNIT_DIR "${CMAKE_INSTALL_LIBDIR}/systemd/system"
+    CACHE PATH "Installation directory for systemd unit files")
 install(FILES ${CMAKE_SOURCE_DIR}/systemd/rpiAudioSoftvol.service
-	DESTINATION /lib/systemd/system)
+	DESTINATION ${SYSTEMD_UNIT_DIR})
 
 # Clean target
 add_custom_target(clean-all

@@ -49,10 +49,22 @@ dsVideoPortResolution_t *HdmiSupportedResolution = NULL;
 static unsigned int numSupportedResn = 0;
 static bool _bDisplayInited = false;
 
+static pthread_mutex_t gHdmiAudioCbMutex = PTHREAD_MUTEX_INITIALIZER;
+
+static dsAudioOutPortConnectCB_t get_hdmi_audio_cb(void)
+{
+    dsAudioOutPortConnectCB_t cb;
+    pthread_mutex_lock(&gHdmiAudioCbMutex);
+    cb = _halhdmiaudioCB;
+    pthread_mutex_unlock(&gHdmiAudioCbMutex);
+    return cb;
+}
+
 static void notify_audio_hotplug(bool connected)
 {
-    if (_halhdmiaudioCB != NULL) {
-        _halhdmiaudioCB(dsAUDIOPORT_TYPE_HDMI, 0, connected);
+    dsAudioOutPortConnectCB_t cb = get_hdmi_audio_cb();
+    if (cb != NULL) {
+        cb(dsAUDIOPORT_TYPE_HDMI, 0, connected);
     }
 }
 
@@ -80,6 +92,7 @@ static bool drm_get_hdmi_connector_state(bool *connected, bool *enabled)
 /* HDMI connection watcher thread state (udev + libdrm) */
 static pthread_t gHdmiWatcherThread = (pthread_t)(-1);
 static atomic_bool gHdmiWatcherRunning = ATOMIC_VAR_INIT(false);
+static pthread_t gInitialStateReporterThread = (pthread_t)(-1);
 static bool gLastHdmiConnected = false;
 static pthread_mutex_t gHdmiWatcherMutex = PTHREAD_MUTEX_INITIALIZER;
 static struct udev *gUdevCtx = NULL;
@@ -300,6 +313,17 @@ static void* report_initial_hdmi_state(void *arg)
 
     hal_info("Initial state reporter thread: querying current HDMI state\n");
 
+    /* Guard: skip callbacks if the display module was terminated during the delay. */
+    pthread_mutex_lock(&gHdmiWatcherMutex);
+    bool initialized = _bDisplayInited;
+    pthread_mutex_unlock(&gHdmiWatcherMutex);
+
+    if (!initialized) {
+        hal_warn("Initial state reporter: display already terminated, skipping callback\n");
+        hal_info("Initial state reporter thread: exiting\n");
+        return NULL;
+    }
+
     if (drm_get_hdmi_connector_state(&currentConnected, &currentEnabled)) {
         hal_info("Initial HDMI state: connected=%d enabled=%d\n", currentConnected, currentEnabled);
         if (callback != NULL) {
@@ -324,7 +348,7 @@ static void* report_initial_hdmi_state(void *arg)
 }
 
 
-static dsError_t dsQueryHdmiResolution();
+static dsError_t dsQueryHdmiResolution(const unsigned char *edid_raw, int edid_len);
 static bool drm_get_preferred_hdmi_mode(char *mode, size_t len);
 TV_SUPPORTED_MODE_T dsVideoPortgetVideoFormatFromInfo(dsVideoResolution_t res,
         unsigned frameRate, bool interlaced);
@@ -374,7 +398,7 @@ dsError_t dsDisplayInit()
     _VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index = 0;
 
     /* Query resolution information without TVService dependency. */
-    dsQueryHdmiResolution();
+    dsQueryHdmiResolution(NULL, 0);
 
     /* Start HDMI connection watcher thread */
     if (!start_hdmi_watcher(_VDispHandles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle)) {
@@ -728,8 +752,9 @@ dsError_t dsRegisterDisplayEventCallback(intptr_t handle, dsDisplayEventCallback
         return dsERR_GENERAL;
     }
 
-    /* Detach thread so it cleans up automatically on exit */
-    pthread_detach(reporter_thread);
+    /* Store thread handle for joining in dsDisplayTerm() to prevent
+     * callbacks from firing after display module termination. */
+    gInitialStateReporterThread = reporter_thread;
 
     hal_dbg("Initial state reporter thread spawned\n");
     return dsERR_NONE;
@@ -808,7 +833,7 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
         edid->physicalAddressD = 0;
         strncpy(edid->monitorName, "Unknown", sizeof(edid->monitorName));
         edid->monitorName[dsEEDID_MAX_MON_NAME_LENGTH - 1] = '\0';
-        if (dsQueryHdmiResolution() != dsERR_NONE) {
+        if (dsQueryHdmiResolution(raw, length) != dsERR_NONE) {
             hal_err("Failed to query HDMI resolution\n");
             ret = dsERR_GENERAL;
             goto cleanup;
@@ -850,6 +875,19 @@ dsError_t dsDisplayTerm()
         return dsERR_NOT_INITIALIZED;
     }
 
+    /* Clear initialized flag under mutex so the reporter thread sees it
+     * and skips any pending callbacks before we join it. */
+    pthread_mutex_lock(&gHdmiWatcherMutex);
+    _bDisplayInited = false;
+    pthread_mutex_unlock(&gHdmiWatcherMutex);
+
+    /* Join the initial state reporter thread to ensure it has exited before
+     * we return and the caller potentially unloads the HAL. */
+    if (gInitialStateReporterThread != (pthread_t)(-1)) {
+        pthread_join(gInitialStateReporterThread, NULL);
+        gInitialStateReporterThread = (pthread_t)(-1);
+    }
+
     /* Stop HDMI connection watcher thread */
     stop_hdmi_watcher();
 
@@ -857,7 +895,6 @@ dsError_t dsDisplayTerm()
         free(HdmiSupportedResolution);
         HdmiSupportedResolution = NULL;
     }
-    _bDisplayInited = false;
     return dsERR_NONE;
 }
 
@@ -894,7 +931,7 @@ dsError_t dsDisplaygetNativeHandle(intptr_t handle, int *native)
  *	Get The HDMI Resolution List
  *
  **/
-static dsError_t dsQueryHdmiResolution()
+static dsError_t dsQueryHdmiResolution(const unsigned char *edid_raw, int edid_len)
 {
     hal_info("Invoked\n");
 
@@ -910,6 +947,57 @@ static dsError_t dsQueryHdmiResolution()
         return dsERR_GENERAL;
     }
 
+    /* If we have EDID bytes, enumerate only resolutions whose VIC is advertised
+     * in the CTA-861 Video Data Block(s) of the connected display. */
+    if (edid_raw != NULL && edid_len >= 128) {
+        int num_ext = edid_raw[126];
+        for (int ext = 0; ext < num_ext; ext++) {
+            int blk_start = (ext + 1) * 128;
+            if (blk_start + 127 >= edid_len) break;
+            const unsigned char *blk = edid_raw + blk_start;
+            if (blk[0] != 0x02) continue; /* CTA-861 extension tag */
+            int dtd_offset = blk[2];
+            if (dtd_offset < 4) continue;
+            int pos = 4;
+            while (pos < dtd_offset && pos < 127) {
+                int tag    = (blk[pos] >> 5) & 0x07;
+                int blklen = blk[pos] & 0x1F;
+                if (tag == 2) { /* Video Data Block */
+                    for (int s = 1; s <= blklen && (pos + s) < 128; s++) {
+                        int vic = blk[pos + s] & 0x7F;
+                        for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
+                            if (resolutionMap[i].mode != vic) continue;
+                            dsVideoPortResolution_t *res = dsgetResolutionInfo(resolutionMap[i].rdkRes);
+                            if (!res) continue;
+                            bool alreadyAdded = false;
+                            for (unsigned int j = 0; j < numSupportedResn; j++) {
+                                if (strncmp(HdmiSupportedResolution[j].name, res->name,
+                                            sizeof(HdmiSupportedResolution[j].name)) == 0) {
+                                    alreadyAdded = true;
+                                    break;
+                                }
+                            }
+                            if (!alreadyAdded) {
+                                memcpy(&HdmiSupportedResolution[numSupportedResn], res,
+                                       sizeof(dsVideoPortResolution_t));
+                                hal_dbg("EDID resolution '%s' (VIC %d)\n",
+                                        HdmiSupportedResolution[numSupportedResn].name, vic);
+                                numSupportedResn++;
+                            }
+                        }
+                    }
+                }
+                pos += 1 + blklen;
+            }
+        }
+        if (numSupportedResn > 0) {
+            hal_dbg("Total EDID-based HDMI resolutions = %u\n", numSupportedResn);
+            return dsERR_NONE;
+        }
+        hal_warn("No VICs found in EDID extensions; falling back to static resolution map\n");
+    }
+
+    /* Static fallback: enumerate resolutionMap (deduped). */
     for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
         bool alreadyAdded = false;
         dsVideoPortResolution_t *resolution = dsgetResolutionInfo(resolutionMap[i].rdkRes);
@@ -930,7 +1018,7 @@ static dsError_t dsQueryHdmiResolution()
         }
 
         memcpy(&HdmiSupportedResolution[numSupportedResn], resolution, sizeof(dsVideoPortResolution_t));
-        hal_dbg("Supported Resolution '%s'\n", HdmiSupportedResolution[numSupportedResn].name);
+        hal_dbg("Static resolution '%s'\n", HdmiSupportedResolution[numSupportedResn].name);
         numSupportedResn++;
     }
 

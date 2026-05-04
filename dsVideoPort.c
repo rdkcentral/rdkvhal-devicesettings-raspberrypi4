@@ -1126,15 +1126,52 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
         return dsERR_INVALID_PARAM;
     }
 
-    hal_info("handle = %p and *handle = %p\n", vopHandle, *vopHandle);
+    hal_info("handle = %p\n", (void *)vopHandle);
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
-        const dsTVResolution_t *tvResolution = NULL;
         *resolutions = 0;
 
-        for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
-            tvResolution = getResolutionFromVic(resolutionMap[i].mode);
-            if (tvResolution != NULL) {
-                *resolutions |= *tvResolution;
+        /* Enumerate only the VICs advertised in the connected display's EDID
+         * to avoid reporting unsupported modes from the static resolution map. */
+        intptr_t dispHandle = (intptr_t)NULL;
+        unsigned char edid_buf[512] = {0};
+        int edid_len = 0;
+
+        if (dsGetDisplay(dsVIDEOPORT_TYPE_HDMI, 0, &dispHandle) != dsERR_NONE ||
+            dsGetEDIDBytes(dispHandle, edid_buf, &edid_len) != dsERR_NONE ||
+            edid_len < 128) {
+            hal_warn("EDID unavailable; cannot report supported TV resolutions\n");
+            return dsERR_NONE;
+        }
+
+        /* Walk CTA-861 extension blocks for Short Video Descriptors (SVDs). */
+        int num_ext = edid_buf[126];
+        for (int ext = 0; ext < num_ext; ext++) {
+            int blk_start = (ext + 1) * 128;
+            if (blk_start + 127 >= edid_len) {
+                break;
+            }
+            const unsigned char *blk = edid_buf + blk_start;
+            if (blk[0] != 0x02) { /* CTA-861 extension tag */
+                continue;
+            }
+            int dtd_offset = blk[2];
+            if (dtd_offset < 4) {
+                continue;
+            }
+            int pos = 4;
+            while (pos < dtd_offset && pos < 127) {
+                int tag    = (blk[pos] >> 5) & 0x07;
+                int length = blk[pos] & 0x1F;
+                if (tag == 2) { /* Video Data Block */
+                    for (int s = 1; s <= length && (pos + s) < 128; s++) {
+                        int vic = blk[pos + s] & 0x7F;
+                        const dsTVResolution_t *tvRes = getResolutionFromVic(vic);
+                        if (tvRes != NULL) {
+                            *resolutions |= (int)(*tvRes);
+                        }
+                    }
+                }
+                pos += 1 + length;
             }
         }
     } else {
