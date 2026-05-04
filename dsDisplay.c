@@ -1161,7 +1161,7 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
         return dsERR_GENERAL;
     }
 
-#ifdef 0 // Kept for debugging.
+#if 0 // Kept for debugging.
     FILE *file = fopen("/tmp/.hal-edid-bytes.dat", "wb");
     if (file != NULL) {
         for (int i = 0; i < *length; i++) {

@@ -17,6 +17,8 @@
  * limitations under the License.
  */
 
+#include <stddef.h>
+
 #include "dsDefinitions.h"
 
 dsDisplayParam_t *dsVideoDisplayHandler = NULL;
