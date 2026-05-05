@@ -36,6 +36,7 @@
 #include "dsUtl.h"
 #include "dsError.h"
 #include "dshalLogger.h"
+#include "dshalEdidParser.h"
 
 extern dsVideoPortResolution_t kResolutionsSettings[];
 extern size_t kNumResolutionsSettings;
@@ -351,6 +352,58 @@ static void* report_initial_hdmi_state(void *arg)
 static dsError_t dsQueryHdmiResolution(const unsigned char *edid_raw, int edid_len);
 static bool drm_get_preferred_hdmi_mode(char *mode, size_t len);
 static dsVideoPortResolution_t *dsgetResolutionInfo(const char *res_name);
+
+typedef struct {
+    dsVideoPortResolution_t *hdmiSupportedResolution;
+    unsigned int *numSupportedResn;
+} HdmiResolutionParseContext_t;
+
+static bool parseHdmiResolutionsFromCtaDataBlock(int tag,
+        const unsigned char *data,
+        int dataLen,
+        void *context)
+{
+    HdmiResolutionParseContext_t *ctx = (HdmiResolutionParseContext_t *)context;
+
+    if (ctx == NULL || ctx->hdmiSupportedResolution == NULL ||
+            ctx->numSupportedResn == NULL || data == NULL) {
+        return false;
+    }
+
+    if (tag != DSHAL_EDID_CTA_DATA_BLOCK_TAG_VIDEO || dataLen <= 0) {
+        return false;
+    }
+
+    for (int s = 0; s < dataLen; s++) {
+        int vic = data[s] & 0x7F;
+        for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
+            if (resolutionMap[i].mode != vic) {
+                continue;
+            }
+            dsVideoPortResolution_t *res = dsgetResolutionInfo(resolutionMap[i].rdkRes);
+            if (!res) {
+                continue;
+            }
+            bool alreadyAdded = false;
+            for (unsigned int j = 0; j < *(ctx->numSupportedResn); j++) {
+                if (strncmp(ctx->hdmiSupportedResolution[j].name, res->name,
+                            sizeof(ctx->hdmiSupportedResolution[j].name)) == 0) {
+                    alreadyAdded = true;
+                    break;
+                }
+            }
+            if (!alreadyAdded) {
+                memcpy(&ctx->hdmiSupportedResolution[*(ctx->numSupportedResn)], res,
+                       sizeof(dsVideoPortResolution_t));
+                hal_dbg("EDID resolution '%s' (VIC %d)\n",
+                        ctx->hdmiSupportedResolution[*(ctx->numSupportedResn)].name, vic);
+                (*(ctx->numSupportedResn))++;
+            }
+        }
+    }
+
+    return false;
+}
 
 typedef struct _VDISPHandle_t {
     dsVideoPortType_t m_vType;
@@ -971,47 +1024,13 @@ static dsError_t dsQueryHdmiResolution(const unsigned char *edid_raw, int edid_l
 
     /* If we have EDID bytes, enumerate only resolutions whose VIC is advertised
      * in the CTA-861 Video Data Block(s) of the connected display. */
-    if (edid_raw != NULL && edid_len >= 128) {
-        int num_ext = edid_raw[126];
-        for (int ext = 0; ext < num_ext; ext++) {
-            int blk_start = (ext + 1) * 128;
-            if (blk_start + 127 >= edid_len) break;
-            const unsigned char *blk = edid_raw + blk_start;
-            if (blk[0] != 0x02) continue; /* CTA-861 extension tag */
-            int dtd_offset = blk[2];
-            if (dtd_offset < 4) continue;
-            int pos = 4;
-            while (pos < dtd_offset && pos < 127) {
-                int tag    = (blk[pos] >> 5) & 0x07;
-                int blklen = blk[pos] & 0x1F;
-                if (tag == 2) { /* Video Data Block */
-                    for (int s = 1; s <= blklen && (pos + s) < 128; s++) {
-                        int vic = blk[pos + s] & 0x7F;
-                        for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
-                            if (resolutionMap[i].mode != vic) continue;
-                            dsVideoPortResolution_t *res = dsgetResolutionInfo(resolutionMap[i].rdkRes);
-                            if (!res) continue;
-                            bool alreadyAdded = false;
-                            for (unsigned int j = 0; j < numSupportedResn; j++) {
-                                if (strncmp(HdmiSupportedResolution[j].name, res->name,
-                                            sizeof(HdmiSupportedResolution[j].name)) == 0) {
-                                    alreadyAdded = true;
-                                    break;
-                                }
-                            }
-                            if (!alreadyAdded) {
-                                memcpy(&HdmiSupportedResolution[numSupportedResn], res,
-                                       sizeof(dsVideoPortResolution_t));
-                                hal_dbg("EDID resolution '%s' (VIC %d)\n",
-                                        HdmiSupportedResolution[numSupportedResn].name, vic);
-                                numSupportedResn++;
-                            }
-                        }
-                    }
-                }
-                pos += 1 + blklen;
-            }
-        }
+    if (edid_raw != NULL && edid_len >= DSHAL_EDID_BLOCK_SIZE) {
+        HdmiResolutionParseContext_t ctx = {
+            .hdmiSupportedResolution = HdmiSupportedResolution,
+            .numSupportedResn = &numSupportedResn,
+        };
+        (void)dshalEdidForEachCtaDataBlock(edid_raw, edid_len, parseHdmiResolutionsFromCtaDataBlock, &ctx);
+
         if (numSupportedResn > 0) {
             hal_dbg("Total EDID-based HDMI resolutions = %u\n", numSupportedResn);
             return dsERR_NONE;

@@ -35,6 +35,7 @@
 #include "dsVideoResolutionSettings.h"
 #include "dsDisplay.h"
 #include "dsAudio.h"
+#include "dshalEdidParser.h"
 #include "dshalUtils.h"
 #include "dshalLogger.h"
 #include "dsVideoPortSettings.h"
@@ -46,40 +47,8 @@ static bool _bIsVideoPortInitialized = false;
 static bool isValidVopHandle(intptr_t handle);
 static const char *dsVideoGetResolution(void);
 #define MAX_HDMI_MODE_ID (127)
-
-/* EDID and CTA-861 related constants */
-
-#define EDID_BLOCK_SIZE                        128
-#define EDID_MAX_BLOCKS                        4
-#define EDID_BUFFER_SIZE                        (EDID_BLOCK_SIZE * EDID_MAX_BLOCKS)
-
-#define EDID_NUM_EXTENSIONS_OFFSET             126
-
-#define EDID_CTA_DTD_OFFSET_INDEX              2
-#define EDID_CTA_DATA_BLOCK_COLLECTION_START   4
-#define EDID_CTA_MAX_OFFSET                    (EDID_BLOCK_SIZE - 1)
-
-#define EDID_CTA_DATA_BLOCK_TAG_MASK           0xE0
-#define EDID_CTA_DATA_BLOCK_LEN_MASK           0x1F
-#define EDID_CTA_DATA_BLOCK_TAG_AUDIO          0x01
-#define EDID_CTA_SAD_LENGTH                    3
-
-/* CTA extension tags */
-#define EDID_CTA_EXTENSION_TAG                 0x02
-#define EDID_CTA_EXTENDED_TAG                  0x07
-#define EDID_CTA_VENDOR_SPECIFIC_TAG           0x03
-
-/* CTA extended data block tag */
-#define EDID_EXT_TAG_HDR_STATIC_METADATA       0x06
-
-/* HDR EOTF flags */
-#define EDID_EOTF_HDR10_BIT                    0x04
-#define EDID_EOTF_HLG_BIT                      0x08
-
-/* Dolby Vision VSIF IEEE Registration Identifier (OUI) */
-#define EDID_DOLBY_VSIF_OUI_BYTE0              0x46
-#define EDID_DOLBY_VSIF_OUI_BYTE1              0xD0
-#define EDID_DOLBY_VSIF_OUI_BYTE2              0x00
+#define DSVIDEOPORT_EDID_MAX_BLOCKS 4
+#define DSVIDEOPORT_EDID_BUFFER_SIZE (DSHAL_EDID_BLOCK_SIZE * DSVIDEOPORT_EDID_MAX_BLOCKS)
 
 #ifndef XDG_RUNTIME_DIR
 #define XDG_RUNTIME_DIR     "/tmp"
@@ -102,6 +71,132 @@ static bool _bIgnoreEDID = false;
 static bool drm_get_hdmi_connector_state(bool *connected, bool *enabled)
 {
     return dsGetHdmiConnectorState(connected, enabled);
+}
+
+static dsError_t getHdmiEdidForConnectedDisplay(dsVideoPortType_t video_port_type,
+        int video_port_index,
+        unsigned char **edid_buf,
+        int *edid_len)
+{
+    intptr_t dispHandle = 0;
+
+    if (edid_buf == NULL || edid_len == NULL) {
+        return dsERR_INVALID_PARAM;
+    }
+
+    *edid_buf = (unsigned char *)calloc(DSVIDEOPORT_EDID_BUFFER_SIZE, sizeof(unsigned char));
+    if (*edid_buf == NULL) {
+        return dsERR_GENERAL;
+    }
+
+    if (dsGetDisplay(video_port_type, video_port_index, &dispHandle) != dsERR_NONE ||
+            dsGetEDIDBytes(dispHandle, *edid_buf, edid_len) != dsERR_NONE ||
+            *edid_len < DSHAL_EDID_BLOCK_SIZE) {
+        free(*edid_buf);
+        *edid_buf = NULL;
+        *edid_len = 0;
+        return dsERR_GENERAL;
+    }
+
+    return dsERR_NONE;
+}
+
+typedef struct {
+    int *capabilities;
+} HdrParseContext_t;
+
+static bool parseHdrFromCtaDataBlock(int tag, const unsigned char *data, int dataLen, void *context)
+{
+    HdrParseContext_t *ctx = (HdrParseContext_t *)context;
+
+    if (ctx == NULL || ctx->capabilities == NULL || data == NULL) {
+        return false;
+    }
+
+    if (tag == DSHAL_EDID_CTA_EXTENDED_TAG && dataLen >= 2 &&
+            data[0] == DSHAL_EDID_EXT_TAG_HDR_STATIC_METADATA) {
+        unsigned char eotf_flags = data[1];
+        if (eotf_flags & 0x01) {
+            *(ctx->capabilities) |= (int)dsHDRSTANDARD_SDR;
+        }
+        if (eotf_flags & 0x02) {
+            *(ctx->capabilities) |= (int)dsHDRSTANDARD_TechnicolorPrime;
+        }
+        if (eotf_flags & DSHAL_EDID_EOTF_HDR10_BIT) {
+            *(ctx->capabilities) |= (int)dsHDRSTANDARD_HDR10;
+        }
+        if (eotf_flags & DSHAL_EDID_EOTF_HLG_BIT) {
+            *(ctx->capabilities) |= (int)dsHDRSTANDARD_HLG;
+        }
+    } else if (tag == DSHAL_EDID_CTA_VENDOR_SPECIFIC_TAG && dataLen >= 3) {
+        if (data[0] == DSHAL_EDID_DOLBY_VSIF_OUI_BYTE0 &&
+                data[1] == DSHAL_EDID_DOLBY_VSIF_OUI_BYTE1 &&
+                data[2] == DSHAL_EDID_DOLBY_VSIF_OUI_BYTE2) {
+            *(ctx->capabilities) |= (int)dsHDRSTANDARD_DolbyVision;
+        }
+
+        if (data[0] == DSHAL_EDID_HDR10PLUS_VSIF_OUI_BYTE0 &&
+                data[1] == DSHAL_EDID_HDR10PLUS_VSIF_OUI_BYTE1 &&
+                data[2] == DSHAL_EDID_HDR10PLUS_VSIF_OUI_BYTE2) {
+            *(ctx->capabilities) |= (int)dsHDRSTANDARD_HDR10PLUS;
+        }
+    }
+
+    return false;
+}
+
+typedef struct {
+    int *resolutions;
+} TvResolutionParseContext_t;
+
+static bool parseSupportedResolutionsFromCtaDataBlock(int tag, const unsigned char *data, int dataLen, void *context)
+{
+    TvResolutionParseContext_t *ctx = (TvResolutionParseContext_t *)context;
+
+    if (ctx == NULL || ctx->resolutions == NULL || data == NULL) {
+        return false;
+    }
+
+    if (tag != DSHAL_EDID_CTA_DATA_BLOCK_TAG_VIDEO || dataLen <= 0) {
+        return false;
+    }
+
+    for (int i = 0; i < dataLen; i++) {
+        int vic = data[i] & 0x7F;
+        const dsTVResolution_t *tvRes = getResolutionFromVic(vic);
+        if (tvRes != NULL) {
+            *(ctx->resolutions) |= (int)(*tvRes);
+        }
+    }
+
+    return false;
+}
+
+typedef struct {
+    bool *surround;
+} SurroundParseContext_t;
+
+static bool parseSurroundFromCtaDataBlock(int tag, const unsigned char *data, int dataLen, void *context)
+{
+    SurroundParseContext_t *ctx = (SurroundParseContext_t *)context;
+
+    if (ctx == NULL || ctx->surround == NULL || data == NULL) {
+        return false;
+    }
+
+    if (tag != DSHAL_EDID_CTA_DATA_BLOCK_TAG_AUDIO || dataLen < DSHAL_EDID_CTA_SHORT_AUDIO_DESCRIPTOR_LEN) {
+        return false;
+    }
+
+    for (int i = 0; (i + (DSHAL_EDID_CTA_SHORT_AUDIO_DESCRIPTOR_LEN - 1)) < dataLen; i += DSHAL_EDID_CTA_SHORT_AUDIO_DESCRIPTOR_LEN) {
+        int channels = (data[i] & 0x07) + 1;
+        if (channels > 2) {
+            *(ctx->surround) = true;
+            return true;
+        }
+    }
+
+    return false;
 }
 
 
@@ -1099,14 +1194,25 @@ dsError_t dsGetTVHDRCapabilities(intptr_t handle, int *capabilities)
     bool isConnected = false;
     dsError_t connRet = dsIsDisplayConnected(handle, &isConnected);
     if (connRet != dsERR_NONE || !isConnected) {
-        // If display is not connected, we cannot determine HDR capabilities. Return an error to indicate this state.
+        // Return an error if display is not connected, we cannot determine connected display's HDR capabilities.
         return dsERR_GENERAL;
     }
 
-    /* tvservice EDID DDC reading removed. Default to SDR capability. */
-    /* For HDR detection via DRM EDID, use display module's EDID parser. */
-    *capabilities = dsHDRSTANDARD_SDR;
-    hal_dbg("EDID HDR capability detection not available (tvservice removed); defaulting to SDR.\n");
+    *capabilities = (int)dsHDRSTANDARD_SDR;
+
+    unsigned char *edid_buf = NULL;
+    int edid_len = 0;
+
+    if (getHdmiEdidForConnectedDisplay(dsVIDEOPORT_TYPE_HDMI, 0, &edid_buf, &edid_len) != dsERR_NONE) {
+        hal_warn("EDID unavailable; defaulting HDR capabilities to SDR\n");
+        return dsERR_NONE;
+    }
+
+    HdrParseContext_t ctx = { .capabilities = capabilities };
+    (void)dshalEdidForEachCtaDataBlock(edid_buf, edid_len, parseHdrFromCtaDataBlock, &ctx);
+
+    free(edid_buf);
+    hal_dbg("TV HDR capabilities from EDID: 0x%x\n", *capabilities);
     return dsERR_NONE;
 }
 
@@ -1160,54 +1266,17 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
 
         /* Enumerate only the VICs advertised in the connected display's EDID
          * to avoid reporting unsupported modes from the static resolution map. */
-        intptr_t dispHandle = (intptr_t)NULL;
-        unsigned char *edid_buf = (unsigned char *)calloc(MAX_EDID_BYTES_LEN, sizeof(unsigned char));
+        unsigned char *edid_buf = NULL;
         int edid_len = 0;
 
-        if (edid_buf == NULL) {
-            hal_err("Failed to allocate EDID buffer\n");
-            return dsERR_GENERAL;
-        }
-
-        if (dsGetDisplay(dsVIDEOPORT_TYPE_HDMI, 0, &dispHandle) != dsERR_NONE ||
-            dsGetEDIDBytes(dispHandle, edid_buf, &edid_len) != dsERR_NONE ||
-            edid_len < 128) {
+        if (getHdmiEdidForConnectedDisplay(dsVIDEOPORT_TYPE_HDMI, 0, &edid_buf, &edid_len) != dsERR_NONE) {
             hal_warn("EDID unavailable; cannot report supported TV resolutions\n");
-            free(edid_buf);
             return dsERR_NONE;
         }
 
         /* Walk CTA-861 extension blocks for Short Video Descriptors (SVDs). */
-        int num_ext = edid_buf[126];
-        for (int ext = 0; ext < num_ext; ext++) {
-            int blk_start = (ext + 1) * 128;
-            if (blk_start + 127 >= edid_len) {
-                break;
-            }
-            const unsigned char *blk = edid_buf + blk_start;
-            if (blk[0] != 0x02) { /* CTA-861 extension tag */
-                continue;
-            }
-            int dtd_offset = blk[2];
-            if (dtd_offset < 4) {
-                continue;
-            }
-            int pos = 4;
-            while (pos < dtd_offset && pos < 127) {
-                int tag    = (blk[pos] >> 5) & 0x07;
-                int length = blk[pos] & 0x1F;
-                if (tag == 2) { /* Video Data Block */
-                    for (int s = 1; s <= length && (pos + s) < 128; s++) {
-                        int vic = blk[pos + s] & 0x7F;
-                        const dsTVResolution_t *tvRes = getResolutionFromVic(vic);
-                        if (tvRes != NULL) {
-                            *resolutions |= (int)(*tvRes);
-                        }
-                    }
-                }
-                pos += 1 + length;
-            }
-        }
+        TvResolutionParseContext_t ctx = { .resolutions = resolutions };
+        (void)dshalEdidForEachCtaDataBlock(edid_buf, edid_len, parseSupportedResolutionsFromCtaDataBlock, &ctx);
 
         free(edid_buf);
     } else {
@@ -1270,71 +1339,16 @@ dsError_t  dsIsDisplaySurround(intptr_t handle, bool *surround)
         return dsERR_GENERAL;
     }
 
-    intptr_t dispHandle = (intptr_t)NULL;
-    unsigned char *edid_buf = (unsigned char *)calloc(MAX_EDID_BYTES_LEN, sizeof(unsigned char));
+    unsigned char *edid_buf = NULL;
     int edid_len = 0;
 
-    if (edid_buf == NULL) {
-        hal_err("Failed to allocate EDID buffer\n");
-        return dsERR_GENERAL;
-    }
-
-    if (dsGetDisplay(dsVIDEOPORT_TYPE_HDMI, 0, &dispHandle) != dsERR_NONE ||
-            dsGetEDIDBytes(dispHandle, edid_buf, &edid_len) != dsERR_NONE ||
-            edid_len < EDID_BLOCK_SIZE) {
+    if (getHdmiEdidForConnectedDisplay(dsVIDEOPORT_TYPE_HDMI, 0, &edid_buf, &edid_len) != dsERR_NONE) {
         hal_warn("EDID unavailable; cannot determine surround support\n");
-        free(edid_buf);
         return dsERR_GENERAL;
     }
 
-    int num_ext = edid_buf[EDID_NUM_EXTENSIONS_OFFSET] & 0xFF;
-    for (int ext = 0; ext < num_ext; ext++) {
-        int blk_start = (ext + 1) * EDID_BLOCK_SIZE;
-        if (blk_start + (EDID_BLOCK_SIZE - 1) >= edid_len) {
-            break;
-        }
-
-        const unsigned char *blk = edid_buf + blk_start;
-        if (blk[0] != EDID_CTA_EXTENSION_TAG) {
-            continue;
-        }
-
-        int dtd_offset = blk[EDID_CTA_DTD_OFFSET_INDEX];
-        if (dtd_offset < EDID_CTA_DATA_BLOCK_COLLECTION_START || dtd_offset > EDID_CTA_MAX_OFFSET) {
-            continue;
-        }
-
-        int pos = EDID_CTA_DATA_BLOCK_COLLECTION_START;
-        while (pos < dtd_offset && pos < EDID_CTA_MAX_OFFSET) {
-            int tag = (blk[pos] & EDID_CTA_DATA_BLOCK_TAG_MASK) >> 5;
-            int length = blk[pos] & EDID_CTA_DATA_BLOCK_LEN_MASK;
-            int data_start = pos + 1;
-            int data_end = data_start + length;
-
-            if (data_end > EDID_BLOCK_SIZE) {
-                break;
-            }
-
-            if (tag == EDID_CTA_DATA_BLOCK_TAG_AUDIO) {
-                for (int i = data_start; (i + (EDID_CTA_SAD_LENGTH - 1)) < data_end; i += EDID_CTA_SAD_LENGTH) {
-                    int channels = (blk[i] & 0x07) + 1;
-                    if (channels > 2) {
-                        *surround = true;
-                        break;
-                    }
-                }
-                if (*surround) {
-                    break;
-                }
-            }
-
-            pos = data_end;
-        }
-
-        if (*surround) {
-            break;
-        }
-    }
+    SurroundParseContext_t ctx = { .surround = surround };
+    (void)dshalEdidForEachCtaDataBlock(edid_buf, edid_len, parseSurroundFromCtaDataBlock, &ctx);
 
     free(edid_buf);
     hal_info("Display surround support: %s\n", *surround ? "true" : "false");
@@ -1590,7 +1604,7 @@ dsError_t dsGetMatrixCoefficients(intptr_t handle, dsDisplayMatrixCoefficients_t
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
-    if (drm_get_hdmi_connector_state(&drmConnected, &drmEnabled)) {
+    if (!drm_get_hdmi_connector_state(&drmConnected, &drmEnabled)) {
         hal_err("Failed to get HDMI connector state\n");
         return dsERR_GENERAL;
     }
@@ -1729,7 +1743,8 @@ dsError_t dsGetQuantizationRange(intptr_t handle, dsDisplayQuantizationRange_t *
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
-    if (!drm_get_hdmi_connector_state(NULL, NULL)) {
+    bool drmConnected = false, drmEnabled = false;
+    if (!drm_get_hdmi_connector_state(&drmConnected, &drmEnabled)) {
         *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_UNKNOWN;
         hal_warn("HDMI not connected (DRM), quantization range UNKNOWN\n");
         return dsERR_NONE;
