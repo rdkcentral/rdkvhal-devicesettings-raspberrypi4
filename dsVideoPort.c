@@ -27,6 +27,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <limits.h>
+#include <threads.h>
 
 #include "dsUtl.h"
 #include "dsError.h"
@@ -49,6 +50,7 @@ extern dsRegisterFrameratePostChangeCB_t dsVideoDeviceGetFrameratePostChangeCB(v
 static bool _bIsVideoPortInitialized = false;
 static bool isValidVopHandle(intptr_t handle);
 static const char *dsVideoGetResolution(void);
+
 #define MAX_HDMI_MODE_ID (127)
 
 #ifndef XDG_RUNTIME_DIR
@@ -72,6 +74,82 @@ static bool _bIgnoreEDID = false;
 static bool drm_get_hdmi_connector_state(bool *connected, bool *enabled)
 {
     return dsGetHdmiConnectorState(connected, enabled);
+}
+
+static void resolveResolutionToken(const char *token, char *out, size_t outSize)
+{
+    if (out == NULL || outSize == 0) {
+        return;
+    }
+
+    out[0] = '\0';
+    if (token == NULL || token[0] == '\0') {
+        return;
+    }
+
+    char trimmedToken[64] = {'\0'};
+    strncpy(trimmedToken, token, sizeof(trimmedToken) - 1);
+    trimmedToken[sizeof(trimmedToken) - 1] = '\0';
+
+    size_t len = strlen(trimmedToken);
+    while (len > 0 && isspace((unsigned char)trimmedToken[len - 1])) {
+        trimmedToken[--len] = '\0';
+    }
+
+    if (len == 0) {
+        return;
+    }
+
+    char normalizedToken[64] = {'\0'};
+    int width = -1;
+    int height = -1;
+    int rate = -1;
+    char scanMode = '\0';
+
+    if (sscanf(trimmedToken, "%dx%d%c%d", &width, &height, &scanMode, &rate) == 4) {
+        scanMode = (char)tolower((unsigned char)scanMode);
+        if (width > 0 && height > 0 && rate > 0 && (scanMode == 'p' || scanMode == 'i')) {
+            (void)snprintf(normalizedToken, sizeof(normalizedToken), "%d%c%d", height, scanMode, rate);
+        }
+    }
+
+    const char *candidate = (normalizedToken[0] != '\0') ? normalizedToken : trimmedToken;
+    for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
+        const char *mapRes = resolutionMap[i].rdkRes;
+        size_t mapLen = strlen(mapRes);
+        bool mapHasRate = (mapLen > 0 && isdigit((unsigned char)mapRes[mapLen - 1]));
+
+        if (mapHasRate) {
+            if (strcmp(mapRes, candidate) == 0) {
+                strncpy(out, mapRes, outSize - 1);
+                out[outSize - 1] = '\0';
+                return;
+            }
+        } else {
+            char mapResWithDefaultRate[64] = {'\0'};
+            (void)snprintf(mapResWithDefaultRate, sizeof(mapResWithDefaultRate), "%s60", mapRes);
+            if (strcmp(mapRes, candidate) == 0 || strcmp(mapResWithDefaultRate, candidate) == 0) {
+                strncpy(out, mapRes, outSize - 1);
+                out[outSize - 1] = '\0';
+                return;
+            }
+        }
+    }
+
+    strncpy(out, candidate, outSize - 1);
+    out[outSize - 1] = '\0';
+}
+
+static bool resolutionNamesEquivalent(const char *requested, const char *active)
+{
+    char requestedCanonical[64] = {'\0'};
+    char activeCanonical[64] = {'\0'};
+
+    resolveResolutionToken(requested, requestedCanonical, sizeof(requestedCanonical));
+    resolveResolutionToken(active, activeCanonical, sizeof(activeCanonical));
+
+    return (requestedCanonical[0] != '\0' && activeCanonical[0] != '\0' &&
+            strcmp(requestedCanonical, activeCanonical) == 0);
 }
 
 static dsError_t getHdmiEdidForConnectedDisplay(dsVideoPortType_t video_port_type,
@@ -973,9 +1051,24 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
             hal_err("Failed to set resolution with command '%s', got response '%s'\n", cmdBuf, respBuf);
             return dsERR_GENERAL;
         }
-        /* Verify the mode actually took effect by re-querying the active mode. */
-        const char *activeRes = dsVideoGetResolution();
-        if (activeRes == NULL || strcmp(activeRes, resolution->name) != 0) {
+        /* Verify the mode actually took effect; mode switch can be asynchronous. */
+        const char *activeRes = NULL;
+        bool modeMatched = false;
+        const int verifyAttempts = 20;
+        const struct timespec verifySleep = { .tv_sec = 0, .tv_nsec = 50000000L }; /* 50 ms */
+
+        for (int attempt = 0; attempt < verifyAttempts; attempt++) {
+            activeRes = dsVideoGetResolution();
+            if (activeRes != NULL && resolutionNamesEquivalent(resolution->name, activeRes)) {
+                modeMatched = true;
+                break;
+            }
+            if (attempt < (verifyAttempts - 1)) {
+                thrd_sleep(&verifySleep, NULL);
+            }
+        }
+
+        if (!modeMatched) {
             hal_err("Resolution mismatch after set: requested '%s', active '%s'\n",
                     resolution->name, activeRes ? activeRes : "<unknown>");
             return dsERR_GENERAL;
