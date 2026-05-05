@@ -29,8 +29,11 @@
 #include "dshalLogger.h"
 #include "dsAudioSettings.h"
 
-#define ALSA_CARD_NAME "hw:0"
-#define ALSA_CARD_NAME_FALLBACK "hw:1"
+#define ALSA_CARD_NAME "hw:vc4hdmi0"
+#define ALSA_CARD_NAME_FALLBACK "hw:vc4hdmi1"
+#define ALSA_CARD_INDEX_PRIMARY "hw:0"
+#define ALSA_CARD_INDEX_FALLBACK "hw:1"
+#define ALSA_CARD_DEFAULT "default"
 /* vc4hdmi0 exposes IEC958 controls; PCM/HDMI simple mixer elements are not present on this card. */
 #define ALSA_ELEMENT_NAME "IEC958"
 #define ALSA_SOFTVOL_ELEMENT_NAME "SoftMaster"
@@ -63,6 +66,15 @@ static int dsIec958CtlReadSwitch(const char *s_card, int *iec958_enabled);
 
 static int dsInitAudioMixerElem(const char *s_card, snd_mixer_elem_t **mixer_elem, bool *usingSoftvol)
 {
+    const char *softvolCandidates[] = {
+        ALSA_CARD_DEFAULT,
+        ALSA_CARD_NAME,
+        ALSA_CARD_INDEX_PRIMARY,
+        s_card,
+        ALSA_CARD_NAME_FALLBACK,
+        ALSA_CARD_INDEX_FALLBACK
+    };
+
     if (usingSoftvol != NULL) {
         *usingSoftvol = false;
     }
@@ -71,30 +83,88 @@ static int dsInitAudioMixerElem(const char *s_card, snd_mixer_elem_t **mixer_ele
         return -1;
     }
 
-    if (initAlsa(ALSA_SOFTVOL_ELEMENT_NAME, s_card, mixer_elem) == 0 && (*mixer_elem != NULL)) {
-        if (usingSoftvol != NULL) {
-            *usingSoftvol = true;
+    /* SoftMaster may be exposed on default/card index while IEC958 lives on HDMI card. */
+    for (size_t i = 0; i < (sizeof(softvolCandidates) / sizeof(softvolCandidates[0])); i++) {
+        const char *candidate = softvolCandidates[i];
+        bool duplicate = false;
+
+        if ((candidate == NULL) || (candidate[0] == '\0')) {
+            continue;
         }
+
+        for (size_t j = 0; j < i; j++) {
+            const char *seen = softvolCandidates[j];
+            if ((seen != NULL) && (strcmp(candidate, seen) == 0)) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (duplicate) {
+            continue;
+        }
+
+        if (initAlsa(ALSA_SOFTVOL_ELEMENT_NAME, candidate, mixer_elem) == 0 && (*mixer_elem != NULL)) {
+            if (usingSoftvol != NULL) {
+                *usingSoftvol = true;
+            }
+            if (strcmp(candidate, s_card) != 0) {
+                hal_info("Using SoftMaster control on %s (preferred HDMI card: %s)\n", candidate, s_card);
+            }
+            return 0;
+        }
+    }
+
+    if (initAlsa(ALSA_ELEMENT_NAME, s_card, mixer_elem) == 0 && (*mixer_elem != NULL)) {
         return 0;
     }
 
-    return initAlsa(ALSA_ELEMENT_NAME, s_card, mixer_elem);
+    if ((strcmp(s_card, ALSA_CARD_NAME) != 0) &&
+            (initAlsa(ALSA_ELEMENT_NAME, ALSA_CARD_NAME, mixer_elem) == 0) && (*mixer_elem != NULL)) {
+        return 0;
+    }
+
+    if ((strcmp(s_card, ALSA_CARD_NAME_FALLBACK) != 0) &&
+            (initAlsa(ALSA_ELEMENT_NAME, ALSA_CARD_NAME_FALLBACK, mixer_elem) == 0) && (*mixer_elem != NULL)) {
+        return 0;
+    }
+
+    if ((strcmp(s_card, ALSA_CARD_INDEX_PRIMARY) != 0) &&
+            (initAlsa(ALSA_ELEMENT_NAME, ALSA_CARD_INDEX_PRIMARY, mixer_elem) == 0) && (*mixer_elem != NULL)) {
+        return 0;
+    }
+
+    if ((strcmp(s_card, ALSA_CARD_INDEX_FALLBACK) != 0) &&
+            (initAlsa(ALSA_ELEMENT_NAME, ALSA_CARD_INDEX_FALLBACK, mixer_elem) == 0) && (*mixer_elem != NULL)) {
+        return 0;
+    }
+
+    return -1;
 }
 
 static const char *dsGetPreferredAlsaCard(void)
 {
     static const char *selected_card = NULL;
+    const char *hdmiCardCandidates[] = {
+        ALSA_CARD_NAME,
+        ALSA_CARD_NAME_FALLBACK,
+        ALSA_CARD_INDEX_PRIMARY,
+        ALSA_CARD_INDEX_FALLBACK
+    };
     int iec958_enabled = 0;
 
     if (selected_card != NULL) {
         return selected_card;
     }
 
-    if (dsIec958CtlReadSwitch(ALSA_CARD_NAME, &iec958_enabled) == 0) {
-        selected_card = ALSA_CARD_NAME;
-    } else if (dsIec958CtlReadSwitch(ALSA_CARD_NAME_FALLBACK, &iec958_enabled) == 0) {
-        selected_card = ALSA_CARD_NAME_FALLBACK;
-    } else {
+    for (size_t i = 0; i < (sizeof(hdmiCardCandidates) / sizeof(hdmiCardCandidates[0])); i++) {
+        if (dsIec958CtlReadSwitch(hdmiCardCandidates[i], &iec958_enabled) == 0) {
+            selected_card = hdmiCardCandidates[i];
+            break;
+        }
+    }
+
+    if (selected_card == NULL) {
+        /* Prefer stable card names; retain numeric compatibility as fallback. */
         selected_card = ALSA_CARD_NAME;
     }
 
