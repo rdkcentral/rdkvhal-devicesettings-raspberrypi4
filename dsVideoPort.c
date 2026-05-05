@@ -661,6 +661,13 @@ static const char* dsVideoGetResolution(void)
     if (westerosGLConsoleRWWrapper("get mode", respBuf, sizeof(respBuf))) {
         strncpy(resName, respBuf, sizeof(resName) - 1);
         resName[sizeof(resName) - 1] = '\0';
+
+        int modeStatus = -1;
+        char modeToken[32] = {'\0'};
+        if (sscanf(resName, "%d: mode %31s", &modeStatus, modeToken) == 2 && modeStatus == 0) {
+            strncpy(resName, modeToken, sizeof(resName) - 1);
+            resName[sizeof(resName) - 1] = '\0';
+        }
     } else {
         hal_err("Failed to get current mode, got response '%s'\n", respBuf);
         return NULL;
@@ -846,7 +853,9 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
             hal_err("Failed to run '%s', got response '%s'\n", cmdBuf, respBuf);
             return dsERR_GENERAL;
         }
-        if (strcmp(respBuf, "OK") != 0) {
+        int cmdStatus = -1;
+        bool isStatusPrefixedSuccess = (sscanf(respBuf, "%d:", &cmdStatus) == 1 && cmdStatus == 0);
+        if (strcmp(respBuf, "OK") != 0 && !isStatusPrefixedSuccess) {
             hal_err("Failed to set resolution with command '%s', got response '%s'\n", cmdBuf, respBuf);
             return dsERR_GENERAL;
         }
