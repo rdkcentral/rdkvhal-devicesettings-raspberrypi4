@@ -1330,8 +1330,6 @@ dsError_t  dsIsDisplaySurround(intptr_t handle, bool *surround)
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
-    *surround = false;
-
     bool isConnected = false;
     dsError_t connRet = dsIsDisplayConnected(handle, &isConnected);
     if (connRet != dsERR_NONE || !isConnected) {
@@ -1339,6 +1337,7 @@ dsError_t  dsIsDisplaySurround(intptr_t handle, bool *surround)
         return dsERR_GENERAL;
     }
 
+    *surround = false;
     unsigned char *edid_buf = NULL;
     int edid_len = 0;
 
