@@ -345,7 +345,7 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
         char cmd[256] = {0};
         char resp[256] = {0};
-        const char *xdgRuntimeDir = getXDGRuntimeDir();
+        const char *xdgRuntimeDir = ((getXDGRuntimeDir() != NULL) ? getXDGRuntimeDir() : XDG_RUNTIME_DIR);
 
         if (xdgRuntimeDir == NULL) {
             hal_err("Failed to get XDG_RUNTIME_DIR\n");
@@ -658,16 +658,16 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 static const char* dsVideoGetResolution(void)
 {
     hal_info("invoked.\n");
+    const char *xdgRuntimeDir = ((getXDGRuntimeDir() != NULL) ? getXDGRuntimeDir() : XDG_RUNTIME_DIR);
     char resName[32] = {'\0'};
     const char *resolution_name = NULL;
     char cmdBuf[256] = {'\0'};
     snprintf(cmdBuf, sizeof(cmdBuf)-1,
-             "export XDG_RUNTIME_DIR=%s; westeros-gl-console get mode",
-             XDG_RUNTIME_DIR);
+             "export XDG_RUNTIME_DIR=%s; westeros-gl-console get mode", xdgRuntimeDir);
 
     FILE *fp = popen(cmdBuf, "r");
     if (fp == NULL) {
-        printf("DS_HAL: popen failed\n");
+        hal_err("DS_HAL: popen failed\n");
         return NULL;
     }
 
@@ -758,6 +758,7 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
     /* Auto Select uses 720p. Should be converted to dsVideoPortResolution_t = 720p in DS-VOPConfig, not here */
     hal_info("invoked.\n");
     VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
+    const char *xdgRuntimeDir = ((getXDGRuntimeDir() != NULL) ? getXDGRuntimeDir() : XDG_RUNTIME_DIR);
 
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
@@ -836,7 +837,7 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         }
         //extended command to make resolution setting more synchronous
         snprintf(cmdBuf, sizeof(cmdBuf)-1, "export XDG_RUNTIME_DIR=%s;westeros-gl-console set mode %dx%d%c%d && westeros-gl-console get mode | grep \"Response\"",
-                XDG_RUNTIME_DIR,width,height,interlaced,rate);
+                xdgRuntimeDir, width, height, interlaced, rate);
         hal_dbg("Executing '%s'\n", cmdBuf);
 
         FILE* fp = popen(cmdBuf, "r");
