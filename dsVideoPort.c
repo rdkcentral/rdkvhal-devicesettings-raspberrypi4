@@ -445,7 +445,6 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
     VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
 
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
-        int respEnbaled = 0, respStatus = 0;
         char cmd[256] = {0};
         char resp[256] = {0};
         int cmdLen = snprintf(cmd, sizeof(cmd), "set display enable %d", enabled);
