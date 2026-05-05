@@ -345,20 +345,13 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
         char cmd[256] = {0};
         char resp[256] = {0};
-        const char *xdgRuntimeDir = ((getXDGRuntimeDir() != NULL) ? getXDGRuntimeDir() : XDG_RUNTIME_DIR);
-
-        if (xdgRuntimeDir == NULL) {
-            hal_err("Failed to get XDG_RUNTIME_DIR\n");
-            return dsERR_GENERAL;
-        }
-
-        if ((strlen("export XDG_RUNTIME_DIR=") + strlen(xdgRuntimeDir) + strlen("; westeros-gl-console set display enable ") + 3) > (sizeof(cmd) - 1)) {
+        int cmdLen = snprintf(cmd, sizeof(cmd), "set display enable %d", enabled);
+        if (cmdLen < 0 || cmdLen >= (int)sizeof(cmd)) {
             hal_err("Command buffer is too small\n");
             return dsERR_GENERAL;
         }
 
-        snprintf(cmd, sizeof(cmd), "export XDG_RUNTIME_DIR=%s; westeros-gl-console set display enable %d", xdgRuntimeDir, enabled);
-        if (!westerosRWWrapper(cmd, resp, sizeof(resp))) {
+        if (!westerosGLConsoleRWWrapper(cmd, resp, sizeof(resp))) {
             hal_err("Failed to run '%s', got response '%s'\n", cmd, resp);
             return dsERR_GENERAL;
         }
@@ -662,38 +655,13 @@ static const char* dsVideoGetResolution(void)
     char resName[32] = {'\0'};
     const char *resolution_name = NULL;
     char cmdBuf[256] = {'\0'};
-    snprintf(cmdBuf, sizeof(cmdBuf)-1,
-             "export XDG_RUNTIME_DIR=%s; westeros-gl-console get mode", xdgRuntimeDir);
-
-    FILE *fp = popen(cmdBuf, "r");
-    if (fp == NULL) {
-        hal_err("DS_HAL: popen failed\n");
+    if (westerosGLConsoleRWWrapper("get mode", cmdBuf, sizeof(cmdBuf))) {
+        strncpy(resName, cmdBuf, sizeof(resName) - 1);
+        resName[sizeof(resName) - 1] = '\0';
+    } else {
+        hal_err("Failed to get current mode, got response '%s'\n", cmdBuf);
         return NULL;
     }
-
-    char output[128] = {'\0'};
-    while (fgets(output, sizeof(output)-1, fp)) {
-        int width=-1, height=-1, rate=60;
-
-        if (strstr(output, "Response: [0:")) {
-
-            if (sscanf(output, "Response: [0: mode %dx%dp%d]", &width, &height, &rate) == 3) {
-                snprintf(resName, sizeof(resName), "%dp%d", height, rate);
-                break;
-            }
-            else if (sscanf(output, "Response: [0: mode %dx%di%d]", &width, &height, &rate) == 3) {
-                snprintf(resName, sizeof(resName), "%di%d", height, rate);
-                break;
-            }
-            else if (sscanf(output, "Response: [0: mode %dx%d]", &width, &height) == 2) {
-                rate = 60; // default
-                snprintf(resName, sizeof(resName), "%dp%d", height, rate);
-                break;
-            }
-        }
-    }
-
-    pclose(fp);
 
     hal_info("resName %s\n", resName);
 
@@ -774,7 +742,8 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
     }
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
         hal_dbg("Setting HDMI resolution '%s'\n", resolution->name);
-        char cmdBuf[512] = {'\0'};
+        char cmdBuf[256] = {'\0'};
+        char respBuf[256] = {'\0'};
         int width = -1, height = -1;
         int rate = 60;
         char interlaced = 'n';
@@ -836,26 +805,20 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
             }
         }
         //extended command to make resolution setting more synchronous
-        snprintf(cmdBuf, sizeof(cmdBuf)-1, "export XDG_RUNTIME_DIR=%s;westeros-gl-console set mode %dx%d%c%d && westeros-gl-console get mode | grep \"Response\"",
-                xdgRuntimeDir, width, height, interlaced, rate);
-        hal_dbg("Executing '%s'\n", cmdBuf);
-
-        FILE* fp = popen(cmdBuf, "r");
-        bool success = false;
-        if (NULL != fp) {
-            char output[64] = {'\0'};
-            while (fgets(output, sizeof(output)-1, fp)) {
-                if (strlen(output) && strstr(output, "[0: set")) {
-                    success = true;
-                    break;
-                }
-            }
-            pclose(fp);
-            return success ? dsERR_NONE : dsERR_GENERAL;
-        } else {
-            hal_err("DS_HAL: popen failed\n");
+        snprintf(cmdBuf, sizeof(cmdBuf)-1, "set mode %dx%d%c%d", width, height, interlaced, rate);
+        if (strlen(cmdBuf) >= sizeof(cmdBuf)) {
+            hal_err("Command buffer is too small\n");
             return dsERR_GENERAL;
         }
+        if (!westerosGLConsoleRWWrapper(cmdBuf, respBuf, sizeof(respBuf))) {
+            hal_err("Failed to run '%s', got response '%s'\n", cmdBuf, respBuf);
+            return dsERR_GENERAL;
+        }
+        if (strcmp(respBuf, "OK") != 0) {
+            hal_err("Failed to set resolution with command '%s', got response '%s'\n", cmdBuf, respBuf);
+            return dsERR_GENERAL;
+        }
+        // TODO: see if we need to run 'get mode' here to confirm the resolution change.
     } else {
         hal_err("Unsupported video port type: %d\n", vopHandle->m_vType);
         return dsERR_OPERATION_NOT_SUPPORTED;

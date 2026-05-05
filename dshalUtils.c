@@ -27,6 +27,10 @@
 #include <limits.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <errno.h>
+#include <stddef.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
@@ -595,32 +599,148 @@ const char *getXDGRuntimeDir()
     return NULL;
 }
 
-bool westerosRWWrapper(const char *cmd, char *resp, size_t respSize)
+/**
+ * @brief Send a display command to the westeros display socket and receive the response.
+ * @param cmd The display command to send (for example: 'set display enable 1').
+ *                 set display enable 1/0
+ *                 get mode
+ *                 set mode 1920x1080p25
+ * @param resp Buffer to receive the response from the display socket.
+ * @param respSize Size of the response buffer.
+ * @return true if the command was sent and a response was received successfully, false otherwise.
+ */
+bool westerosGLConsoleRWWrapper(const char *cmd, char *resp, size_t respSize)
 {
-    char buffer[256] = {0};
-    if (NULL == cmd || NULL == resp) {
+    if (cmd == NULL || resp == NULL || respSize == 0) {
         return false;
     }
-    FILE *fp = popen(cmd, "r");
-    if (NULL != fp) {
-        size_t totalLen = 0;
-        while (fgets(buffer, sizeof(buffer), fp) != NULL) {
-            printf("Read '%s'\n", buffer);
-            size_t len = strlen(buffer);
-            if (totalLen + len < respSize - 1) {
-                strncpy(resp + totalLen, buffer, len);
-                totalLen += len;
-            } else {
-                hal_warn("Response buffer is overflowing.\n");
-                strncpy(resp + totalLen, buffer, respSize - totalLen - 1);
-                totalLen = respSize - 1;
-                break;
-            }
+
+    resp[0] = '\0';
+
+    const char *displayCmd = cmd;
+    while (*displayCmd == ' ' || *displayCmd == '\t') {
+        ++displayCmd;
+    }
+
+    if (strstr(displayCmd, "westeros-gl-console") != NULL || strchr(displayCmd, ';') != NULL) {
+        hal_err("westerosGLConsoleRWWrapper expects bare display command (for example: 'set display enable 1')\n");
+        return false;
+    }
+
+    if (*displayCmd == '\0') {
+        hal_err("Missing westeros display command in '%s'\n", cmd);
+        return false;
+    }
+
+    const char *xdgRuntimeDir = (getXDGRuntimeDir() != NULL) ? getXDGRuntimeDir() : getenv("XDG_RUNTIME_DIR");
+    if (xdgRuntimeDir == NULL || xdgRuntimeDir[0] == '\0') {
+        hal_err("XDG_RUNTIME_DIR is not set for westeros command\n");
+        return false;
+    }
+
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_LOCAL;
+
+    int pathLen = snprintf(addr.sun_path, sizeof(addr.sun_path), "%s/%s", xdgRuntimeDir, "display");
+    if (pathLen <= 0 || pathLen >= (int)sizeof(addr.sun_path)) {
+        hal_err("Display socket path is invalid for XDG_RUNTIME_DIR='%s'\n", xdgRuntimeDir);
+        return false;
+    }
+
+    int socketFd = socket(PF_LOCAL, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (socketFd < 0) {
+        hal_err("Unable to open display socket: errno %d\n", errno);
+        return false;
+    }
+
+    int addressSize = pathLen + (int)offsetof(struct sockaddr_un, sun_path);
+    if (connect(socketFd, (struct sockaddr *)&addr, addressSize) < 0) {
+        hal_err("Unable to connect to display socket '%s': errno %d\n", addr.sun_path, errno);
+        close(socketFd);
+        return false;
+    }
+
+    unsigned char tx[PATH_MAX];
+    size_t displayCmdLen = strlen(displayCmd);
+    if (displayCmdLen > sizeof(tx) - 5) {
+        hal_warn("Westeros command is too long, truncating\n");
+        displayCmdLen = sizeof(tx) - 5;
+    }
+
+    size_t txLen = 0;
+    tx[txLen++] = 'D';
+    tx[txLen++] = 'S';
+    tx[txLen++] = (unsigned char)(displayCmdLen + 1);
+    memcpy(&tx[txLen], displayCmd, displayCmdLen + 1);
+    txLen += (displayCmdLen + 1);
+
+    struct iovec txIov;
+    txIov.iov_base = (char *)tx;
+    txIov.iov_len = txLen;
+
+    struct msghdr txMsg;
+    memset(&txMsg, 0, sizeof(txMsg));
+    txMsg.msg_iov = &txIov;
+    txMsg.msg_iovlen = 1;
+
+    ssize_t sentLen;
+    do {
+        sentLen = sendmsg(socketFd, &txMsg, MSG_NOSIGNAL);
+    } while (sentLen < 0 && errno == EINTR);
+
+    if (sentLen != (ssize_t)txLen) {
+        hal_err("Failed to send display command '%s'\n", displayCmd);
+        close(socketFd);
+        return false;
+    }
+
+    unsigned char rx[PATH_MAX] = {0};
+    struct iovec rxIov;
+    rxIov.iov_base = (char *)rx;
+    rxIov.iov_len = sizeof(rx);
+
+    struct msghdr rxMsg;
+    memset(&rxMsg, 0, sizeof(rxMsg));
+    rxMsg.msg_iov = &rxIov;
+    rxMsg.msg_iovlen = 1;
+
+    ssize_t recvLen;
+    do {
+        recvLen = recvmsg(socketFd, &rxMsg, 0);
+    } while (recvLen < 0 && errno == EINTR);
+
+    close(socketFd);
+
+    if (recvLen <= 0) {
+        hal_err("Failed to receive display response for '%s'\n", displayCmd);
+        return false;
+    }
+
+    unsigned char *m = rx;
+    size_t remaining = (size_t)recvLen;
+    while (remaining >= 4) {
+        if (m[0] != 'D' || m[1] != 'S') {
+            break;
         }
-        resp[totalLen] = '\0';
-        pclose(fp);
+
+        int msgLen = m[2];
+        if (remaining < (size_t)(msgLen + 3)) {
+            break;
+        }
+
+        const char *payload = (const char *)&m[3];
+        size_t copyLen = strnlen(payload, (size_t)msgLen);
+        if (copyLen >= respSize) {
+            copyLen = respSize - 1;
+        }
+        memcpy(resp, payload, copyLen);
+        resp[copyLen] = '\0';
+
         return true;
     }
+
+    hal_err("Invalid display response framing for '%s'\n", displayCmd);
     return false;
 }
 
