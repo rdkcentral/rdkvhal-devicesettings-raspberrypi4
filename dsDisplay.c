@@ -950,10 +950,12 @@ dsError_t dsDisplayTerm()
         return dsERR_NOT_INITIALIZED;
     }
 
-    /* Clear initialized flag under mutex so the reporter thread sees it
-     * and skips any pending callbacks before we join it. */
+    /* Clear initialized flag and callback pointer under mutex so that both
+     * the initial-state reporter thread and the HDMI watcher thread stop
+     * firing client callbacks before we join/stop either thread. */
     pthread_mutex_lock(&gHdmiWatcherMutex);
     _bDisplayInited = false;
+    _halcallback = NULL;
     pthread_mutex_unlock(&gHdmiWatcherMutex);
 
     /* Join the initial state reporter thread to ensure it has exited before
