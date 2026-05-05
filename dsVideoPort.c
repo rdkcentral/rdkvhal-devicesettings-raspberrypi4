@@ -651,15 +651,14 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 static const char* dsVideoGetResolution(void)
 {
     hal_info("invoked.\n");
-    const char *xdgRuntimeDir = ((getXDGRuntimeDir() != NULL) ? getXDGRuntimeDir() : XDG_RUNTIME_DIR);
     char resName[32] = {'\0'};
     const char *resolution_name = NULL;
-    char cmdBuf[256] = {'\0'};
-    if (westerosGLConsoleRWWrapper("get mode", cmdBuf, sizeof(cmdBuf))) {
-        strncpy(resName, cmdBuf, sizeof(resName) - 1);
+    char respBuf[256] = {'\0'};
+    if (westerosGLConsoleRWWrapper("get mode", respBuf, sizeof(respBuf))) {
+        strncpy(resName, respBuf, sizeof(resName) - 1);
         resName[sizeof(resName) - 1] = '\0';
     } else {
-        hal_err("Failed to get current mode, got response '%s'\n", cmdBuf);
+        hal_err("Failed to get current mode, got response '%s'\n", respBuf);
         return NULL;
     }
 
@@ -726,7 +725,6 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
     /* Auto Select uses 720p. Should be converted to dsVideoPortResolution_t = 720p in DS-VOPConfig, not here */
     hal_info("invoked.\n");
     VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
-    const char *xdgRuntimeDir = ((getXDGRuntimeDir() != NULL) ? getXDGRuntimeDir() : XDG_RUNTIME_DIR);
 
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;

@@ -62,7 +62,7 @@ extern const size_t noOfItemsInResolutionMap;
 int fill_edid_struct(unsigned char *edid, dsDisplayEDID_t *display, int size);
 void parse_edid(const uint8_t *edid, EDID_t *parsed_edid);
 void print_edid(const EDID_t *parsed_edid);
-bool westerosRWWrapper(const char *cmd, char *resp, size_t respSize);
+bool westerosGLConsoleRWWrapper(const char *cmd, char *resp, size_t respSize);
 const dsTVResolution_t *getResolutionFromVic(int vic);
 const int *getVicFromResolution(dsTVResolution_t resolution);
 const char *getXDGRuntimeDir();
