@@ -187,7 +187,15 @@ char* dsGetValue(char* property)
                     continue;
                 }
                 valBuff_p++;
-                int length = valBuff_p - buff_p -1;
+                ptrdiff_t rawLength = valBuff_p - buff_p - 1;
+                if (rawLength < 0) {
+                    FREE(buff_p);
+                    continue;
+                }
+                size_t length = (size_t)rawLength;
+                if (length >= sizeof(propBuff_p)) {
+                    length = sizeof(propBuff_p) - 1;
+                }
                 memset(propBuff_p,0,sizeof(propBuff_p));
                 memcpy(propBuff_p,buff_p,length);
                 propBuff_p[length] = '\0';
