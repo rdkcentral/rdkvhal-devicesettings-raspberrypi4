@@ -39,6 +39,9 @@
 #include "dshalLogger.h"
 #include "dsVideoPortSettings.h"
 
+/* Forward declarations */
+dsError_t dsGetAudioEncoding(intptr_t handle, dsAudioEncoding_t *encoding);
+
 static bool _bIsVideoPortInitialized = false;
 static bool isValidVopHandle(intptr_t handle);
 static const char *dsVideoGetResolution(void);
