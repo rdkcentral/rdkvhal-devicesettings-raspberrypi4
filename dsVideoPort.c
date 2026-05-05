@@ -644,8 +644,9 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
     if (resolution_name) {
         strncpy(resolution->name, resolution_name, sizeof(resolution->name) - 1);
         resolution->name[sizeof(resolution->name) - 1] = '\0';
+        return dsERR_NONE;
     }
-    return dsERR_NONE;
+    return dsERR_GENERAL;
 }
 
 static const char* dsVideoGetResolution(void)

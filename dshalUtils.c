@@ -663,17 +663,27 @@ bool westerosGLConsoleRWWrapper(const char *cmd, char *resp, size_t respSize)
 
     unsigned char tx[PATH_MAX];
     size_t displayCmdLen = strlen(displayCmd);
-    if (displayCmdLen > sizeof(tx) - 5) {
-        hal_warn("Westeros command is too long, truncating\n");
-        displayCmdLen = sizeof(tx) - 5;
+    size_t payloadLen = displayCmdLen + 1; /* Include terminating NUL per protocol framing. */
+    const size_t maxProtocolPayloadLen = 254; /* One-byte length field; reserve payload to <= 254 bytes. */
+
+    if (payloadLen > maxProtocolPayloadLen) {
+        hal_err("Westeros command is too long for protocol framing (%zu > %zu payload bytes)\n",
+                payloadLen, maxProtocolPayloadLen);
+        close(socketFd);
+        return false;
+    }
+    if (payloadLen > sizeof(tx) - 3) {
+        hal_err("Westeros command payload does not fit tx buffer (%zu bytes)\n", payloadLen);
+        close(socketFd);
+        return false;
     }
 
     size_t txLen = 0;
     tx[txLen++] = 'D';
     tx[txLen++] = 'S';
-    tx[txLen++] = (unsigned char)(displayCmdLen + 1);
-    memcpy(&tx[txLen], displayCmd, displayCmdLen + 1);
-    txLen += (displayCmdLen + 1);
+    tx[txLen++] = (unsigned char)payloadLen;
+    memcpy(&tx[txLen], displayCmd, payloadLen);
+    txLen += payloadLen;
 
     struct iovec txIov;
     txIov.iov_base = (char *)tx;
