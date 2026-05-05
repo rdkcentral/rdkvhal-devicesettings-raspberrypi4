@@ -19,6 +19,7 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <pthread.h>
 #include "dsTypes.h"
 #include "dsVideoDevice.h"
 #include "dsVideoDeviceTypes.h"
@@ -30,6 +31,29 @@ static bool _bVideoDeviceInited = false;
 
 // VideoDevice handle is dummy for RPi.
 static int VDHandle = 0;
+
+static pthread_mutex_t _framerateCbMutex = PTHREAD_MUTEX_INITIALIZER;
+static dsRegisterFrameratePreChangeCB_t _frameratePreCB = NULL;
+static dsRegisterFrameratePostChangeCB_t _frameratePostCB = NULL;
+
+dsRegisterFrameratePreChangeCB_t dsVideoDeviceGetFrameratePreChangeCB(void)
+{
+    dsRegisterFrameratePreChangeCB_t cb = NULL;
+    pthread_mutex_lock(&_framerateCbMutex);
+    cb = _frameratePreCB;
+    pthread_mutex_unlock(&_framerateCbMutex);
+    return cb;
+}
+
+dsRegisterFrameratePostChangeCB_t dsVideoDeviceGetFrameratePostChangeCB(void)
+{
+    dsRegisterFrameratePostChangeCB_t cb = NULL;
+    pthread_mutex_lock(&_framerateCbMutex);
+    cb = _frameratePostCB;
+    pthread_mutex_unlock(&_framerateCbMutex);
+    return cb;
+}
+
 bool dsIsValidVDHandle(intptr_t uHandle)
 {
     hal_info("uHandle is %p\n", uHandle);
@@ -183,6 +207,10 @@ dsError_t dsVideoDeviceTerm()
     if (false == _bVideoDeviceInited) {
         return dsERR_NOT_INITIALIZED;
     }
+    pthread_mutex_lock(&_framerateCbMutex);
+    _frameratePreCB = NULL;
+    _frameratePostCB = NULL;
+    pthread_mutex_unlock(&_framerateCbMutex);
     _bVideoDeviceInited = false;
     return dsERR_NONE;
 }
@@ -499,7 +527,10 @@ dsError_t dsRegisterFrameratePreChangeCB(dsRegisterFrameratePreChangeCB_t CBFunc
         hal_err("Invalid parameter, CBFunc: %p\n", CBFunc);
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    pthread_mutex_lock(&_framerateCbMutex);
+    _frameratePreCB = CBFunc;
+    pthread_mutex_unlock(&_framerateCbMutex);
+    return dsERR_NONE;
 }
 
 /**
@@ -535,5 +566,8 @@ dsError_t dsRegisterFrameratePostChangeCB(dsRegisterFrameratePostChangeCB_t CBFu
         hal_err("Invalid parameter, CBFunc: %p\n", CBFunc);
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    pthread_mutex_lock(&_framerateCbMutex);
+    _frameratePostCB = CBFunc;
+    pthread_mutex_unlock(&_framerateCbMutex);
+    return dsERR_NONE;
 }

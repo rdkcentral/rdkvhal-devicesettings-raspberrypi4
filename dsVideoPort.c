@@ -39,9 +39,12 @@
 #include "dshalUtils.h"
 #include "dshalLogger.h"
 #include "dsVideoPortSettings.h"
+#include "dsVideoDevice.h"
 
 /* Forward declarations */
 dsError_t dsGetAudioEncoding(intptr_t handle, dsAudioEncoding_t *encoding);
+extern dsRegisterFrameratePreChangeCB_t dsVideoDeviceGetFrameratePreChangeCB(void);
+extern dsRegisterFrameratePostChangeCB_t dsVideoDeviceGetFrameratePostChangeCB(void);
 
 static bool _bIsVideoPortInitialized = false;
 static bool isValidVopHandle(intptr_t handle);
@@ -442,6 +445,7 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
     VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
 
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
+        int respEnbaled = 0, respStatus = 0;
         char cmd[256] = {0};
         char resp[256] = {0};
         int cmdLen = snprintf(cmd, sizeof(cmd), "set display enable %d", enabled);
@@ -452,6 +456,12 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
 
         if (!westerosGLConsoleRWWrapper(cmd, resp, sizeof(resp))) {
             hal_err("Failed to run '%s', got response '%s'\n", cmd, resp);
+            return dsERR_GENERAL;
+        }
+
+        hal_dbg("Command '%s' executed, got response '%s'\n", cmd, resp);
+        if (sscanf(resp, "[%d: display set enable %d]", &respStatus, &respEnbaled) != 2) {
+            hal_err("Unexpected response format: '%s'\n", resp);
             return dsERR_GENERAL;
         }
     } else {
@@ -956,6 +966,10 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
             hal_err("Command buffer too small or snprintf error\n");
             return dsERR_GENERAL;
         }
+        dsRegisterFrameratePreChangeCB_t frameratePreCB = dsVideoDeviceGetFrameratePreChangeCB();
+        if (frameratePreCB) {
+            frameratePreCB((unsigned int)rate);
+        }
         if (!westerosGLConsoleRWWrapper(cmdBuf, respBuf, sizeof(respBuf))) {
             hal_err("Failed to run '%s', got response '%s'\n", cmdBuf, respBuf);
             return dsERR_GENERAL;
@@ -965,6 +979,17 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         if (strcmp(respBuf, "OK") != 0 && !isStatusPrefixedSuccess) {
             hal_err("Failed to set resolution with command '%s', got response '%s'\n", cmdBuf, respBuf);
             return dsERR_GENERAL;
+        }
+        /* Verify the mode actually took effect by re-querying the active mode. */
+        const char *activeRes = dsVideoGetResolution();
+        if (activeRes == NULL || strcmp(activeRes, resolution->name) != 0) {
+            hal_err("Resolution mismatch after set: requested '%s', active '%s'\n",
+                    resolution->name, activeRes ? activeRes : "<unknown>");
+            return dsERR_GENERAL;
+        }
+        dsRegisterFrameratePostChangeCB_t frameratePostCB = dsVideoDeviceGetFrameratePostChangeCB();
+        if (frameratePostCB) {
+            frameratePostCB((unsigned int)rate);
         }
     } else {
         hal_err("Unsupported video port type: %d\n", vopHandle->m_vType);
