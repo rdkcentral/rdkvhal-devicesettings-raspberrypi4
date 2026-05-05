@@ -844,9 +844,9 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         }
 
         //extended command to make resolution setting more synchronous
-        snprintf(cmdBuf, sizeof(cmdBuf)-1, "set mode %dx%d%c%d", width, height, interlaced, rate);
-        if (strlen(cmdBuf) >= sizeof(cmdBuf)) {
-            hal_err("Command buffer is too small\n");
+        int snprintfResult = snprintf(cmdBuf, sizeof(cmdBuf), "set mode %dx%d%c%d", width, height, interlaced, rate);
+        if (snprintfResult < 0 || snprintfResult >= (int)sizeof(cmdBuf)) {
+            hal_err("Command buffer too small or snprintf error\n");
             return dsERR_GENERAL;
         }
         if (!westerosGLConsoleRWWrapper(cmdBuf, respBuf, sizeof(respBuf))) {

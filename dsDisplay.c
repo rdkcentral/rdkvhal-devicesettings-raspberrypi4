@@ -474,16 +474,40 @@ dsError_t dsGetDisplayAspectRatio(intptr_t handle, dsVideoAspectRatio_t *aspect)
         return dsERR_GENERAL;
     }
 
-    if (drm_get_preferred_hdmi_mode(mode, sizeof(mode)) && sscanf(mode, "%ux%u", &width, &height) == 2 && height != 0) {
-        if ((unsigned long long)width * 3ULL >= (unsigned long long)height * 4ULL) {
+    /* Query active mode from westeros instead of EDID preferred mode */
+    if (westerosGLConsoleRWWrapper("get mode", mode, sizeof(mode))) {
+        /* Parse response format: "<status>: mode <modestring>" */
+        char modeStr[128] = {0};
+        int modeStatus = -1;
+        if (sscanf(mode, "%d: mode %127s", &modeStatus, modeStr) == 2 && modeStatus == 0) {
+            /* Extract dimensions from modeStr (e.g., "1920x1080i60") */
+            if (sscanf(modeStr, "%ux%u", &width, &height) == 2 && height != 0) {
+                /* Use strict > comparison to properly classify 4:3 modes */
+                if ((unsigned long long)width * 3ULL > (unsigned long long)height * 4ULL) {
+                    *aspect = dsVIDEO_ASPECT_RATIO_16x9;
+                } else {
+                    *aspect = dsVIDEO_ASPECT_RATIO_4x3;
+                }
+                hal_info("PortType:HDMI, active mode %s -> aspect ratio %d\n", modeStr, *aspect);
+            } else {
+                *aspect = dsVIDEO_ASPECT_RATIO_16x9;
+                hal_warn("Unable to parse mode dimensions; defaulting aspect ratio to 16:9\n");
+            }
+        } else {
+            *aspect = dsVIDEO_ASPECT_RATIO_16x9;
+            hal_warn("Unable to get active mode; defaulting aspect ratio to 16:9\n");
+        }
+    } else if (drm_get_preferred_hdmi_mode(mode, sizeof(mode)) && sscanf(mode, "%ux%u", &width, &height) == 2 && height != 0) {
+        /* Fallback to preferred mode if active mode unavailable */
+        if ((unsigned long long)width * 3ULL > (unsigned long long)height * 4ULL) {
             *aspect = dsVIDEO_ASPECT_RATIO_16x9;
         } else {
             *aspect = dsVIDEO_ASPECT_RATIO_4x3;
         }
-        hal_info("PortType:HDMI, DRM mode %s -> aspect ratio %d\n", mode, *aspect);
+        hal_info("PortType:HDMI, DRM preferred mode %s -> aspect ratio %d\n", mode, *aspect);
     } else {
         *aspect = dsVIDEO_ASPECT_RATIO_16x9;
-        hal_warn("Unable to read DRM mode; defaulting aspect ratio to 16:9\n");
+        hal_warn("Unable to read mode; defaulting aspect ratio to 16:9\n");
     }
 
     hal_dbg("Aspect ratio is %d\n", *aspect);

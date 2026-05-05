@@ -31,6 +31,7 @@
 #include <stddef.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/uio.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
