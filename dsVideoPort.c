@@ -458,12 +458,6 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
             hal_err("Failed to run '%s', got response '%s'\n", cmd, resp);
             return dsERR_GENERAL;
         }
-
-        hal_dbg("Command '%s' executed, got response '%s'\n", cmd, resp);
-        if (sscanf(resp, "[%d: display set enable %d]", &respStatus, &respEnbaled) != 2) {
-            hal_err("Unexpected response format: '%s'\n", resp);
-            return dsERR_GENERAL;
-        }
     } else {
         hal_err("Unsupported video port type: %d\n", vopHandle->m_vType);
         return dsERR_OPERATION_NOT_SUPPORTED;
