@@ -34,6 +34,7 @@
 #include "dsVideoPort.h"
 #include "dsVideoResolutionSettings.h"
 #include "dsDisplay.h"
+#include "dsAudio.h"
 #include "dshalUtils.h"
 #include "dshalLogger.h"
 #include "dsVideoPortSettings.h"
@@ -57,6 +58,8 @@ static const char *dsVideoGetResolution(void);
 
 #define EDID_CTA_DATA_BLOCK_TAG_MASK           0xE0
 #define EDID_CTA_DATA_BLOCK_LEN_MASK           0x1F
+#define EDID_CTA_DATA_BLOCK_TAG_AUDIO          0x01
+#define EDID_CTA_SAD_LENGTH                    3
 
 /* CTA extension tags */
 #define EDID_CTA_EXTENSION_TAG                 0x02
@@ -651,6 +654,14 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
     return dsERR_GENERAL;
 }
 
+/**
+ * @brief Gets the current video resolution.
+ *
+ * This function queries the current video resolution from the underlying
+ * platform and normalizes it to a standard format.
+ *
+ * @return const char* - Normalized resolution string or NULL if failed.
+ */
 static const char* dsVideoGetResolution(void)
 {
     hal_info("invoked.\n");
@@ -859,7 +870,6 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
             hal_err("Failed to set resolution with command '%s', got response '%s'\n", cmdBuf, respBuf);
             return dsERR_GENERAL;
         }
-        // TODO: see if we need to run 'get mode' here to confirm the resolution change.
     } else {
         hal_err("Unsupported video port type: %d\n", vopHandle->m_vType);
         return dsERR_OPERATION_NOT_SUPPORTED;
@@ -1044,6 +1054,27 @@ dsError_t dsGetHDCPCurrentProtocol(intptr_t handle, dsHdcpProtocolVersion_t *pro
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
+/**
+ * @brief Gets the HDR capabilities of the TV/display device
+ *
+ * This function is used to get the HDR capabilities of the TV/display device.
+ *
+ * @param[in] handle            - Handle of the video port(TV) returned from dsGetVideoPort()
+ * @param [out] capabilities    - Bitwise OR-ed value of supported HDR standards.  Please refer ::dsHDRStandard_t
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre dsVideoPortInit() and dsGetVideoPort() must be called before calling this API.
+ *
+ * @see dsIsOutputHDR()
+ *
+ * @warning  This API is Not thread safe.
+ */
 dsError_t dsGetTVHDRCapabilities(intptr_t handle, int *capabilities)
 {
     hal_info("invoked.\n");
@@ -1062,16 +1093,16 @@ dsError_t dsGetTVHDRCapabilities(intptr_t handle, int *capabilities)
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
-    *capabilities = dsHDRSTANDARD_SDR;
-
     bool isConnected = false;
     dsError_t connRet = dsIsDisplayConnected(handle, &isConnected);
     if (connRet != dsERR_NONE || !isConnected) {
-        return dsERR_NONE;
+        // If display is not connected, we cannot determine HDR capabilities. Return an error to indicate this state.
+        return dsERR_GENERAL;
     }
 
     /* tvservice EDID DDC reading removed. Default to SDR capability. */
     /* For HDR detection via DRM EDID, use display module's EDID parser. */
+    *capabilities = dsHDRSTANDARD_SDR;
     hal_dbg("EDID HDR capability detection not available (tvservice removed); defaulting to SDR.\n");
     return dsERR_NONE;
 }
@@ -1115,6 +1146,14 @@ dsError_t dsSupportedTvResolutions(intptr_t handle, int *resolutions)
     hal_info("handle = %p\n", (void *)vopHandle);
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
         *resolutions = 0;
+
+        bool isConnected = false;
+        dsError_t connRet = dsIsDisplayConnected(handle, &isConnected);
+        if (connRet != dsERR_NONE || !isConnected) {
+            // Return an error if display is not connected, we cannot determine supported resolutions.
+            hal_err("Display not connected; cannot determine supported resolutions\n");
+            return dsERR_GENERAL;
+        }
 
         /* Enumerate only the VICs advertised in the connected display's EDID
          * to avoid reporting unsupported modes from the static resolution map. */
@@ -1213,16 +1252,90 @@ dsError_t  dsIsDisplaySurround(intptr_t handle, bool *surround)
         hal_err("handle(%p) is invalid or surround(%p) is null.\n", handle, surround);
         return dsERR_INVALID_PARAM;
     }
-    // TODO: RPI4 does support this feature; implement later.
-    /* config.txt with the following
-     * hdmi_group=1
-     * hdmi_mode=16
-     * hdmi_drive=2
-     * hdmi_force_hotplug=1 (optional)
-     * Check the current audio output: amixer cget numid=3
-     * Set the audio output to HDMI: amixer cset numid=3 2
-     */
-    return dsERR_OPERATION_NOT_SUPPORTED;
+
+    VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
+    if (vopHandle->m_vType != dsVIDEOPORT_TYPE_HDMI) {
+        return dsERR_OPERATION_NOT_SUPPORTED;
+    }
+
+    *surround = false;
+
+    bool isConnected = false;
+    dsError_t connRet = dsIsDisplayConnected(handle, &isConnected);
+    if (connRet != dsERR_NONE || !isConnected) {
+        hal_err("Display not connected; cannot determine surround support\n");
+        return dsERR_GENERAL;
+    }
+
+    intptr_t dispHandle = (intptr_t)NULL;
+    unsigned char *edid_buf = (unsigned char *)calloc(MAX_EDID_BYTES_LEN, sizeof(unsigned char));
+    int edid_len = 0;
+
+    if (edid_buf == NULL) {
+        hal_err("Failed to allocate EDID buffer\n");
+        return dsERR_GENERAL;
+    }
+
+    if (dsGetDisplay(dsVIDEOPORT_TYPE_HDMI, 0, &dispHandle) != dsERR_NONE ||
+            dsGetEDIDBytes(dispHandle, edid_buf, &edid_len) != dsERR_NONE ||
+            edid_len < EDID_BLOCK_SIZE) {
+        hal_warn("EDID unavailable; cannot determine surround support\n");
+        free(edid_buf);
+        return dsERR_GENERAL;
+    }
+
+    int num_ext = edid_buf[EDID_NUM_EXTENSIONS_OFFSET] & 0xFF;
+    for (int ext = 0; ext < num_ext; ext++) {
+        int blk_start = (ext + 1) * EDID_BLOCK_SIZE;
+        if (blk_start + (EDID_BLOCK_SIZE - 1) >= edid_len) {
+            break;
+        }
+
+        const unsigned char *blk = edid_buf + blk_start;
+        if (blk[0] != EDID_CTA_EXTENSION_TAG) {
+            continue;
+        }
+
+        int dtd_offset = blk[EDID_CTA_DTD_OFFSET_INDEX];
+        if (dtd_offset < EDID_CTA_DATA_BLOCK_COLLECTION_START || dtd_offset > EDID_CTA_MAX_OFFSET) {
+            continue;
+        }
+
+        int pos = EDID_CTA_DATA_BLOCK_COLLECTION_START;
+        while (pos < dtd_offset && pos < EDID_CTA_MAX_OFFSET) {
+            int tag = (blk[pos] & EDID_CTA_DATA_BLOCK_TAG_MASK) >> 5;
+            int length = blk[pos] & EDID_CTA_DATA_BLOCK_LEN_MASK;
+            int data_start = pos + 1;
+            int data_end = data_start + length;
+
+            if (data_end > EDID_BLOCK_SIZE) {
+                break;
+            }
+
+            if (tag == EDID_CTA_DATA_BLOCK_TAG_AUDIO) {
+                for (int i = data_start; (i + (EDID_CTA_SAD_LENGTH - 1)) < data_end; i += EDID_CTA_SAD_LENGTH) {
+                    int channels = (blk[i] & 0x07) + 1;
+                    if (channels > 2) {
+                        *surround = true;
+                        break;
+                    }
+                }
+                if (*surround) {
+                    break;
+                }
+            }
+
+            pos = data_end;
+        }
+
+        if (*surround) {
+            break;
+        }
+    }
+
+    free(edid_buf);
+    hal_info("Display surround support: %s\n", *surround ? "true" : "false");
+    return dsERR_NONE;
 }
 
 /**
@@ -1248,7 +1361,7 @@ dsError_t  dsIsDisplaySurround(intptr_t handle, bool *surround)
  *
  * @warning  This API is Not thread safe.
  */
-dsError_t  dsGetSurroundMode(intptr_t handle, int *surround)
+dsError_t dsGetSurroundMode(intptr_t handle, int *surround)
 {
     hal_info("invoked.\n");
     if(false == _bIsVideoPortInitialized)
@@ -1260,7 +1373,33 @@ dsError_t  dsGetSurroundMode(intptr_t handle, int *surround)
         hal_err("handle(%p) is invalid or surround(%p) is null.\n", handle, surround);
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+
+    bool isConnected = false;
+    dsError_t connRet = dsIsDisplayConnected(handle, &isConnected);
+    if (connRet != dsERR_NONE || !isConnected) {
+        hal_err("Display not connected; cannot determine surround mode\n");
+        return dsERR_GENERAL;
+    }
+
+    intptr_t audioHandle = (intptr_t)NULL;
+    dsAudioEncoding_t encoding = dsAUDIO_ENC_PCM;
+
+    if (dsGetAudioPort(dsAUDIOPORT_TYPE_HDMI, 0, &audioHandle) == dsERR_NONE &&
+            dsGetAudioEncoding(audioHandle, &encoding) == dsERR_NONE) {
+        if (encoding == dsAUDIO_ENC_EAC3) {
+            *surround = dsSURROUNDMODE_DDPLUS;
+        } else if (encoding == dsAUDIO_ENC_AC3) {
+            *surround = dsSURROUNDMODE_DD;
+        } else {
+            *surround = dsSURROUNDMODE_NONE;
+        }
+        return dsERR_NONE;
+    }
+
+    /* If current audio state is unavailable, return a safe default. */
+    *surround = dsSURROUNDMODE_NONE;
+    hal_warn("Unable to read current audio encoding; defaulting surround mode to NONE\n");
+    return dsERR_NONE;
 }
 
 dsError_t dsVideoFormatUpdateRegisterCB(dsVideoFormatUpdateCB_t cb)
@@ -1448,7 +1587,12 @@ dsError_t dsGetMatrixCoefficients(intptr_t handle, dsDisplayMatrixCoefficients_t
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
-    if (!drm_get_hdmi_connector_state(&drmConnected, &drmEnabled) || !drmConnected) {
+    if (drm_get_hdmi_connector_state(&drmConnected, &drmEnabled)) {
+        hal_err("Failed to get HDMI connector state\n");
+        return dsERR_GENERAL;
+    }
+
+    if (!drmConnected) {
         *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_UNKNOWN;
         hal_warn("HDMI not connected (DRM), matrix coefficients UNKNOWN\n");
         return dsERR_NONE;
@@ -1582,6 +1726,12 @@ dsError_t dsGetQuantizationRange(intptr_t handle, dsDisplayQuantizationRange_t *
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
+    if (!drm_get_hdmi_connector_state(NULL, NULL)) {
+        *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_UNKNOWN;
+        hal_warn("HDMI not connected (DRM), quantization range UNKNOWN\n");
+        return dsERR_NONE;
+    }
+
     *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_FULL;
     hal_dbg("Quantization range defaulted to FULL\n");
     return dsERR_NONE;
@@ -1625,6 +1775,22 @@ dsError_t dsGetCurrentOutputSettings(intptr_t handle, dsHDRStandard_t *video_eot
     VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
     if (vopHandle->m_vType != dsVIDEOPORT_TYPE_HDMI) {
         return dsERR_OPERATION_NOT_SUPPORTED;
+    }
+
+    bool drmConnected = false, drmEnabled = false;
+    if (!drm_get_hdmi_connector_state(&drmConnected, &drmEnabled)) {
+        hal_err("Failed to get HDMI connector state\n");
+        return dsERR_GENERAL;
+    }
+
+    if (!drmConnected) {
+        *video_eotf = dsHDRSTANDARD_SDR;
+        *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_UNKNOWN;
+        *color_space = dsDISPLAY_COLORSPACE_UNKNOWN;
+        *color_depth = dsDISPLAY_COLORDEPTH_UNKNOWN;
+        *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_UNKNOWN;
+        hal_warn("HDMI not connected (DRM), output settings UNKNOWN\n");
+        return dsERR_NONE;
     }
 
     /* RPi4 defaults in DRM-only mode */
