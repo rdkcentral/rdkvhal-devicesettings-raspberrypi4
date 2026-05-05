@@ -61,10 +61,11 @@ dsAudioOutPortConnectCB_t _halhdmiaudioCB = NULL;
 dsAudioFormatUpdateCB_t _halaudioformatCB = NULL;
 pthread_mutex_t gHdmiAudioCbMutex = PTHREAD_MUTEX_INITIALIZER;
 
-static int8_t initAlsa(const char *selemname, const char *s_card, snd_mixer_elem_t **element);
+static int8_t initAlsa(const char *selemname, const char *s_card, snd_mixer_t **mixer, snd_mixer_elem_t **element);
 static int dsIec958CtlReadSwitch(const char *s_card, int *iec958_enabled);
+static void dsCloseMixerHandle(snd_mixer_t **mixer);
 
-static int dsInitAudioMixerElem(const char *s_card, snd_mixer_elem_t **mixer_elem, bool *usingSoftvol)
+static int dsInitAudioMixerElem(const char *s_card, snd_mixer_t **mixer, snd_mixer_elem_t **mixer_elem, bool *usingSoftvol)
 {
     const char *softvolCandidates[] = {
         ALSA_CARD_DEFAULT,
@@ -79,9 +80,12 @@ static int dsInitAudioMixerElem(const char *s_card, snd_mixer_elem_t **mixer_ele
         *usingSoftvol = false;
     }
 
-    if ((s_card == NULL) || (mixer_elem == NULL)) {
+    if ((s_card == NULL) || (mixer == NULL) || (mixer_elem == NULL)) {
         return -1;
     }
+
+    *mixer = NULL;
+    *mixer_elem = NULL;
 
     /* SoftMaster may be exposed on default/card index while IEC958 lives on HDMI card. */
     for (size_t i = 0; i < (sizeof(softvolCandidates) / sizeof(softvolCandidates[0])); i++) {
@@ -103,7 +107,7 @@ static int dsInitAudioMixerElem(const char *s_card, snd_mixer_elem_t **mixer_ele
             continue;
         }
 
-        if (initAlsa(ALSA_SOFTVOL_ELEMENT_NAME, candidate, mixer_elem) == 0 && (*mixer_elem != NULL)) {
+        if (initAlsa(ALSA_SOFTVOL_ELEMENT_NAME, candidate, mixer, mixer_elem) == 0 && (*mixer_elem != NULL)) {
             if (usingSoftvol != NULL) {
                 *usingSoftvol = true;
             }
@@ -114,27 +118,27 @@ static int dsInitAudioMixerElem(const char *s_card, snd_mixer_elem_t **mixer_ele
         }
     }
 
-    if (initAlsa(ALSA_ELEMENT_NAME, s_card, mixer_elem) == 0 && (*mixer_elem != NULL)) {
+    if (initAlsa(ALSA_ELEMENT_NAME, s_card, mixer, mixer_elem) == 0 && (*mixer_elem != NULL)) {
         return 0;
     }
 
     if ((strcmp(s_card, ALSA_CARD_NAME) != 0) &&
-            (initAlsa(ALSA_ELEMENT_NAME, ALSA_CARD_NAME, mixer_elem) == 0) && (*mixer_elem != NULL)) {
+            (initAlsa(ALSA_ELEMENT_NAME, ALSA_CARD_NAME, mixer, mixer_elem) == 0) && (*mixer_elem != NULL)) {
         return 0;
     }
 
     if ((strcmp(s_card, ALSA_CARD_NAME_FALLBACK) != 0) &&
-            (initAlsa(ALSA_ELEMENT_NAME, ALSA_CARD_NAME_FALLBACK, mixer_elem) == 0) && (*mixer_elem != NULL)) {
+            (initAlsa(ALSA_ELEMENT_NAME, ALSA_CARD_NAME_FALLBACK, mixer, mixer_elem) == 0) && (*mixer_elem != NULL)) {
         return 0;
     }
 
     if ((strcmp(s_card, ALSA_CARD_INDEX_PRIMARY) != 0) &&
-            (initAlsa(ALSA_ELEMENT_NAME, ALSA_CARD_INDEX_PRIMARY, mixer_elem) == 0) && (*mixer_elem != NULL)) {
+            (initAlsa(ALSA_ELEMENT_NAME, ALSA_CARD_INDEX_PRIMARY, mixer, mixer_elem) == 0) && (*mixer_elem != NULL)) {
         return 0;
     }
 
     if ((strcmp(s_card, ALSA_CARD_INDEX_FALLBACK) != 0) &&
-            (initAlsa(ALSA_ELEMENT_NAME, ALSA_CARD_INDEX_FALLBACK, mixer_elem) == 0) && (*mixer_elem != NULL)) {
+            (initAlsa(ALSA_ELEMENT_NAME, ALSA_CARD_INDEX_FALLBACK, mixer, mixer_elem) == 0) && (*mixer_elem != NULL)) {
         return 0;
     }
 
@@ -204,16 +208,30 @@ bool dsAudioIsValidHandle(intptr_t uHandle)
     return false;
 }
 
-static int8_t initAlsa(const char *selemname, const char *s_card, snd_mixer_elem_t **element)
+static void dsCloseMixerHandle(snd_mixer_t **mixer)
+{
+    if ((mixer != NULL) && (*mixer != NULL)) {
+        snd_mixer_close(*mixer);
+        *mixer = NULL;
+    }
+}
+
+static int8_t initAlsa(const char *selemname, const char *s_card, snd_mixer_t **mixer, snd_mixer_elem_t **element)
 {
     hal_info("invoked.\n");
     int ret = 0;
     snd_mixer_t *smixer = NULL;
     snd_mixer_selem_id_t *sid = NULL;
 
+    if ((mixer == NULL) || (element == NULL)) {
+        return -1;
+    }
+
+    *mixer = NULL;
+    *element = NULL;
+
     if ((ret = snd_mixer_open(&smixer, 0)) < 0) {
         hal_err("Cannot open sound mixer %s\n", snd_strerror(ret));
-        snd_mixer_close(smixer);
         return ret;
     }
     if ((ret = snd_mixer_attach(smixer, s_card)) < 0) {
@@ -246,11 +264,15 @@ static int8_t initAlsa(const char *selemname, const char *s_card, snd_mixer_elem
     *element = snd_mixer_find_selem(smixer, sid);
     if (NULL == *element) {
         hal_err("Unable to find simple control '%s',%i\n", snd_mixer_selem_id_get_name(sid), snd_mixer_selem_id_get_index(sid));
-        snd_mixer_close(smixer);
+        dsCloseMixerHandle(&smixer);
         ret = -1;
     }
 
     snd_mixer_selem_id_free(sid);
+
+    if (ret == 0) {
+        *mixer = smixer;
+    }
 
     return ret;
 }
@@ -451,13 +473,16 @@ static void dsGetdBRange()
     long min_dB_value, max_dB_value;
     const char *s_card = dsGetPreferredAlsaCard();
     bool usingSoftvol = false;
+    snd_mixer_t *mixer = NULL;
     snd_mixer_elem_t *mixer_elem = NULL;
-    if (dsInitAudioMixerElem(s_card, &mixer_elem, &usingSoftvol) != 0) {
+    if (dsInitAudioMixerElem(s_card, &mixer, &mixer_elem, &usingSoftvol) != 0) {
         hal_err("failed to initialize alsa!\n");
+        dsCloseMixerHandle(&mixer);
         return;
     }
     if (mixer_elem == NULL) {
         hal_err("initAlsa returned mixer_elem as NULL!\n");
+        dsCloseMixerHandle(&mixer);
         return;
     }
     if (!snd_mixer_selem_get_playback_dB_range(mixer_elem, &min_dB_value, &max_dB_value)) {
@@ -469,6 +494,7 @@ static void dsGetdBRange()
     } else {
         hal_err("snd_mixer_selem_get_playback_dB_range failed.\n");
     }
+    dsCloseMixerHandle(&mixer);
 }
 
 /**
@@ -522,6 +548,7 @@ dsError_t dsGetAudioEncoding(intptr_t handle, dsAudioEncoding_t *encoding)
     *encoding = _encoding;
 #else /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
     const char *s_card = dsGetPreferredAlsaCard();
+    snd_mixer_t *mixer = NULL;
     snd_mixer_elem_t *iec958_elem = NULL;
     int iec958_enabled = 0;
 
@@ -529,7 +556,7 @@ dsError_t dsGetAudioEncoding(intptr_t handle, dsAudioEncoding_t *encoding)
     if (dsIec958CtlReadSwitch(s_card, &iec958_enabled) == 0) {
         *encoding = dsEncodingFromIec958Switch(iec958_enabled, _encoding);
         _encoding = *encoding;
-    } else if ((initAlsa("IEC958", s_card, &iec958_elem) == 0) && (iec958_elem != NULL) &&
+    } else if ((initAlsa("IEC958", s_card, &mixer, &iec958_elem) == 0) && (iec958_elem != NULL) &&
             snd_mixer_selem_has_playback_switch(iec958_elem)) {
         if (snd_mixer_selem_get_playback_switch(iec958_elem, SND_MIXER_SCHN_FRONT_LEFT,
                 &iec958_enabled) == 0) {
@@ -543,6 +570,7 @@ dsError_t dsGetAudioEncoding(intptr_t handle, dsAudioEncoding_t *encoding)
         *encoding = _encoding;
         hal_warn("IEC958 control not available; returning cached encoding (%d).\n", *encoding);
     }
+    dsCloseMixerHandle(&mixer);
 #endif /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
     return dsERR_NONE;
 }
@@ -637,6 +665,7 @@ dsError_t dsGetStereoMode(intptr_t handle, dsAudioStereoMode_t *stereoMode)
 #else /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
     const char *s_card = dsGetPreferredAlsaCard();
     const char *element_name = ALSA_ELEMENT_NAME;
+    snd_mixer_t *mixer = NULL;
     snd_mixer_elem_t *mixer_elem = NULL;
     dsAudioEncoding_t encoding = dsAUDIO_ENC_PCM;
     dsError_t ret = dsGetAudioEncoding(handle, &encoding);
@@ -646,11 +675,12 @@ dsError_t dsGetStereoMode(intptr_t handle, dsAudioStereoMode_t *stereoMode)
         return ret;
     }
 
-    if ((initAlsa(element_name, s_card, &mixer_elem) == 0) && (mixer_elem != NULL) &&
+    if ((initAlsa(element_name, s_card, &mixer, &mixer_elem) == 0) && (mixer_elem != NULL) &&
             snd_mixer_selem_is_playback_mono(mixer_elem)) {
         *stereoMode = dsAUDIO_STEREO_MONO;
         _stereoModeHDMI = *stereoMode;
         hal_info("Audio is Mono; returning %d\n", *stereoMode);
+        dsCloseMixerHandle(&mixer);
         return dsERR_NONE;
     }
 
@@ -675,6 +705,7 @@ dsError_t dsGetStereoMode(intptr_t handle, dsAudioStereoMode_t *stereoMode)
 
     _stereoModeHDMI = *stereoMode;
     hal_info("resolved stereo mode - returning %d\n", *stereoMode);
+    dsCloseMixerHandle(&mixer);
 #endif /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
     return dsERR_NONE;
 }
@@ -761,13 +792,16 @@ dsError_t dsIsAudioMute(intptr_t handle, bool *muted)
     }
     const char *s_card = dsGetPreferredAlsaCard();
     bool usingSoftvol = false;
+    snd_mixer_t *mixer = NULL;
     snd_mixer_elem_t *mixer_elem = NULL;
-    if (dsInitAudioMixerElem(s_card, &mixer_elem, &usingSoftvol) != 0) {
+    if (dsInitAudioMixerElem(s_card, &mixer, &mixer_elem, &usingSoftvol) != 0) {
         hal_warn("ALSA mixer not available on HDMI card; mute query unsupported.\n");
+        dsCloseMixerHandle(&mixer);
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
     if (mixer_elem == NULL) {
         hal_warn("No simple mixer control on HDMI card; mute query unsupported.\n");
+        dsCloseMixerHandle(&mixer);
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
     if (snd_mixer_selem_has_playback_switch(mixer_elem)) {
@@ -782,8 +816,10 @@ dsError_t dsIsAudioMute(intptr_t handle, bool *muted)
         *muted = (vol <= min);
     } else {
         hal_warn("No playback switch on HDMI card; mute query unsupported.\n");
+        dsCloseMixerHandle(&mixer);
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
+    dsCloseMixerHandle(&mixer);
     return dsERR_NONE;
 }
 
@@ -822,13 +858,16 @@ dsError_t dsSetAudioMute(intptr_t handle, bool mute)
     }
     const char *s_card = dsGetPreferredAlsaCard();
     bool usingSoftvol = false;
+    snd_mixer_t *mixer = NULL;
     snd_mixer_elem_t *mixer_elem = NULL;
-    if (dsInitAudioMixerElem(s_card, &mixer_elem, &usingSoftvol) != 0) {
+    if (dsInitAudioMixerElem(s_card, &mixer, &mixer_elem, &usingSoftvol) != 0) {
         hal_warn("ALSA mixer not available on HDMI card; mute control unsupported.\n");
+        dsCloseMixerHandle(&mixer);
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
     if (mixer_elem == NULL) {
         hal_warn("No simple mixer control on HDMI card; mute control unsupported.\n");
+        dsCloseMixerHandle(&mixer);
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
     if (snd_mixer_selem_has_playback_switch(mixer_elem)) {
@@ -838,6 +877,7 @@ dsError_t dsSetAudioMute(intptr_t handle, bool mute)
         } else {
             hal_dbg("Audio Unmute success.\n");
         }
+        dsCloseMixerHandle(&mixer);
         return dsERR_NONE;
     }
 
@@ -858,10 +898,12 @@ dsError_t dsSetAudioMute(intptr_t handle, bool mute)
             }
             snd_mixer_selem_set_playback_volume_all(mixer_elem, target);
         }
+        dsCloseMixerHandle(&mixer);
         return dsERR_NONE;
     }
 
     hal_warn("No playback switch on HDMI card; mute control unsupported.\n");
+    dsCloseMixerHandle(&mixer);
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -998,14 +1040,17 @@ dsError_t dsGetAudioGain(intptr_t handle, float *gain)
     bool usingSoftvol = false;
     long vol_min = 0, vol_max = 0;
     double normalized= 0, min_norm = 0;
+    snd_mixer_t *mixer = NULL;
     snd_mixer_elem_t *mixer_elem;
-    if (dsInitAudioMixerElem(s_card, &mixer_elem, &usingSoftvol) != 0) {
+    if (dsInitAudioMixerElem(s_card, &mixer, &mixer_elem, &usingSoftvol) != 0) {
         hal_warn("ALSA mixer not available on HDMI card; gain query unsupported.\n");
+        dsCloseMixerHandle(&mixer);
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
     if (mixer_elem == NULL) {
         hal_warn("No simple mixer control on HDMI card; gain query unsupported.\n");
+        dsCloseMixerHandle(&mixer);
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
@@ -1013,8 +1058,10 @@ dsError_t dsGetAudioGain(intptr_t handle, float *gain)
         snd_mixer_selem_get_playback_volume_range(mixer_elem, &vol_min, &vol_max);
         if (!snd_mixer_selem_get_playback_volume(mixer_elem, SND_MIXER_SCHN_FRONT_LEFT, &value_got)) {
             *gain = round((float)((value_got - vol_min) * 100.0 / (vol_max - vol_min)));
+            dsCloseMixerHandle(&mixer);
             return dsERR_NONE;
         }
+        dsCloseMixerHandle(&mixer);
         return dsERR_GENERAL;
     }
 
@@ -1038,9 +1085,11 @@ dsError_t dsGetAudioGain(intptr_t handle, float *gain)
             *gain = (float)(((int)(100.0f * normalized + 0.5f))/1.0f);
             hal_dbg("Rounded Gain in linear scale %.2f\n", *gain);
         }
+        dsCloseMixerHandle(&mixer);
         return dsERR_NONE;
     }
     hal_err("snd_mixer_selem_get_playback_dB error.\n");
+    dsCloseMixerHandle(&mixer);
     return dsERR_GENERAL;
 }
 
@@ -1061,10 +1110,15 @@ dsError_t dsGetAudioDB(intptr_t handle, float *db)
     const char *s_card = dsGetPreferredAlsaCard();
     bool usingSoftvol = false;
 
+    snd_mixer_t *mixer = NULL;
     snd_mixer_elem_t *mixer_elem = NULL;
-    dsInitAudioMixerElem(s_card, &mixer_elem, &usingSoftvol);
+    if (dsInitAudioMixerElem(s_card, &mixer, &mixer_elem, &usingSoftvol) != 0) {
+        dsCloseMixerHandle(&mixer);
+        return dsERR_OPERATION_NOT_SUPPORTED;
+    }
     if (mixer_elem == NULL) {
         hal_warn("No simple mixer control on HDMI card; dB query unsupported.\n");
+        dsCloseMixerHandle(&mixer);
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
@@ -1073,14 +1127,17 @@ dsError_t dsGetAudioDB(intptr_t handle, float *db)
         snd_mixer_selem_get_playback_volume(mixer_elem, SND_MIXER_SCHN_FRONT_LEFT, &vol);
         snd_mixer_selem_get_playback_volume_range(mixer_elem, &min, &max);
         *db = (float)((vol - min) * 100.0 / (max - min));
+        dsCloseMixerHandle(&mixer);
         return dsERR_NONE;
     }
 
     if (!snd_mixer_selem_get_playback_dB(mixer_elem, SND_MIXER_SCHN_FRONT_LEFT, &db_value)) {
         *db = (float) db_value/100;
+        dsCloseMixerHandle(&mixer);
         return dsERR_NONE;
     }
     hal_err("snd_mixer_selem_get_playback_dB failed.\n");
+    dsCloseMixerHandle(&mixer);
     return dsERR_GENERAL;
 }
 
@@ -1122,13 +1179,16 @@ dsError_t dsGetAudioLevel(intptr_t handle, float *level)
     const char *s_card = dsGetPreferredAlsaCard();
     bool usingSoftvol = false;
 
+    snd_mixer_t *mixer = NULL;
     snd_mixer_elem_t *mixer_elem = NULL;
-    if (dsInitAudioMixerElem(s_card, &mixer_elem, &usingSoftvol) != 0) {
+    if (dsInitAudioMixerElem(s_card, &mixer, &mixer_elem, &usingSoftvol) != 0) {
         hal_warn("ALSA mixer not available on HDMI card; level query unsupported.\n");
+        dsCloseMixerHandle(&mixer);
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
     if (mixer_elem == NULL) {
         hal_warn("No simple mixer control on HDMI card; level query unsupported.\n");
+        dsCloseMixerHandle(&mixer);
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
     if (!snd_mixer_selem_get_playback_volume(mixer_elem, SND_MIXER_SCHN_FRONT_LEFT, &vol_value)) {
@@ -1137,9 +1197,11 @@ dsError_t dsGetAudioLevel(intptr_t handle, float *level)
             min=min/2;
         }
         *level = round((float)((vol_value - min)*100.0/(max - min)));
+        dsCloseMixerHandle(&mixer);
         return dsERR_NONE;
     }
     hal_warn("No playback volume control on HDMI card; level query unsupported.\n");
+    dsCloseMixerHandle(&mixer);
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -1220,6 +1282,7 @@ dsError_t dsSetAudioEncoding(intptr_t handle, dsAudioEncoding_t encoding)
     _encoding = encoding;
 #else /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
     const char *s_card = dsGetPreferredAlsaCard();
+    snd_mixer_t *mixer = NULL;
     snd_mixer_elem_t *iec958_elem = NULL;
     int iec958_enabled = 0;
 
@@ -1230,19 +1293,22 @@ dsError_t dsSetAudioEncoding(intptr_t handle, dsAudioEncoding_t encoding)
 
     /* Prefer snd_ctl path for vc4hdmi0 and fall back to mixer where available. */
     if (dsIec958CtlWriteSwitch(s_card, iec958_enabled) != 0) {
-        if ((initAlsa("IEC958", s_card, &iec958_elem) == 0) && (iec958_elem != NULL) &&
+        if ((initAlsa("IEC958", s_card, &mixer, &iec958_elem) == 0) && (iec958_elem != NULL) &&
                 snd_mixer_selem_has_playback_switch(iec958_elem)) {
             if (snd_mixer_selem_set_playback_switch_all(iec958_elem, iec958_enabled) != 0) {
                 hal_err("Failed to set IEC958 playback switch for encoding(%d).\n", encoding);
+                dsCloseMixerHandle(&mixer);
                 return dsERR_GENERAL;
             }
         } else {
             hal_err("IEC958 control not available; cannot set encoding(%d).\n", encoding);
+            dsCloseMixerHandle(&mixer);
             return dsERR_OPERATION_NOT_SUPPORTED;
         }
     }
 
     _encoding = encoding;
+    dsCloseMixerHandle(&mixer);
 #endif /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
 
     if (_halaudioformatCB != NULL && oldFormat != newFormat) {
@@ -1485,10 +1551,12 @@ dsError_t dsSetAudioGain(intptr_t handle, float gain)
     const char *s_card = dsGetPreferredAlsaCard();
     bool usingSoftvol = false;
     bool enabled = false;
+    snd_mixer_t *mixer = NULL;
     snd_mixer_elem_t *mixer_elem;
 
-    if (dsInitAudioMixerElem(s_card, &mixer_elem, &usingSoftvol) != 0 || mixer_elem == NULL) {
+    if (dsInitAudioMixerElem(s_card, &mixer, &mixer_elem, &usingSoftvol) != 0 || mixer_elem == NULL) {
         hal_err("Failed to initialize ALSA!\n");
+        dsCloseMixerHandle(&mixer);
         return dsERR_GENERAL;
     }
 
@@ -1512,8 +1580,11 @@ dsError_t dsSetAudioGain(intptr_t handle, float gain)
         snd_mixer_selem_set_playback_volume_all(mixer_elem, vol);
         if (enabled) {
             hal_dbg("Muting after changing gain to reset to previous state.\n");
-            return dsSetAudioMute(handle, enabled);
+            dsError_t muteRet = dsSetAudioMute(handle, enabled);
+            dsCloseMixerHandle(&mixer);
+            return muteRet;
         }
+        dsCloseMixerHandle(&mixer);
         return dsERR_NONE;
     }
 
@@ -1536,9 +1607,12 @@ dsError_t dsSetAudioGain(intptr_t handle, float gain)
 
     if (enabled) {
         hal_dbg("Muting after changing gain to reset to previous state.\n");
-        return dsSetAudioMute(handle, enabled);
+        dsError_t muteRet = dsSetAudioMute(handle, enabled);
+        dsCloseMixerHandle(&mixer);
+        return muteRet;
     }
 
+    dsCloseMixerHandle(&mixer);
     return dsERR_NONE;
 #endif /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
 }
@@ -1557,10 +1631,12 @@ dsError_t dsSetAudioDB(intptr_t handle, float db)
 
     const char *s_card = dsGetPreferredAlsaCard();
     bool usingSoftvol = false;
+    snd_mixer_t *mixer = NULL;
     snd_mixer_elem_t *mixer_elem = NULL;
 
-    if (dsInitAudioMixerElem(s_card, &mixer_elem, &usingSoftvol) != 0 || mixer_elem == NULL) {
+    if (dsInitAudioMixerElem(s_card, &mixer, &mixer_elem, &usingSoftvol) != 0 || mixer_elem == NULL) {
         hal_err("Failed to initialize ALSA!\n");
+        dsCloseMixerHandle(&mixer);
         return dsERR_GENERAL;
     }
 
@@ -1573,16 +1649,20 @@ dsError_t dsSetAudioDB(intptr_t handle, float db)
         snd_mixer_selem_get_playback_volume_range(mixer_elem, &min, &max);
         vol = (long)(((db / 100.0f) * (max - min)) + min);
         if (snd_mixer_selem_set_playback_volume_all(mixer_elem, vol) == 0) {
+            dsCloseMixerHandle(&mixer);
             return dsERR_NONE;
         }
+        dsCloseMixerHandle(&mixer);
         return dsERR_GENERAL;
     }
 
     if (snd_mixer_selem_set_playback_dB_all(mixer_elem, (long) db * 100, 0) == 0) {
+        dsCloseMixerHandle(&mixer);
         return dsERR_NONE;
     }
 
     hal_err("snd_mixer_selem_set_playback_dB_all failed.\n");
+    dsCloseMixerHandle(&mixer);
     return dsERR_GENERAL;
 }
 
@@ -1627,10 +1707,12 @@ dsError_t dsSetAudioLevel(intptr_t handle, float level)
 #else /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
     const char *s_card = dsGetPreferredAlsaCard();
     bool usingSoftvol = false;
+    snd_mixer_t *mixer = NULL;
     snd_mixer_elem_t *mixer_elem = NULL;
 
-    if (dsInitAudioMixerElem(s_card, &mixer_elem, &usingSoftvol) != 0 || mixer_elem == NULL) {
+    if (dsInitAudioMixerElem(s_card, &mixer, &mixer_elem, &usingSoftvol) != 0 || mixer_elem == NULL) {
         hal_warn("No simple mixer control on HDMI card; level control unsupported.\n");
+        dsCloseMixerHandle(&mixer);
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
@@ -1644,9 +1726,11 @@ dsError_t dsSetAudioLevel(intptr_t handle, float level)
     hal_info("Setting volume to %ld\n", vol_value);
     if (snd_mixer_selem_set_playback_volume_all(mixer_elem, vol_value) != 0) {
         hal_err("snd_mixer_selem_set_playback_volume_all failed.\n");
+        dsCloseMixerHandle(&mixer);
         return dsERR_GENERAL;
     }
 
+    dsCloseMixerHandle(&mixer);
     return dsERR_NONE;
 #endif /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
 }
