@@ -646,6 +646,8 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         resolution->name[sizeof(resolution->name) - 1] = '\0';
         return dsERR_NONE;
     }
+    resolution->name[0] = '\0';
+    hal_err("Failed to resolve current display mode to RDK resolution token\n");
     return dsERR_GENERAL;
 }
 
@@ -653,6 +655,7 @@ static const char* dsVideoGetResolution(void)
 {
     hal_info("invoked.\n");
     char resName[32] = {'\0'};
+    char normalizedRes[32] = {'\0'};
     const char *resolution_name = NULL;
     char respBuf[256] = {'\0'};
     if (westerosGLConsoleRWWrapper("get mode", respBuf, sizeof(respBuf))) {
@@ -663,7 +666,28 @@ static const char* dsVideoGetResolution(void)
         return NULL;
     }
 
-    hal_info("resName %s\n", resName);
+    size_t resLen = strlen(resName);
+    while (resLen > 0 && isspace((unsigned char)resName[resLen - 1])) {
+        resName[--resLen] = '\0';
+    }
+
+    int width = -1;
+    int height = -1;
+    int rate = -1;
+    char scanMode = '\0';
+    if (sscanf(resName, "%dx%d%c%d", &width, &height, &scanMode, &rate) == 4) {
+        scanMode = (char)tolower((unsigned char)scanMode);
+        if (width > 0 && height > 0 && rate > 0 && (scanMode == 'p' || scanMode == 'i')) {
+            snprintf(normalizedRes, sizeof(normalizedRes), "%d%c%d", height, scanMode, rate);
+        }
+    }
+
+    if (normalizedRes[0] == '\0') {
+        strncpy(normalizedRes, resName, sizeof(normalizedRes) - 1);
+        normalizedRes[sizeof(normalizedRes) - 1] = '\0';
+    }
+
+    hal_info("resName '%s', normalized '%s'\n", resName, normalizedRes);
 
     for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
         const char *mapRes = resolutionMap[i].rdkRes;
@@ -672,7 +696,7 @@ static const char* dsVideoGetResolution(void)
         int hasRate = (len > 0 && isdigit((unsigned char)mapRes[len-1]));
 
         if (hasRate) {
-            if (strcmp(mapRes, resName) == 0) {
+            if (strcmp(mapRes, normalizedRes) == 0) {
                 resolution_name = mapRes;
                 break;
             }
@@ -680,7 +704,7 @@ static const char* dsVideoGetResolution(void)
             char temp[32];
             snprintf(temp,sizeof(temp), "%s60", mapRes);
 
-            if (strcmp(temp, resName) == 0) {
+            if (strcmp(temp, normalizedRes) == 0 || strcmp(mapRes, normalizedRes) == 0) {
                 resolution_name = mapRes;
                 break;
             }
@@ -689,7 +713,7 @@ static const char* dsVideoGetResolution(void)
     if (resolution_name != NULL) {
         hal_info("resolution_name %s\n", resolution_name);
     } else {
-        hal_err("Failed to find matching resolution for '%s'\n", resName);
+        hal_err("Failed to find matching resolution for mode '%s' (normalized '%s')\n", resName, normalizedRes);
     }
 
     return resolution_name;
@@ -771,6 +795,8 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
             rate = 60;
         }
 
+        interlaced = (char)tolower((unsigned char)interlaced);
+
         //if width is missing, set it manually
         if (height > 0) {
             if (width < 0) {
@@ -803,6 +829,13 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
                 }
             }
         }
+
+        if (width <= 0 || height <= 0 || rate <= 0 || (interlaced != 'p' && interlaced != 'i')) {
+            hal_err("Unsupported resolution format '%s' parsed as %dx%d%c%d\n",
+                    resolution->name, width, height, interlaced, rate);
+            return dsERR_INVALID_PARAM;
+        }
+
         //extended command to make resolution setting more synchronous
         snprintf(cmdBuf, sizeof(cmdBuf)-1, "set mode %dx%d%c%d", width, height, interlaced, rate);
         if (strlen(cmdBuf) >= sizeof(cmdBuf)) {

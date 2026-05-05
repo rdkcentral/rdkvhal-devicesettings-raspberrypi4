@@ -685,50 +685,74 @@ bool westerosGLConsoleRWWrapper(const char *cmd, char *resp, size_t respSize)
     memcpy(&tx[txLen], displayCmd, payloadLen);
     txLen += payloadLen;
 
-    struct iovec txIov;
-    txIov.iov_base = (char *)tx;
-    txIov.iov_len = txLen;
+    size_t sentTotal = 0;
+    while (sentTotal < txLen) {
+        struct iovec txIov;
+        txIov.iov_base = (char *)&tx[sentTotal];
+        txIov.iov_len = txLen - sentTotal;
 
-    struct msghdr txMsg;
-    memset(&txMsg, 0, sizeof(txMsg));
-    txMsg.msg_iov = &txIov;
-    txMsg.msg_iovlen = 1;
+        struct msghdr txMsg;
+        memset(&txMsg, 0, sizeof(txMsg));
+        txMsg.msg_iov = &txIov;
+        txMsg.msg_iovlen = 1;
 
-    ssize_t sentLen;
-    do {
-        sentLen = sendmsg(socketFd, &txMsg, MSG_NOSIGNAL);
-    } while (sentLen < 0 && errno == EINTR);
+        ssize_t sentLen;
+        do {
+            sentLen = sendmsg(socketFd, &txMsg, MSG_NOSIGNAL);
+        } while (sentLen < 0 && errno == EINTR);
 
-    if (sentLen != (ssize_t)txLen) {
-        hal_err("Failed to send display command '%s'\n", displayCmd);
-        close(socketFd);
-        return false;
+        if (sentLen <= 0) {
+            hal_err("Failed to send display command '%s'\n", displayCmd);
+            close(socketFd);
+            return false;
+        }
+
+        sentTotal += (size_t)sentLen;
     }
 
     unsigned char rx[PATH_MAX] = {0};
-    struct iovec rxIov;
-    rxIov.iov_base = (char *)rx;
-    rxIov.iov_len = sizeof(rx);
+    size_t recvTotal = 0;
+    while (recvTotal < sizeof(rx)) {
+        ssize_t recvLen;
+        do {
+            recvLen = recv(socketFd, &rx[recvTotal], sizeof(rx) - recvTotal, 0);
+        } while (recvLen < 0 && errno == EINTR);
 
-    struct msghdr rxMsg;
-    memset(&rxMsg, 0, sizeof(rxMsg));
-    rxMsg.msg_iov = &rxIov;
-    rxMsg.msg_iovlen = 1;
+        if (recvLen < 0) {
+            close(socketFd);
+            hal_err("Failed to receive display response for '%s'\n", displayCmd);
+            return false;
+        }
+        if (recvLen == 0) {
+            break;
+        }
 
-    ssize_t recvLen;
-    do {
-        recvLen = recvmsg(socketFd, &rxMsg, 0);
-    } while (recvLen < 0 && errno == EINTR);
+        recvTotal += (size_t)recvLen;
+
+        if (recvTotal >= 3) {
+            if (rx[0] != 'D' || rx[1] != 'S') {
+                break;
+            }
+
+            size_t frameLen = (size_t)rx[2] + 3;
+            if (frameLen > sizeof(rx)) {
+                break;
+            }
+            if (recvTotal >= frameLen) {
+                break;
+            }
+        }
+    }
 
     close(socketFd);
 
-    if (recvLen <= 0) {
+    if (recvTotal == 0) {
         hal_err("Failed to receive display response for '%s'\n", displayCmd);
         return false;
     }
 
     unsigned char *m = rx;
-    size_t remaining = (size_t)recvLen;
+    size_t remaining = recvTotal;
     while (remaining >= 4) {
         if (m[0] != 'D' || m[1] != 'S') {
             break;
