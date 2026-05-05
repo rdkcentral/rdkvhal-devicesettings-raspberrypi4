@@ -730,7 +730,8 @@ bool westerosGLConsoleRWWrapper(const char *cmd, char *resp, size_t respSize)
         }
 
         const char *payload = (const char *)&m[3];
-        size_t copyLen = strnlen(payload, (size_t)msgLen);
+        const char *nulTerminator = memchr(payload, '\0', (size_t)msgLen);
+        size_t copyLen = nulTerminator ? (size_t)(nulTerminator - payload) : (size_t)msgLen;
         if (copyLen >= respSize) {
             copyLen = respSize - 1;
         }
