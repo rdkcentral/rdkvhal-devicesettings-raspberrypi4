@@ -49,11 +49,6 @@ static dsAudioStereoMode_t kFallbackHDMIStereoModes[] DS_SETTINGS_FALLBACK_UNUSE
 	dsAUDIO_STEREO_STEREO, dsAUDIO_STEREO_SURROUND,
 };
 
-static dsVideoPortPortId_t kFallbackConnectedVOPs[dsAUDIOPORT_TYPE_MAX][dsVIDEOPORT_TYPE_MAX] DS_SETTINGS_FALLBACK_UNUSED = {
-	{ 0 },
-	{ {dsVIDEOPORT_TYPE_HDMI, 0}, },
-};
-
 static dsAudioTypeConfig_t kConfigs[] DS_SETTINGS_FALLBACK_UNUSED = {
 	{
 		dsAUDIOPORT_TYPE_HDMI,
@@ -70,7 +65,7 @@ static dsAudioTypeConfig_t kConfigs[] DS_SETTINGS_FALLBACK_UNUSED = {
 static dsAudioPortConfig_t kPorts[] DS_SETTINGS_FALLBACK_UNUSED = {
 	{
 		{dsAUDIOPORT_TYPE_HDMI, 0},
-		kFallbackConnectedVOPs[dsAUDIOPORT_TYPE_HDMI],
+		NULL,
 	},
 };
 #endif /* !DS_HAL_EXPORT_CONFIG_SYMBOLS */
