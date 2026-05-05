@@ -25,6 +25,7 @@
 #include "dsError.h"
 #include "dsConfig.h"
 #include "dshalLogger.h"
+#include <stddef.h>
 
 #define SUCCESS 1
 #define FAILURE 0
@@ -171,7 +172,6 @@ char* dsGetValue(char* property)
     char* buff_p;
     char* valBuff_p;
     char* retValue = NULL;
-    static char valueBuff_p[512];
     char propBuff_p[512];
     char platformFile[512];
     FILE* fptr;
@@ -201,8 +201,13 @@ char* dsGetValue(char* property)
                 propBuff_p[length] = '\0';
                 char* str = strstr(propBuff_p,property);
                 if (str != NULL) {
-                    snprintf(valueBuff_p, sizeof(valueBuff_p), "%s", valBuff_p);
-                    retValue = valueBuff_p;
+                    size_t valLen = strlen(valBuff_p);
+                    if (valLen >= 512) valLen = 511;
+                    retValue = malloc(valLen + 1);
+                    if (retValue != NULL) {
+                        memcpy(retValue, valBuff_p, valLen);
+                        retValue[valLen] = '\0';
+                    }
                     FREE(buff_p);
                     break;
                 }
