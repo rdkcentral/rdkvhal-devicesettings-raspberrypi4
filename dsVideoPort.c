@@ -47,8 +47,6 @@ static bool _bIsVideoPortInitialized = false;
 static bool isValidVopHandle(intptr_t handle);
 static const char *dsVideoGetResolution(void);
 #define MAX_HDMI_MODE_ID (127)
-#define DSVIDEOPORT_EDID_MAX_BLOCKS 4
-#define DSVIDEOPORT_EDID_BUFFER_SIZE (DSHAL_EDID_BLOCK_SIZE * DSVIDEOPORT_EDID_MAX_BLOCKS)
 
 #ifndef XDG_RUNTIME_DIR
 #define XDG_RUNTIME_DIR     "/tmp"
@@ -84,7 +82,7 @@ static dsError_t getHdmiEdidForConnectedDisplay(dsVideoPortType_t video_port_typ
         return dsERR_INVALID_PARAM;
     }
 
-    *edid_buf = (unsigned char *)calloc(DSVIDEOPORT_EDID_BUFFER_SIZE, sizeof(unsigned char));
+    *edid_buf = (unsigned char *)calloc(MAX_EDID_BYTES_LEN, sizeof(unsigned char));
     if (*edid_buf == NULL) {
         return dsERR_GENERAL;
     }
@@ -1743,7 +1741,7 @@ dsError_t dsGetQuantizationRange(intptr_t handle, dsDisplayQuantizationRange_t *
     }
 
     bool drmConnected = false, drmEnabled = false;
-    if (!drm_get_hdmi_connector_state(&drmConnected, &drmEnabled)) {
+    if (!drm_get_hdmi_connector_state(&drmConnected, &drmEnabled) || !drmConnected) {
         *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_UNKNOWN;
         hal_warn("HDMI not connected (DRM), quantization range UNKNOWN\n");
         return dsERR_NONE;

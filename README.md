@@ -23,7 +23,7 @@ LOG.RDK.DSMGR = LOG DEBUG INFO ERROR
 
 ## Audio, Video and Display Management Architecture
 
-Refer [Audio, Video and Display Management Architecture](./AVMANAGEMENT_ARCHITECTURE.md).
+Refer to [Audio, Video and Display Management Architecture](./AVMANAGEMENT_ARCHITECTURE.md).
 
 ## Front Panel LED Behavior (RPi4 ACT LED)
 
