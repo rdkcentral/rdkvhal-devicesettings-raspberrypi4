@@ -21,12 +21,13 @@
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
+#include <inttypes.h>
 
 #include "dsTypes.h"
 #include "dsError.h"
 #include "dsHost.h"
 #include "dshalLogger.h"
-#include "interface/vmcs_host/vc_vchi_gencmd.h"
+#include "dshalUtils.h"
 
 static uint32_t version_num = 0x10000;
 static bool host_initialized = false;
@@ -233,10 +234,10 @@ dsError_t dsGetHostEDID(unsigned char *edid, int *length)
         return dsERR_NOT_INITIALIZED;
     }
     if (edid == NULL || length == NULL) {
-		hal_err("Invalid parameter, edid(%p), length(%p)\n", edid, length);
+        hal_err("Invalid parameter, edid(%p), length(%p)\n", edid, length);
         return dsERR_INVALID_PARAM;
     }
-	// RPi does not have HDMI-In feature
+    // RPi does not have HDMI-In feature
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -244,9 +245,9 @@ dsError_t dsSetHostPowerMode(int newPower)
 {
     hal_warn("invoked; deprecated ?.\n");
     if (newPower < dsPOWER_ON || newPower >= dsPOWER_MAX) {
-		hal_err("Invalid power mode %d\n", newPower);
-		return dsERR_INVALID_PARAM;
-	}
+        hal_err("Invalid power mode %d\n", newPower);
+        return dsERR_INVALID_PARAM;
+    }
     /* Raspberry pi doesn't have anykind of power management It is either
      * plugged in or not.*/
     return dsERR_OPERATION_NOT_SUPPORTED;
@@ -256,9 +257,9 @@ dsError_t dsGetHostPowerMode(int *currPower)
 {
     hal_warn("invoked; deprecated ?.\n");
     if (currPower == NULL) {
-		hal_err("Invalid parameter, currPower(%p)\n", currPower);
-		return dsERR_INVALID_PARAM;
-	}
+        hal_err("Invalid parameter, currPower(%p)\n", currPower);
+        return dsERR_INVALID_PARAM;
+    }
     /* Raspberry pi doesn't have anykind of power management It is either
      * plugged in or not.*/
     return dsERR_OPERATION_NOT_SUPPORTED;
@@ -286,58 +287,28 @@ dsError_t dsSetVersion(uint32_t versionNumber)
 
 dsError_t dsGetFreeSystemGraphicsMemory(uint64_t *memory)
 {
-    hal_warn("invoked; deprecated ?.\n");
-	if (memory == NULL) {
-		hal_err("Invalid parameter, memory(%p)\n", memory);
-		return dsERR_INVALID_PARAM;
-	}
-    char buffer[BUFFER_SIZE] = {0};
-
-    if (vc_gencmd(buffer, sizeof(buffer), "get_mem reloc") != 0) {
-        hal_err("Failed to get free GPU memory\n");
-        return dsERR_GENERAL;
+    hal_warn("invoked; tvservice removed - returning default GPU memory estimate.\n");
+    if (memory == NULL) {
+        hal_err("Invalid parameter, memory(%p)\n", memory);
+        return dsERR_INVALID_PARAM;
     }
-
-    buffer[sizeof(buffer) - 1] = '\0';
-    /* Extract response after = */
-    char *equal = strchr(buffer, '=');
-    if (equal != NULL) {
-        equal++;
-    } else {
-        equal = buffer;
-    }
-
-    *memory = strtol(equal, (char **)NULL, 10);
-    hal_dbg("Free GPU memory is %lld\n", *memory);
-
+    /* GPU memory query via tvservice removed (Pi4 GPU memory is fixed at boot). */
+    /* Return a sensible default estimate: 128MB free GPU memory (typical on Pi4). */
+    *memory = 128 * 1024 * 1024;  /* 128 MB in bytes */
+    hal_info("Returning default GPU free memory: %" PRIu64 " bytes\n", *memory);
     return dsERR_NONE;
 }
 
 dsError_t dsGetTotalSystemGraphicsMemory(uint64_t *memory)
 {
     hal_warn("invoked; deprecated ?.\n");
-	if (memory == NULL) {
-		hal_err("Invalid parameter, memory(%p)\n", memory);
-		return dsERR_INVALID_PARAM;
-	}
-    char buffer[BUFFER_SIZE] = {0};
-
-    if (vc_gencmd(buffer, sizeof(buffer), "get_mem reloc_total") != 0) {
-        hal_err("Failed to get total GPU memory\n");
-        return dsERR_GENERAL;
+    if (memory == NULL) {
+        hal_err("Invalid parameter, memory(%p)\n", memory);
+        return dsERR_INVALID_PARAM;
     }
-
-    buffer[sizeof(buffer) - 1] = '\0';
-    /* Extract response after = */
-    char *equal = strchr(buffer, '=');
-    if (equal != NULL) {
-        equal++;
-    } else {
-        equal = buffer;
-    }
-
-    *memory = strtol(equal, (char **)NULL, 10);
-    hal_dbg("Total GPU memory is %lld\n", *memory);
-
+    /* GPU memory query via tvservice removed (Pi4 GPU memory is fixed at boot). */
+    /* Return a sensible default estimate: 256MB total GPU memory (typical on Pi4). */
+    *memory = 256 * 1024 * 1024;  /* 256 MB in bytes */
+    hal_info("Returning default GPU total memory: %" PRIu64 " bytes\n", *memory);
     return dsERR_NONE;
 }

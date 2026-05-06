@@ -39,46 +39,41 @@
 #define _MAX_VERT_ITER      0
 #define _DEFAULT_COLOR_MODE 0
 
-/*
- * Supported colors for the Power indicator (single green LED).
- */
-dsFPDColorConfig_t kFPDIndicatorColors[] = {
-    {
-        /*.Id = */    0,
-        /*.color = */ dsFPD_COLOR_GREEN,
-    },
+#ifndef DS_SETTINGS_FALLBACK_UNUSED
+#if defined(__GNUC__) || defined(__clang__)
+#define DS_SETTINGS_FALLBACK_UNUSED __attribute__((unused))
+#else
+#define DS_SETTINGS_FALLBACK_UNUSED
+#endif
+#endif
+
+#ifdef DS_HAL_EXPORT_CONFIG_SYMBOLS
+extern dsFPDColorConfig_t       kFPDIndicatorColors[];
+extern dsFPDIndicatorConfig_t   kIndicators[];
+extern dsFPDTextDisplayConfig_t kFPDTextDisplays[];
+extern int                      kFPDIndicatorColors_size;
+extern int                      kIndicators_size;
+extern int                      kFPDTextDisplays_size;
+#else /* !DS_HAL_EXPORT_CONFIG_SYMBOLS */
+/* Static fallback tables for middleware compile-time dsUTL_DIM checks. */
+static dsFPDColorConfig_t kIndicatorColors[] DS_SETTINGS_FALLBACK_UNUSED = {
+	{ 0, dsFPD_COLOR_GREEN },
 };
 
-/*
- * Front Panel Indicator configurations.
- *
- * Only the POWER indicator is supported on RPi4.
- */
-dsFPDIndicatorConfig_t kIndicators[] = {
-    {
-        /*.id = */              dsFPD_INDICATOR_POWER,
-        /*.supportedColors = */ kFPDIndicatorColors,
-        /*.maxBrightness   = */ _MAX_BRIGHTNESS,
-        /*.maxCycleRate    = */ _MAX_CYCLERATE,
-        /*.minBrightness   = */ _MIN_BRIGHTNESS,
-        /*.levels          = */ _DEFAULT_LEVELS,
-        /*.colorMode       = */ _DEFAULT_COLOR_MODE,
-    },
+static dsFPDIndicatorConfig_t kIndicators[] DS_SETTINGS_FALLBACK_UNUSED = {
+	{
+		dsFPD_INDICATOR_POWER,
+		kIndicatorColors,
+		_MAX_BRIGHTNESS,
+		_MAX_CYCLERATE,
+		_MIN_BRIGHTNESS,
+		_DEFAULT_LEVELS,
+		_DEFAULT_COLOR_MODE,
+	},
 };
 
-/*
- * Front Panel Text Display configurations.
- *
- * RPi4 has no 7-segment text display; this array is empty.
- */
-dsFPDTextDisplayConfig_t kFPDTextDisplays[] = {
-};
-
-// Size hardcoded to 0 as sizeof pattern is unsafe on empty arrays.
-int kFPDTextDisplays_size = 0;
-
-int kFPDIndicatorColors_size = sizeof(kFPDIndicatorColors)/sizeof(kFPDIndicatorColors[0]);
-
-int kIndicators_size = sizeof(kIndicators)/sizeof(kIndicators[0]);
+/* one inert entry keeps dsUTL_DIM(kTextDisplays) valid in C/C++ */
+static dsFPDTextDisplayConfig_t kTextDisplays[1] DS_SETTINGS_FALLBACK_UNUSED = { {0} };
+#endif /* !DS_HAL_EXPORT_CONFIG_SYMBOLS */
 
 #endif /* _DS_FPD_SETTINGS_H_ */

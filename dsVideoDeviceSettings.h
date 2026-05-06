@@ -16,28 +16,40 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
- 
+
 #ifndef _DS_VIDEODEVICESETTINGS_H_
 #define _DS_VIDEODEVICESETTINGS_H_
 
 #include "dsUtl.h"
 #include "dsTypes.h"
 
+#ifndef DS_SETTINGS_FALLBACK_UNUSED
+#if defined(__GNUC__) || defined(__clang__)
+#define DS_SETTINGS_FALLBACK_UNUSED __attribute__((unused))
+#else
+#define DS_SETTINGS_FALLBACK_UNUSED
+#endif
+#endif
 
-dsVideoZoom_t kSupportedDFCs[] = { dsVIDEO_ZOOM_NONE, dsVIDEO_ZOOM_FULL, dsVIDEO_ZOOM_PLATFORM};
-dsVideoZoom_t kDefaultDFC 	   = dsVIDEO_ZOOM_NONE;
-
-int kNumVideoDevices = 1;
-
-
-dsVideoConfig_t kVideoDeviceConfigs[]= {
-		{
-		/*.numSupportedDFCs = */ 		dsUTL_DIM(kSupportedDFCs), // 0 means "Info available at runtime"
-		/*.supportedDFCs = */			kSupportedDFCs,
-		/*.defaultDFC = */			    dsVIDEO_ZOOM_NONE,
-		},
+#ifdef DS_HAL_EXPORT_CONFIG_SYMBOLS
+extern dsVideoConfig_t  kVideoDeviceConfigs[];
+extern int              kVideoDeviceConfigs_size;
+extern int              kNumVideoDevices;
+#else /* !DS_HAL_EXPORT_CONFIG_SYMBOLS */
+/* Static fallback tables for middleware compile-time dsUTL_DIM(kConfigs). */
+static dsVideoZoom_t kFallbackSupportedDFCs[] DS_SETTINGS_FALLBACK_UNUSED = {
+	dsVIDEO_ZOOM_NONE, dsVIDEO_ZOOM_FULL, dsVIDEO_ZOOM_PLATFORM
 };
 
-int kVideoDeviceConfigs_size = sizeof(kVideoDeviceConfigs)/sizeof(kVideoDeviceConfigs[0]);
+#define kNumVideoDevices 1
 
-#endif /* RPVIDEODEVICESETTINGS_H_ */
+static dsVideoConfig_t kConfigs[] DS_SETTINGS_FALLBACK_UNUSED = {
+	{
+		dsUTL_DIM(kFallbackSupportedDFCs),
+		kFallbackSupportedDFCs,
+		dsVIDEO_ZOOM_NONE,
+	},
+};
+#endif /* !DS_HAL_EXPORT_CONFIG_SYMBOLS */
+
+#endif /* _DS_VIDEODEVICESETTINGS_H_ */

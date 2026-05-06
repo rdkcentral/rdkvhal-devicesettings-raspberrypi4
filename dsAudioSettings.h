@@ -23,41 +23,51 @@
 #include "dsUtl.h"
 #include "dsTypes.h"
 
-/*
- * Setup the supported configurations here.
- */
-dsAudioPortType_t 		kAudioSupportedPortTypes[] 			= { dsAUDIOPORT_TYPE_HDMI };
-dsAudioEncoding_t 		kSupportedHDMIEncodings[]			= { dsAUDIO_ENC_PCM, dsAUDIO_ENC_AC3};
-dsAudioCompression_t 	kSupportedHDMICompressions[] 		= { dsAUDIO_CMP_NONE, dsAUDIO_CMP_LIGHT, dsAUDIO_CMP_MEDIUM, dsAUDIO_CMP_HEAVY, };
-dsAudioStereoMode_t 	kSupportedHDMIStereoModes[] 		= { dsAUDIO_STEREO_STEREO, dsAUDIO_STEREO_SURROUND, };
-
-dsAudioTypeConfig_t 	kAudioConfigs[]= {
-	{
-		/*.typeId = */					dsAUDIOPORT_TYPE_HDMI,
-		/*.name = */					"HDMI", //HDMI
-		/*.numSupportedCompressions = */dsUTL_DIM(kSupportedHDMICompressions),
-		/*.compressions = */			kSupportedHDMICompressions,
-		/*.numSupportedEncodings = */	dsUTL_DIM(kSupportedHDMIEncodings),
-		/*.encodings = */				kSupportedHDMIEncodings,
-		/*.numSupportedStereoModes = */	dsUTL_DIM(kSupportedHDMIStereoModes),
-		/*.stereoModes = */				kSupportedHDMIStereoModes,
-	}
-};
-
-dsVideoPortPortId_t connectedVOPs[dsAUDIOPORT_TYPE_MAX][dsVIDEOPORT_TYPE_MAX] = {
-	{/*VOPs connected to LR Audio */
-
-	},
-	{/*VOPs connected to HDMI Audio */
-		{dsVIDEOPORT_TYPE_HDMI, 0},
-	}
-};
-
-dsAudioPortConfig_t kAudioPorts[] = {
-	{
-		/*.typeId = */ 					{dsAUDIOPORT_TYPE_HDMI, 0},
-		/*.connectedVOPs = */			connectedVOPs[dsAUDIOPORT_TYPE_HDMI],
-	}
-};
-
+#ifndef DS_SETTINGS_FALLBACK_UNUSED
+#if defined(__GNUC__) || defined(__clang__)
+#define DS_SETTINGS_FALLBACK_UNUSED __attribute__((unused))
+#else
+#define DS_SETTINGS_FALLBACK_UNUSED
 #endif
+#endif
+
+#ifdef DS_HAL_EXPORT_CONFIG_SYMBOLS
+extern dsAudioTypeConfig_t  kAudioConfigs[];
+extern dsAudioPortConfig_t  kAudioPorts[];
+extern int                  kAudioConfigs_size;
+extern int                  kAudioPorts_size;
+#else /* !DS_HAL_EXPORT_CONFIG_SYMBOLS */
+/*
+ * Static fallback tables for devicesettings compile-time usage (dsUTL_DIM on kConfigs/kPorts).
+ * Runtime path still uses dlsym symbols from HAL exported tables when available.
+ */
+static dsAudioEncoding_t kFallbackHDMIEncodings[] DS_SETTINGS_FALLBACK_UNUSED = { dsAUDIO_ENC_PCM, dsAUDIO_ENC_AC3 };
+static dsAudioCompression_t kFallbackHDMICompressions[] DS_SETTINGS_FALLBACK_UNUSED = {
+	dsAUDIO_CMP_NONE, dsAUDIO_CMP_LIGHT, dsAUDIO_CMP_MEDIUM, dsAUDIO_CMP_HEAVY,
+};
+static dsAudioStereoMode_t kFallbackHDMIStereoModes[] DS_SETTINGS_FALLBACK_UNUSED = {
+	dsAUDIO_STEREO_STEREO, dsAUDIO_STEREO_SURROUND,
+};
+
+static dsAudioTypeConfig_t kConfigs[] DS_SETTINGS_FALLBACK_UNUSED = {
+	{
+		dsAUDIOPORT_TYPE_HDMI,
+		"HDMI",
+		dsUTL_DIM(kFallbackHDMICompressions),
+		kFallbackHDMICompressions,
+		dsUTL_DIM(kFallbackHDMIEncodings),
+		kFallbackHDMIEncodings,
+		dsUTL_DIM(kFallbackHDMIStereoModes),
+		kFallbackHDMIStereoModes,
+	},
+};
+
+static dsAudioPortConfig_t kPorts[] DS_SETTINGS_FALLBACK_UNUSED = {
+	{
+		{dsAUDIOPORT_TYPE_HDMI, 0},
+		NULL,
+	},
+};
+#endif /* !DS_HAL_EXPORT_CONFIG_SYMBOLS */
+
+#endif /* _DS_AUDIOOUTPUTPORTSETTINGS_H */
