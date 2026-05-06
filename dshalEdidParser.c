@@ -56,7 +56,13 @@ bool dshalEdidForEachCtaDataBlock(const unsigned char *edid,
             int data_start = pos + 1;
             int data_end = data_start + length;
 
-            if (data_end > DSHAL_EDID_BLOCK_SIZE) {
+            /* Reject malformed block headers that do not advance parsing. */
+            if (data_end <= pos) {
+                break;
+            }
+
+            /* Data blocks must stay inside the collection and the 128-byte CTA block. */
+            if (data_end > dtd_offset || data_end > DSHAL_EDID_BLOCK_SIZE) {
                 break;
             }
 
