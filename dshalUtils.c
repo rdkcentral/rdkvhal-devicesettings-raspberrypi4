@@ -655,7 +655,7 @@ bool westerosGLConsoleRWWrapper(const char *cmd, char *resp, size_t respSize)
         return false;
     }
 
-    int addressSize = pathLen + (int)offsetof(struct sockaddr_un, sun_path);
+    int addressSize = (int)offsetof(struct sockaddr_un, sun_path) + pathLen + 1;
     if (connect(socketFd, (struct sockaddr *)&addr, addressSize) < 0) {
         hal_err("Unable to connect to display socket '%s': errno %d\n", addr.sun_path, errno);
         close(socketFd);
