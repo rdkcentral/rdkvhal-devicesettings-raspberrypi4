@@ -16,8 +16,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
 */
-#ifndef _DS_DISPLAY_H_
-#define _DS_DISPLAY_H_
+#ifndef _DS_DEFINITIONS_H_
+#define _DS_DEFINITIONS_H_
+
+#include "dsTypes.h"
+#include "dsError.h"
 
 #define INVALID_HANDLE 0
 #define ISNULL(ptr) (ptr==NULL)
@@ -34,8 +37,8 @@ typedef struct _dsDisplayParam_t {
         dsVideoPortPortId_t portId;
 } dsDisplayParam_t;
 
-dsDisplayParam_t *dsVideoDisplayHandler = '\0';
+extern dsDisplayParam_t *dsVideoDisplayHandler;
 dsError_t dsDisplayHdlCheck(intptr_t handle);
-size_t videoDisplayMaxIndex = 0;
+extern size_t videoDisplayMaxIndex;
 
-#endif
+#endif /* _DS_DEFINITIONS_H_ */

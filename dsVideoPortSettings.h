@@ -24,29 +24,40 @@
 #include "dsUtl.h"
 #include "dsVideoResolutionSettings.h"
 
-/*
- * Setup the supported configurations here.
- */
-static const dsVideoPortType_t kSupportedPortTypes[] = { dsVIDEOPORT_TYPE_HDMI };
+#ifndef DS_SETTINGS_FALLBACK_UNUSED
+#if defined(__GNUC__) || defined(__clang__)
+#define DS_SETTINGS_FALLBACK_UNUSED __attribute__((unused))
+#else
+#define DS_SETTINGS_FALLBACK_UNUSED
+#endif
+#endif
 
-static const dsVideoPortTypeConfig_t kConfigs[] = {
+#ifdef DS_HAL_EXPORT_CONFIG_SYMBOLS
+extern dsVideoPortTypeConfig_t  kVideoPortConfigs[];
+extern dsVideoPortPortConfig_t  kVideoPortPorts[];
+extern int                      kVideoPortConfigs_size;
+extern int                      kVideoPortPorts_size;
+#else /* !DS_HAL_EXPORT_CONFIG_SYMBOLS */
+/* Static fallback tables for middleware compile-time dsUTL_DIM(kConfigs/kPorts). */
+static dsVideoPortTypeConfig_t kConfigs[] DS_SETTINGS_FALLBACK_UNUSED = {
 	{
-		/*.typeId = */					dsVIDEOPORT_TYPE_HDMI,
-		/*.name = */ 					"HDMI",
-		/*.dtcpSupported = */			false,
-		/*.hdcpSupported = */			false,
-		/*.restrictedResolution = */	-1,
-		/*.numSupportedResolutions = */ dsUTL_DIM(kResolutions), // 0 means "Info available at runtime"
-		/*.supportedResolutons = */     kResolutions,
+		dsVIDEOPORT_TYPE_HDMI,
+		"HDMI",
+		false,
+		false,
+		-1,
+		dsUTL_DIM(kResolutions),
+		kResolutions,
 	},
 };
 
-static const dsVideoPortPortConfig_t kPorts[] = {
+static dsVideoPortPortConfig_t kPorts[] DS_SETTINGS_FALLBACK_UNUSED = {
 	{
-		/*.typeId = */ 					{dsVIDEOPORT_TYPE_HDMI, 0},
-		/*.connectedAOP */              {dsAUDIOPORT_TYPE_HDMI, 0},
-		/*.defaultResolution = */		"720p"
+		{dsVIDEOPORT_TYPE_HDMI, 0},
+		{dsAUDIOPORT_TYPE_HDMI, 0},
+		"720p"
 	},
 };
+#endif /* !DS_HAL_EXPORT_CONFIG_SYMBOLS */
 
-#endif /* VIDEOOUTPUTPORTSETTINGS_H_ */
+#endif /* _DS_VIDEOOUTPUTPORTSETTINGS_H_ */

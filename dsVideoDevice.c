@@ -19,16 +19,41 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <pthread.h>
 #include "dsTypes.h"
 #include "dsVideoDevice.h"
 #include "dsVideoDeviceTypes.h"
 #include "dshalUtils.h"
 #include "dshalLogger.h"
+#include "dsVideoDeviceSettings.h"
 
 static bool _bVideoDeviceInited = false;
 
 // VideoDevice handle is dummy for RPi.
 static int VDHandle = 0;
+
+static pthread_mutex_t _framerateCbMutex = PTHREAD_MUTEX_INITIALIZER;
+static dsRegisterFrameratePreChangeCB_t _frameratePreCB = NULL;
+static dsRegisterFrameratePostChangeCB_t _frameratePostCB = NULL;
+
+dsRegisterFrameratePreChangeCB_t dsVideoDeviceGetFrameratePreChangeCB(void)
+{
+    dsRegisterFrameratePreChangeCB_t cb = NULL;
+    pthread_mutex_lock(&_framerateCbMutex);
+    cb = _frameratePreCB;
+    pthread_mutex_unlock(&_framerateCbMutex);
+    return cb;
+}
+
+dsRegisterFrameratePostChangeCB_t dsVideoDeviceGetFrameratePostChangeCB(void)
+{
+    dsRegisterFrameratePostChangeCB_t cb = NULL;
+    pthread_mutex_lock(&_framerateCbMutex);
+    cb = _frameratePostCB;
+    pthread_mutex_unlock(&_framerateCbMutex);
+    return cb;
+}
+
 bool dsIsValidVDHandle(intptr_t uHandle)
 {
     hal_info("uHandle is %p\n", uHandle);
@@ -118,9 +143,10 @@ dsError_t dsSetDFC(intptr_t handle, dsVideoZoom_t dfc)
         return dsERR_NOT_INITIALIZED;
     }
     if (!dsIsValidVDHandle(handle) || !dsVideoPortDFC_isValid(dfc)) {
-		hal_err("Invalid parameter, handle: %p or dfc: %d\n", handle, dfc);
+        hal_err("Invalid parameter, handle: %p or dfc: %d\n", handle, dfc);
         return dsERR_INVALID_PARAM;
     }
+    // RPi4 has no hardware DFC/zoom block, so always return operation not supported.
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -152,7 +178,9 @@ dsError_t dsGetDFC(intptr_t handle, dsVideoZoom_t *dfc)
     if (NULL == dfc || !dsIsValidVDHandle(handle)) {
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    // RPi4 has no hardware DFC/zoom block, so always return "none".
+    *dfc = (dsVideoZoom_t)dsVIDEO_ZOOM_NONE;
+    return dsERR_NONE;
 }
 
 /**
@@ -179,6 +207,10 @@ dsError_t dsVideoDeviceTerm()
     if (false == _bVideoDeviceInited) {
         return dsERR_NOT_INITIALIZED;
     }
+    pthread_mutex_lock(&_framerateCbMutex);
+    _frameratePreCB = NULL;
+    _frameratePostCB = NULL;
+    pthread_mutex_unlock(&_framerateCbMutex);
     _bVideoDeviceInited = false;
     return dsERR_NONE;
 }
@@ -212,7 +244,7 @@ dsError_t dsGetHDRCapabilities(intptr_t handle, int *capabilities)
         return dsERR_INVALID_PARAM;
     }
 
-    *capabilities = ((int)dsHDRSTANDARD_SDR | (int)dsHDRSTANDARD_HDR10 |(int)dsHDRSTANDARD_HLG);
+    *capabilities = ((int)dsHDRSTANDARD_SDR);
 
     hal_info("HDR capabilities set: %d\n", *capabilities);
 
@@ -247,8 +279,8 @@ dsError_t dsGetSupportedVideoCodingFormats(intptr_t handle, unsigned int *suppor
     if (supported_formats == NULL || !dsIsValidVDHandle(handle)) {
         return dsERR_INVALID_PARAM;
     }
-
-    *supported_formats = ((unsigned int) dsVIDEO_CODEC_MPEGHPART2 | (unsigned int) dsVIDEO_CODEC_MPEG4PART10 | (unsigned int) dsVIDEO_CODEC_MPEG2);
+    // RPi4 supports H.264 and MPEG-2 hardware decoding, but not H.265/HEVC.
+    *supported_formats = ((unsigned int) dsVIDEO_CODEC_MPEG4PART10 | (unsigned int) dsVIDEO_CODEC_MPEG2);
 
     return dsERR_NONE;
 }
@@ -279,10 +311,14 @@ dsError_t dsGetVideoCodecInfo(intptr_t handle, dsVideoCodingFormat_t codec, dsVi
         return dsERR_NOT_INITIALIZED;
     }
     if (info == NULL || !dsIsValidVDHandle(handle) || codec <= dsVIDEO_CODEC_MPEGHPART2 || codec >= dsVIDEO_CODEC_MAX) {
-		hal_err("Invalid parameter, handle: %p or info: %p or codec: %d\n", handle, info, codec);
+        hal_err("Invalid parameter, handle: %p or info: %p or codec: %d\n", handle, info, codec);
         return dsERR_INVALID_PARAM;
     }
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    // RPi4 supports H.264 and MPEG-2; neither has HEVC profile entries.
+    // dsVideoCodecProfileSupport_t holds HEVC profile + level — it's purely HEVC-centric.
+    // For RPi4 which supports H.264 and MPEG-2 (not HEVC)
+    info->num_entries = 0;
+    return dsERR_NONE;
 }
 
 /**
@@ -311,10 +347,10 @@ dsError_t dsForceDisableHDRSupport(intptr_t handle, bool disable)
         return dsERR_NOT_INITIALIZED;
     }
     if (!dsIsValidVDHandle(handle)) {
-		hal_err("Invalid parameter, handle: %p\n", handle);
+        hal_err("Invalid parameter, handle: %p\n", handle);
         return dsERR_INVALID_PARAM;
     }
-	hal_dbg("Force disable HDR support is not supported, can't set to %d\n", disable);
+    hal_dbg("Force disable HDR support is not supported, can't set to %d\n", disable);
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -385,12 +421,14 @@ dsError_t dsGetFRFMode(intptr_t handle, int *frfmode)
 }
 
 /**
- * @brief Gets the current framerate of the device
+ * @brief Gets the current panel refresh rate of the device
+ *
+ * For sink devices, this function returns the current panel refresh rate of the device.
+ * For source devices, this function returns dsERR_OPERATION_NOT_SUPPORTED always.
  *
  * @param[in]  handle       - The handle returned from the dsGetVideoDevice() function
- * @param[out] framerate    - Current frame rate will be represented in FPS
- *                             Please refer ::dsVideoFrameRate_t for  max and min framerate.
- *                            Updates the value as a string(eg:"60").
+ * @param[out] framerate    - Current Panel Refresh Rate will be represented.
+ *                            Returns the value as a string(eg:"3840x2160px48")
  *
  * @return dsError_t                        - Status
  * @retval dsERR_NONE                       - Success
@@ -421,14 +459,17 @@ dsError_t dsGetCurrentDisplayframerate(intptr_t handle, char *framerate)
 }
 
 /**
- * @brief Sets the display framerate for the device
+ * @brief Sets the panel refresh rate for the device
+ *
+ * For sink devices, this function sets the panel refresh rate for the device.
+ * For source devices, this function returns dsERR_OPERATION_NOT_SUPPORTED always.
  *
  * @param[in] handle    - The handle returned from the dsGetVideoDevice() function
- * @param[in] framerate - Framerate value to be set frame will be represented in FPS.
- *                        Please refer ::dsVideoFrameRate_t for  max and min framerate.
- *                        Expects the value as a string(eg:"60").
+ * @param[in] framerate - Panel Refresh Rate value to be set which is platform-specific.
+ *                        Expects the value as a string(eg:"3840x2160px48").
+ *                        aaaaxbbbbxyy (aaaaxbbbb - Panel Resolution, yy - Panel Refresh Rate)
  *
- * @return dsError_t                       - Status
+ * @return dsError_t                        - Status
  * @retval dsERR_NONE                       - Success
  * @retval dsERR_NOT_INITIALIZED            - Module is not initialized
  * @retval dsERR_INVALID_PARAM              - Parameter passed to this function is invalid
@@ -457,6 +498,9 @@ dsError_t dsSetDisplayframerate(intptr_t handle, char *framerate)
 /**
  * @brief This function is used to register the callback function for the Display framerate pre change event.
  *
+ * For sink devices, this function registers a callback for Display framerate pre change event.
+ * For source devices, this function returns dsERR_OPERATION_NOT_SUPPORTED always.
+ *
  * @param[in] CBFunc    - Function callback to register for the event.
  *                              See dsRegisterFrameratePreChangeCB_t.
  *
@@ -471,6 +515,7 @@ dsError_t dsSetDisplayframerate(intptr_t handle, char *framerate)
  * @post dsRegisterFrameratePreChangeCB_t callback must be called after calling this function.
  *
  * @warning  This function is Not thread safe.
+ *
  */
 dsError_t dsRegisterFrameratePreChangeCB(dsRegisterFrameratePreChangeCB_t CBFunc)
 {
@@ -478,16 +523,22 @@ dsError_t dsRegisterFrameratePreChangeCB(dsRegisterFrameratePreChangeCB_t CBFunc
     if (false == _bVideoDeviceInited) {
         return dsERR_NOT_INITIALIZED;
     }
-	if (CBFunc == NULL) {
-		hal_err("Invalid parameter, CBFunc: %p\n", CBFunc);
-		return dsERR_INVALID_PARAM;
-	}
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    if (CBFunc == NULL) {
+        hal_err("Invalid parameter, CBFunc: %p\n", CBFunc);
+        return dsERR_INVALID_PARAM;
+    }
+    pthread_mutex_lock(&_framerateCbMutex);
+    _frameratePreCB = CBFunc;
+    pthread_mutex_unlock(&_framerateCbMutex);
+    return dsERR_NONE;
 }
 
 /**
  * @brief This function is used to register a callback function for the Display framerate
  *                      post change event from the HAL side.
+ *
+ * For sink devices, this function registers a callback for Display framerate post change event.
+ * For source devices, this function returns dsERR_OPERATION_NOT_SUPPORTED always.
  *
  * @param[in] CBFunc    - Function to register for the event.
  *                                  See dsRegisterFrameratePostChangeCB_t.
@@ -511,9 +562,12 @@ dsError_t dsRegisterFrameratePostChangeCB(dsRegisterFrameratePostChangeCB_t CBFu
     if (false == _bVideoDeviceInited) {
         return dsERR_NOT_INITIALIZED;
     }
-	if (CBFunc == NULL) {
-		hal_err("Invalid parameter, CBFunc: %p\n", CBFunc);
-		return dsERR_INVALID_PARAM;
-	}
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    if (CBFunc == NULL) {
+        hal_err("Invalid parameter, CBFunc: %p\n", CBFunc);
+        return dsERR_INVALID_PARAM;
+    }
+    pthread_mutex_lock(&_framerateCbMutex);
+    _frameratePostCB = CBFunc;
+    pthread_mutex_unlock(&_framerateCbMutex);
+    return dsERR_NONE;
 }

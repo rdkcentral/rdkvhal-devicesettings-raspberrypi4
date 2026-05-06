@@ -25,9 +25,224 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <limits.h>
+#include <fcntl.h>
+#include <pthread.h>
+#include <errno.h>
+#include <stddef.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <sys/uio.h>
+#include <xf86drm.h>
+#include <xf86drmMode.h>
 
 #include "dshalUtils.h"
 #include "dshalLogger.h"
+
+int dsOpenDrmCardFd(void)
+{
+    const char *cardPath = getenv("WESTEROS_DRM_CARD");
+    if (cardPath == NULL || cardPath[0] == '\0') {
+        cardPath = DRI_CARD;
+    }
+
+    int fd = open(cardPath, O_RDWR);
+    if (fd < 0) {
+        fd = open(cardPath, O_RDONLY);
+    }
+
+    if (fd >= 0) {
+        int flags = fcntl(fd, F_GETFD);
+        if (flags != -1) {
+            (void)fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
+        }
+    }
+
+    return fd;
+}
+
+bool dsGetHdmiConnectorState(bool *connected, bool *enabled)
+{
+    int drmFd = -1;
+    drmModeRes *resources = NULL;
+    bool foundConnector = false;
+    bool bestConnected = false;
+    bool bestEnabled = false;
+
+    if (connected == NULL || enabled == NULL) {
+        return false;
+    }
+
+    *connected = false;
+    *enabled = false;
+
+    drmFd = dsOpenDrmCardFd();
+    if (drmFd < 0) {
+        hal_err("Failed to open DRM card for connector state\n");
+        return false;
+    }
+
+    resources = drmModeGetResources(drmFd);
+    if (!resources) {
+        close(drmFd);
+        return false;
+    }
+
+    for (int i = 0; i < resources->count_connectors; i++) {
+        bool entryConnected = false;
+        bool entryEnabled = false;
+        drmModeConnector *connector = drmModeGetConnectorCurrent(drmFd, resources->connectors[i]);
+
+        if (!connector) {
+            connector = drmModeGetConnector(drmFd, resources->connectors[i]);
+        }
+        if (!connector) {
+            continue;
+        }
+
+        if (connector->connector_type != DRM_MODE_CONNECTOR_HDMIA
+#ifdef DRM_MODE_CONNECTOR_HDMIB
+            && connector->connector_type != DRM_MODE_CONNECTOR_HDMIB
+#endif
+        ) {
+            drmModeFreeConnector(connector);
+            continue;
+        }
+
+        entryConnected = (connector->connection == DRM_MODE_CONNECTED);
+
+        if (connector->encoder_id != 0) {
+            drmModeEncoder *encoder = drmModeGetEncoder(drmFd, connector->encoder_id);
+            if (encoder) {
+                drmModeCrtc *crtc = drmModeGetCrtc(drmFd, encoder->crtc_id);
+                if (crtc) {
+                    entryEnabled = crtc->mode_valid;
+                    drmModeFreeCrtc(crtc);
+                }
+                drmModeFreeEncoder(encoder);
+            }
+        }
+
+        if (!entryEnabled && entryConnected && connector->count_modes > 0 && connector->encoder_id != 0) {
+            entryEnabled = true;
+        }
+
+        if (entryConnected && entryEnabled) {
+            bestConnected = true;
+            bestEnabled = true;
+            foundConnector = true;
+            drmModeFreeConnector(connector);
+            break;
+        }
+
+        if (!foundConnector) {
+            bestConnected = entryConnected;
+            bestEnabled = entryEnabled;
+        }
+
+        foundConnector = true;
+        drmModeFreeConnector(connector);
+    }
+
+    drmModeFreeResources(resources);
+    close(drmFd);
+
+    if (!foundConnector) {
+        return false;
+    }
+
+    *connected = bestConnected;
+    *enabled = bestEnabled;
+    return true;
+}
+
+bool dsGetPreferredHdmiMode(char *mode, size_t len)
+{
+    int drmFd = -1;
+    drmModeRes *resources = NULL;
+    drmModeModeInfo selectedMode = {0};
+    bool haveMode = false;
+    bool selectedConnected = false;
+
+    if (mode == NULL || len == 0) {
+        return false;
+    }
+
+    mode[0] = '\0';
+
+    drmFd = dsOpenDrmCardFd();
+    if (drmFd < 0) {
+        return false;
+    }
+
+    resources = drmModeGetResources(drmFd);
+    if (!resources) {
+        close(drmFd);
+        return false;
+    }
+
+    for (int i = 0; i < resources->count_connectors; i++) {
+        drmModeConnector *connector = drmModeGetConnectorCurrent(drmFd, resources->connectors[i]);
+        if (!connector) {
+            connector = drmModeGetConnector(drmFd, resources->connectors[i]);
+        }
+        if (!connector) {
+            continue;
+        }
+
+        if (connector->connector_type != DRM_MODE_CONNECTOR_HDMIA
+#ifdef DRM_MODE_CONNECTOR_HDMIB
+            && connector->connector_type != DRM_MODE_CONNECTOR_HDMIB
+#endif
+        ) {
+            drmModeFreeConnector(connector);
+            continue;
+        }
+
+        if (connector->count_modes <= 0) {
+            drmModeFreeConnector(connector);
+            continue;
+        }
+
+        int preferredIndex = 0;
+        for (int m = 0; m < connector->count_modes; m++) {
+            if (connector->modes[m].type & DRM_MODE_TYPE_PREFERRED) {
+                preferredIndex = m;
+                break;
+            }
+        }
+
+        bool entryConnected = (connector->connection == DRM_MODE_CONNECTED);
+
+        if (entryConnected) {
+            selectedMode = connector->modes[preferredIndex];
+            haveMode = true;
+            selectedConnected = true;
+            drmModeFreeConnector(connector);
+            break;
+        }
+
+        if (!haveMode) {
+            selectedMode = connector->modes[preferredIndex];
+            haveMode = true;
+        }
+
+        drmModeFreeConnector(connector);
+    }
+
+    drmModeFreeResources(resources);
+    close(drmFd);
+
+    if (!haveMode) {
+        return false;
+    }
+
+    snprintf(mode, len, "%s", selectedMode.name);
+    if (!selectedConnected) {
+        hal_dbg("No connected HDMI mode found; returning first available mode '%s'\n", mode);
+    }
+
+    return (mode[0] != '\0');
+}
 
 const hdmiSupportedRes_t resolutionMap[] = {
     {"480p", 2},       // 720x480p @ 59.94/60Hz
@@ -161,56 +376,6 @@ const VicMapEntry vicMapTable[] = {
 };
 
 #define VIC_MAP_TABLE_SIZE (sizeof(vicMapTable) / sizeof(VicMapEntry))
-
-static uint16_t initialised = 0;
-VCHI_INSTANCE_T vchi_instance;
-VCHI_CONNECTION_T *vchi_connection;
-
-int vchi_tv_init()
-{
-    hal_info("invoked.\n");
-    int res = 0;
-    if (!initialised)
-    {
-        vcos_init();
-        res = vchi_initialise(&vchi_instance);
-        if (res != 0)
-        {
-            hal_err("Failed to initialize VCHI (res=%d)\n", res);
-            return res;
-        }
-
-        res = vchi_connect(NULL, 0, vchi_instance);
-        if (res != 0)
-        {
-            hal_err("Failed to create VCHI connection (ret=%d)\n", res);
-            return res;
-        }
-
-        // Initialize the tvservice
-        vc_vchi_tv_init(vchi_instance, &vchi_connection, 1);
-        // Initialize the gencmd
-        vc_vchi_gencmd_init(vchi_instance, &vchi_connection, 1);
-        initialised = 1;
-    }
-    return res;
-}
-
-int vchi_tv_uninit()
-{
-    hal_info("invoked.\n");
-    int res = 0;
-    if (initialised)
-    {
-        // Stop the tvservice
-        vc_vchi_tv_stop();
-        vc_gencmd_stop();
-        // Disconnect the VCHI connection
-        vchi_disconnect(vchi_instance);
-        initialised = 0;
-    }
-    return res;
-}
 
 static int detailedBlock(unsigned char *x, int extension, dsDisplayEDID_t *displayEdidInfo)
 {
@@ -435,32 +600,183 @@ const char *getXDGRuntimeDir()
     return NULL;
 }
 
-bool westerosRWWrapper(const char *cmd, char *resp, size_t respSize)
+/**
+ * @brief Send a display command to the westeros display socket and receive the response.
+ * @param cmd The display command to send (for example: 'set display enable 1').
+ *                 set display enable 1/0
+ *                 get mode
+ *                 set mode 1920x1080p25
+ * @param resp Buffer to receive the response from the display socket.
+ * @param respSize Size of the response buffer.
+ * @return true if the command was sent and a response was received successfully, false otherwise.
+ */
+bool westerosGLConsoleRWWrapper(const char *cmd, char *resp, size_t respSize)
 {
-    char buffer[256] = {0};
-    if (NULL == cmd || NULL == resp) {
+    if (cmd == NULL || resp == NULL || respSize == 0) {
         return false;
     }
-    FILE *fp = popen(cmd, "r");
-    if (NULL != fp) {
-        size_t totalLen = 0;
-        while (fgets(buffer, sizeof(buffer), fp) != NULL) {
-            printf("Read '%s'\n", buffer);
-            size_t len = strlen(buffer);
-            if (totalLen + len < respSize - 1) {
-                strncpy(resp + totalLen, buffer, len);
-                totalLen += len;
-            } else {
-                hal_warn("Response buffer is overflowing.\n");
-                strncpy(resp + totalLen, buffer, respSize - totalLen - 1);
-                totalLen = respSize - 1;
+
+    resp[0] = '\0';
+
+    const char *displayCmd = cmd;
+    while (*displayCmd == ' ' || *displayCmd == '\t') {
+        ++displayCmd;
+    }
+
+    if (strstr(displayCmd, "westeros-gl-console") != NULL || strchr(displayCmd, ';') != NULL) {
+        hal_err("westerosGLConsoleRWWrapper expects bare display command (for example: 'set display enable 1')\n");
+        return false;
+    }
+
+    if (*displayCmd == '\0') {
+        hal_err("Missing westeros display command in '%s'\n", cmd);
+        return false;
+    }
+
+    const char *xdgRuntimeDir = (getXDGRuntimeDir() != NULL) ? getXDGRuntimeDir() : getenv("XDG_RUNTIME_DIR");
+    if (xdgRuntimeDir == NULL || xdgRuntimeDir[0] == '\0') {
+        hal_err("XDG_RUNTIME_DIR is not set for westeros command\n");
+        return false;
+    }
+
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_LOCAL;
+
+    int pathLen = snprintf(addr.sun_path, sizeof(addr.sun_path), "%s/%s", xdgRuntimeDir, "display");
+    if (pathLen <= 0 || pathLen >= (int)sizeof(addr.sun_path)) {
+        hal_err("Display socket path is invalid for XDG_RUNTIME_DIR='%s'\n", xdgRuntimeDir);
+        return false;
+    }
+
+    int socketFd = socket(PF_LOCAL, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (socketFd < 0) {
+        hal_err("Unable to open display socket: errno %d\n", errno);
+        return false;
+    }
+
+    int addressSize = (int)offsetof(struct sockaddr_un, sun_path) + pathLen + 1;
+    if (connect(socketFd, (struct sockaddr *)&addr, addressSize) < 0) {
+        hal_err("Unable to connect to display socket '%s': errno %d\n", addr.sun_path, errno);
+        close(socketFd);
+        return false;
+    }
+
+    unsigned char tx[PATH_MAX];
+    size_t displayCmdLen = strlen(displayCmd);
+    size_t payloadLen = displayCmdLen + 1; /* Include terminating NUL per protocol framing. */
+    const size_t maxProtocolPayloadLen = 254; /* One-byte length field; reserve payload to <= 254 bytes. */
+
+    if (payloadLen > maxProtocolPayloadLen) {
+        hal_err("Westeros command is too long for protocol framing (%zu > %zu payload bytes)\n",
+                payloadLen, maxProtocolPayloadLen);
+        close(socketFd);
+        return false;
+    }
+    if (payloadLen > sizeof(tx) - 3) {
+        hal_err("Westeros command payload does not fit tx buffer (%zu bytes)\n", payloadLen);
+        close(socketFd);
+        return false;
+    }
+
+    size_t txLen = 0;
+    tx[txLen++] = 'D';
+    tx[txLen++] = 'S';
+    tx[txLen++] = (unsigned char)payloadLen;
+    memcpy(&tx[txLen], displayCmd, payloadLen);
+    txLen += payloadLen;
+
+    size_t sentTotal = 0;
+    while (sentTotal < txLen) {
+        struct iovec txIov;
+        txIov.iov_base = (char *)&tx[sentTotal];
+        txIov.iov_len = txLen - sentTotal;
+
+        struct msghdr txMsg;
+        memset(&txMsg, 0, sizeof(txMsg));
+        txMsg.msg_iov = &txIov;
+        txMsg.msg_iovlen = 1;
+
+        ssize_t sentLen;
+        do {
+            sentLen = sendmsg(socketFd, &txMsg, MSG_NOSIGNAL);
+        } while (sentLen < 0 && errno == EINTR);
+
+        if (sentLen <= 0) {
+            hal_err("Failed to send display command '%s'\n", displayCmd);
+            close(socketFd);
+            return false;
+        }
+
+        sentTotal += (size_t)sentLen;
+    }
+
+    unsigned char rx[PATH_MAX] = {0};
+    size_t recvTotal = 0;
+    while (recvTotal < sizeof(rx)) {
+        ssize_t recvLen;
+        do {
+            recvLen = recv(socketFd, &rx[recvTotal], sizeof(rx) - recvTotal, 0);
+        } while (recvLen < 0 && errno == EINTR);
+
+        if (recvLen < 0) {
+            close(socketFd);
+            hal_err("Failed to receive display response for '%s'\n", displayCmd);
+            return false;
+        }
+        if (recvLen == 0) {
+            break;
+        }
+
+        recvTotal += (size_t)recvLen;
+
+        if (recvTotal >= 3) {
+            if (rx[0] != 'D' || rx[1] != 'S') {
+                break;
+            }
+
+            size_t frameLen = (size_t)rx[2] + 3;
+            if (frameLen > sizeof(rx)) {
+                break;
+            }
+            if (recvTotal >= frameLen) {
                 break;
             }
         }
-        resp[totalLen] = '\0';
-        pclose(fp);
+    }
+
+    close(socketFd);
+
+    if (recvTotal == 0) {
+        hal_err("Failed to receive display response for '%s'\n", displayCmd);
+        return false;
+    }
+
+    unsigned char *m = rx;
+    size_t remaining = recvTotal;
+    while (remaining >= 4) {
+        if (m[0] != 'D' || m[1] != 'S') {
+            break;
+        }
+
+        int msgLen = m[2];
+        if (remaining < (size_t)(msgLen + 3)) {
+            break;
+        }
+
+        const char *payload = (const char *)&m[3];
+        const char *nulTerminator = memchr(payload, '\0', (size_t)msgLen);
+        size_t copyLen = nulTerminator ? (size_t)(nulTerminator - payload) : (size_t)msgLen;
+        if (copyLen >= respSize) {
+            copyLen = respSize - 1;
+        }
+        memcpy(resp, payload, copyLen);
+        resp[copyLen] = '\0';
+
         return true;
     }
+
+    hal_err("Invalid display response framing for '%s'\n", displayCmd);
     return false;
 }
 

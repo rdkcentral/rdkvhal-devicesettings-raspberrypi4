@@ -25,6 +25,7 @@
 #include "dsError.h"
 #include "dsConfig.h"
 #include "dshalLogger.h"
+#include <stddef.h>
 
 #define SUCCESS 1
 #define FAILURE 0
@@ -69,7 +70,7 @@ dsError_t dsReadCfgFile(size_t index,char* portString,port_initialization_fp ini
 	size_t length = 0;
 	dsError_t retValue = dsERR_INVALID_PARAM;
 
-	sprintf(platformFile, "%s%c%s", STRINGIFY(HAL_CONFIG_FILE), 47, PLATFORM_FILE);
+    snprintf(platformFile, sizeof(platformFile), "%s%c%s", STRINGIFY(HAL_CONFIG_FILE), 47, PLATFORM_FILE);
 
 	fptr = fopen(platformFile, "r");
 	if (fptr != NULL && index > 0 && init != NULL) {
@@ -174,7 +175,7 @@ char* dsGetValue(char* property)
     char propBuff_p[512];
     char platformFile[512];
     FILE* fptr;
-    sprintf(platformFile,"%s%c%s",STRINGIFY(HAL_CONFIG_FILE),47,PLATFORM_FILE);
+    snprintf(platformFile,sizeof(platformFile),"%s%c%s",STRINGIFY(HAL_CONFIG_FILE),47,PLATFORM_FILE);
     fptr = fopen(platformFile,"r");
     if (fptr != NULL) {
         while (1) {
@@ -186,15 +187,31 @@ char* dsGetValue(char* property)
                     continue;
                 }
                 valBuff_p++;
-                int length = valBuff_p - buff_p -1;
+                ptrdiff_t rawLength = valBuff_p - buff_p - 1;
+                if (rawLength < 0) {
+                    FREE(buff_p);
+                    continue;
+                }
+                size_t length = (size_t)rawLength;
+                if (length >= sizeof(propBuff_p)) {
+                    length = sizeof(propBuff_p) - 1;
+                }
                 memset(propBuff_p,0,sizeof(propBuff_p));
                 memcpy(propBuff_p,buff_p,length);
                 propBuff_p[length] = '\0';
                 char* str = strstr(propBuff_p,property);
                 if (str != NULL) {
-                    retValue = valBuff_p;
+                    size_t valLen = strlen(valBuff_p);
+                    if (valLen >= 512) valLen = 511;
+                    retValue = malloc(valLen + 1);
+                    if (retValue != NULL) {
+                        memcpy(retValue, valBuff_p, valLen);
+                        retValue[valLen] = '\0';
+                    }
+                    FREE(buff_p);
                     break;
                 }
+                FREE(buff_p);
             } else {
                 retValue = NULL;
                 break;
@@ -224,7 +241,7 @@ char* dsGetPropertyFrmCfg(char* prop,size_t index,char* portType)
 {
 	hal_info("Invoked.\n");
     char lbuffer[60];
-    sprintf(lbuffer,"%s.%d.",portType,index);
+    snprintf(lbuffer, sizeof(lbuffer), "%s.%zu.", portType, index);
     char* lptr = strstr(prop,lbuffer);
     if(lptr != NULL)
     lptr = lptr + strlen(lbuffer);
@@ -255,7 +272,7 @@ size_t dsGetIndexFrmCfg(char* indexString)
     size_t index = 0;
     FILE* fptr;
 
-    sprintf(platformFile,"%s%c%s",STRINGIFY(HAL_CONFIG_FILE),47,PLATFORM_FILE);
+    snprintf(platformFile,sizeof(platformFile),"%s%c%s",STRINGIFY(HAL_CONFIG_FILE),47,PLATFORM_FILE);
     fptr = fopen(platformFile,"r");
     if (fptr != NULL) {
         while (1) {
@@ -277,7 +294,10 @@ size_t dsGetIndexFrmCfg(char* indexString)
                         lptr = lptr + strlen(indexString);
                         lptr++;
                         if (strcmp(lptr,"index") == 0) {
-                            sscanf(valbuff_p,"%d",&index);
+                            if (sscanf(valbuff_p, "%zu", &index) != 1) {
+                                hal_warn("Invalid index value in config: %s\n", valbuff_p);
+                                index = 0;
+                            }
                             FREE(buff_p);
                             break;
                         }
