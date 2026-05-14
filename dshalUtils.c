@@ -45,10 +45,13 @@ int dsOpenDrmCardFd(void)
         cardPath = DRI_CARD;
     }
 
-    int fd = open(cardPath, O_RDWR);
-    if (fd < 0) {
-        fd = open(cardPath, O_RDONLY);
-    }
+    /* Open read-only: the HAL only reads connector/crtc metadata via libdrm
+     * (drmModeGetResources, drmModeGetConnectorCurrent) and never sets modes.
+     * Opening O_RDWR makes the kernel treat this fd as a potential DRM master,
+     * which races with westeros-gl's own master acquisition on the same card
+     * during early boot, causing wstInitCtx to fail to enumerate connectors and
+     * leading to a NULL-deref SIGSEGV in the WPEFramework worker pool. */
+    int fd = open(cardPath, O_RDONLY);
 
     if (fd >= 0) {
         int flags = fcntl(fd, F_GETFD);
@@ -104,6 +107,13 @@ bool dsGetHdmiConnectorState(bool *connected, bool *enabled)
             && connector->connector_type != DRM_MODE_CONNECTOR_HDMIB
 #endif
         ) {
+            drmModeFreeConnector(connector);
+            continue;
+        }
+
+        /* Ignore transient unknown state samples to avoid false
+         * disconnect/reconnect notifications during hotplug settle. */
+        if (connector->connection == DRM_MODE_UNKNOWNCONNECTION) {
             drmModeFreeConnector(connector);
             continue;
         }
