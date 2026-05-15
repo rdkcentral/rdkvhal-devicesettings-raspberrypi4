@@ -20,7 +20,13 @@ set(DEFAULT_BUILD_TYPE "Release")
 #           HAL must query connector/CRTC state.
 # Therefore DRI_CARD must point to card1 on RPi4. card0 is the wrong target
 # for any HDMI connector polling or mode-setting query operations.
-set(DRI_CARD "/dev/dri/card1" CACHE STRING "Path to the dri device")
+set(DRI_CARD_DEFAULT "/dev/dri/card1")
+if(NOT DEFINED CACHE{DRI_CARD})
+	set(DRI_CARD "${DRI_CARD_DEFAULT}" CACHE STRING "Path to the dri device")
+elseif(DRI_CARD STREQUAL "/dev/dri/card0")
+	message(STATUS "Migrating cached DRI_CARD from legacy value '${DRI_CARD}' to '${DRI_CARD_DEFAULT}'")
+	set(DRI_CARD "${DRI_CARD_DEFAULT}" CACHE STRING "Path to the dri device" FORCE)
+endif()
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 	message(STATUS "Setting build type to '${DEFAULT_BUILD_TYPE}' as none was specified.")
