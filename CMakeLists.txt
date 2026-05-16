@@ -10,7 +10,23 @@ option(ENABLE_DSHAL_SINGLETON_GUARD "Enable process-wide singleton guard for dsh
 
 set(DEFAULT_BUILD_TYPE "Release")
 
-set(DRI_CARD "/dev/dri/card0" CACHE STRING "Path to the dri device")
+# DRI card selection for Raspberry Pi 4:
+#   card0 — VC4 display engine (ARM-side compositor, OpenGL/GBM rendering).
+#           Has no physical output connectors; drmModeGetResources returns 0
+#           connectors on this node.
+#   card1 — HDMI output engine (PixelValve). Owns HDMI-A-1, HDMI-A-2 and
+#           Writeback-1 connectors. This is where DRM master negotiation
+#           controls what appears on the physical HDMI port, and where the
+#           HAL must query connector/CRTC state.
+# Therefore DRI_CARD must point to card1 on RPi4. card0 is the wrong target
+# for any HDMI connector polling or mode-setting query operations.
+set(DRI_CARD_DEFAULT "/dev/dri/card1")
+if(NOT DEFINED CACHE{DRI_CARD})
+	set(DRI_CARD "${DRI_CARD_DEFAULT}" CACHE STRING "Path to the dri device")
+elseif(DRI_CARD STREQUAL "/dev/dri/card0")
+	message(STATUS "Migrating cached DRI_CARD from legacy value '${DRI_CARD}' to '${DRI_CARD_DEFAULT}'")
+	set(DRI_CARD "${DRI_CARD_DEFAULT}" CACHE STRING "Path to the dri device" FORCE)
+endif()
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 	message(STATUS "Setting build type to '${DEFAULT_BUILD_TYPE}' as none was specified.")
