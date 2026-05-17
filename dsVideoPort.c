@@ -152,11 +152,11 @@ static bool normalizeModeToken(const char *token, char *normalizedToken, size_t 
     char scanMode = '\0';
     bool parsed = false;
 
-    if (sscanf(parseToken, "%dx%d%cx%d", &width, &height, &scanMode, &rate) == 4 ||
-        sscanf(parseToken, "%dx%d%c%d", &width, &height, &scanMode, &rate) == 4) {
-        parsed = true;
-    } else if (sscanf(parseToken, "%dx%dx%d", &width, &height, &rate) == 3) {
+    if (sscanf(parseToken, "%dx%dx%d", &width, &height, &rate) == 3) {
         scanMode = 'p';
+        parsed = true;
+    } else if (sscanf(parseToken, "%dx%d%cx%d", &width, &height, &scanMode, &rate) == 4 ||
+               sscanf(parseToken, "%dx%d%c%d", &width, &height, &scanMode, &rate) == 4) {
         parsed = true;
     } else if (sscanf(parseToken, "%dx%d", &width, &height) == 2) {
         char last = parseToken[parseLen - 1];
