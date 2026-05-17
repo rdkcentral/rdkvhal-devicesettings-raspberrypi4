@@ -169,6 +169,8 @@ static bool normalizeModeToken(const char *token, char *normalizedToken, size_t 
     } else if (sscanf(parseToken, "%di%dhz", &height, &rate) == 2) {
         scanMode = 'i';
         parsed = true;
+    } else if (sscanf(parseToken, "%d%c%d", &height, &scanMode, &rate) == 3 && (scanMode == 'p' || scanMode == 'i')) {
+        parsed = true;
     } else if (sscanf(parseToken, "%dp", &height) == 1) {
         scanMode = 'p';
         rate = 60;
@@ -176,8 +178,6 @@ static bool normalizeModeToken(const char *token, char *normalizedToken, size_t 
     } else if (sscanf(parseToken, "%di", &height) == 1) {
         scanMode = 'i';
         rate = 60;
-        parsed = true;
-    } else if (sscanf(parseToken, "%d%c%d", &height, &scanMode, &rate) == 3 && (scanMode == 'p' || scanMode == 'i')) {
         parsed = true;
     } else if (sscanf(parseToken, "smpte%dhz", &rate) == 1) {
         height = 2160;
