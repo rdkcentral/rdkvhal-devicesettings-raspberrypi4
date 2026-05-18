@@ -111,6 +111,7 @@ dsError_t dsGetVideoDevice(int index, intptr_t *handle)
         return dsERR_NOT_INITIALIZED;
     }
     if (index != 0 || NULL == handle) {
+        hal_err("Invalid parameter, index: %d or handle: %p\n", index, handle);
         return dsERR_INVALID_PARAM;
     }
     *handle = (intptr_t)&VDHandle;
@@ -310,7 +311,7 @@ dsError_t dsGetVideoCodecInfo(intptr_t handle, dsVideoCodingFormat_t codec, dsVi
     if (false == _bVideoDeviceInited) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (info == NULL || !dsIsValidVDHandle(handle) || codec <= dsVIDEO_CODEC_MPEGHPART2 || codec >= dsVIDEO_CODEC_MAX) {
+    if (info == NULL || !dsIsValidVDHandle(handle) || codec < dsVIDEO_CODEC_MPEGHPART2 || codec >= dsVIDEO_CODEC_MAX) {
         hal_err("Invalid parameter, handle: %p or info: %p or codec: %d\n", handle, info, codec);
         return dsERR_INVALID_PARAM;
     }
