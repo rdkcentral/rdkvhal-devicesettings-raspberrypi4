@@ -28,6 +28,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <threads.h>
+#include <time.h>
 
 #include "dsUtl.h"
 #include "dsError.h"
@@ -46,10 +47,26 @@
 dsError_t dsGetAudioEncoding(intptr_t handle, dsAudioEncoding_t *encoding);
 extern dsRegisterFrameratePreChangeCB_t dsVideoDeviceGetFrameratePreChangeCB(void);
 extern dsRegisterFrameratePostChangeCB_t dsVideoDeviceGetFrameratePostChangeCB(void);
+void dsRegisterConnectorChangeHook(void (*hook)(void));
 
 static bool _bIsVideoPortInitialized = false;
 static bool isValidVopHandle(intptr_t handle);
 static const char *dsVideoGetResolution(void);
+
+static pthread_mutex_t _videoFormatCbMutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t _videoFormatWatcherCond = PTHREAD_COND_INITIALIZER;
+
+static void onHdmiConnectorChange(void)
+{
+    pthread_mutex_lock(&_videoFormatCbMutex);
+    pthread_cond_signal(&_videoFormatWatcherCond);
+    pthread_mutex_unlock(&_videoFormatCbMutex);
+}
+static dsVideoFormatUpdateCB_t _videoFormatUpdateCb = NULL;
+static pthread_t _videoFormatWatcherThread;
+static bool _videoFormatWatcherRunning = false;
+static bool _videoFormatWatcherStop = false;
+static bool _videoFormatNotifyRequested = false;
 
 #define MAX_HDMI_MODE_ID (127)
 
@@ -74,6 +91,124 @@ static bool _bIgnoreEDID = false;
 static bool drm_get_hdmi_connector_state(bool *connected, bool *enabled)
 {
     return dsGetHdmiConnectorState(connected, enabled);
+}
+
+static void notifyVideoFormatUpdate(dsHDRStandard_t format)
+{
+    dsVideoFormatUpdateCB_t cb = NULL;
+
+    pthread_mutex_lock(&_videoFormatCbMutex);
+    cb = _videoFormatUpdateCb;
+    pthread_mutex_unlock(&_videoFormatCbMutex);
+
+    if (cb != NULL) {
+        cb(format);
+    }
+}
+
+static dsHDRStandard_t getCurrentVideoFormatFromState(bool connected, bool enabled)
+{
+    if (!connected || !enabled) {
+        return dsHDRSTANDARD_NONE;
+    }
+
+    /* RPi4 output format is SDR-only when active. */
+    return dsHDRSTANDARD_SDR;
+}
+
+static void waitForVideoFormatWatcherTick(bool hasCallback)
+{
+    struct timespec wakeTime;
+
+    pthread_mutex_lock(&_videoFormatCbMutex);
+    if (_videoFormatWatcherStop) {
+        pthread_mutex_unlock(&_videoFormatCbMutex);
+        return;
+    }
+
+    if (!hasCallback && !_videoFormatNotifyRequested) {
+        (void)pthread_cond_wait(&_videoFormatWatcherCond, &_videoFormatCbMutex);
+        pthread_mutex_unlock(&_videoFormatCbMutex);
+        return;
+    }
+
+    (void)timespec_get(&wakeTime, TIME_UTC);
+    wakeTime.tv_sec += 5;  /* 5s safety-net; connector events wake us early via cond signal */
+
+    (void)pthread_cond_timedwait(&_videoFormatWatcherCond, &_videoFormatCbMutex, &wakeTime);
+    pthread_mutex_unlock(&_videoFormatCbMutex);
+}
+
+static void* videoFormatWatcherThreadMain(void *arg)
+{
+    (void)arg;
+
+    bool lastConnected = false;
+    bool lastEnabled = false;
+    char lastMode[64] = {'\0'};
+    bool hasLastSnapshot = false;
+
+    while (true) {
+        bool shouldStop = false;
+        bool notifyRequested = false;
+        bool hasCallback = false;
+        bool connected = false;
+        bool enabled = false;
+
+        pthread_mutex_lock(&_videoFormatCbMutex);
+        shouldStop = _videoFormatWatcherStop;
+        notifyRequested = _videoFormatNotifyRequested;
+        hasCallback = (_videoFormatUpdateCb != NULL);
+        _videoFormatNotifyRequested = false;
+        pthread_mutex_unlock(&_videoFormatCbMutex);
+
+        if (shouldStop) {
+            break;
+        }
+
+        if (!hasCallback && !notifyRequested) {
+            waitForVideoFormatWatcherTick(false);
+            continue;
+        }
+
+        if (notifyRequested) {
+            // CB registration sets this for an initial report. Wait for a short time before update.
+            const struct timespec notifyDelay = { .tv_sec = 0, .tv_nsec = 10000000L };
+            thrd_sleep(&notifyDelay, NULL);
+        }
+
+        bool stateValid = drm_get_hdmi_connector_state(&connected, &enabled);
+
+        if (!stateValid) {
+            if (notifyRequested) {
+                notifyVideoFormatUpdate(dsHDRSTANDARD_Invalid);
+            }
+            waitForVideoFormatWatcherTick(true);
+            continue;
+        }
+
+        char currentModeBuf[64] = {'\0'};
+        const char *currentMode = dsVideoGetResolution();
+        if (currentMode != NULL) {
+            strncpy(currentModeBuf, currentMode, sizeof(currentModeBuf) - 1);
+            currentModeBuf[sizeof(currentModeBuf) - 1] = '\0';
+        }
+
+        if (notifyRequested || !hasLastSnapshot || lastConnected != connected || lastEnabled != enabled ||
+                strcmp(lastMode, currentModeBuf) != 0) {
+            lastConnected = connected;
+            lastEnabled = enabled;
+            strncpy(lastMode, currentModeBuf, sizeof(lastMode) - 1);
+            lastMode[sizeof(lastMode) - 1] = '\0';
+            hasLastSnapshot = true;
+
+            notifyVideoFormatUpdate(getCurrentVideoFormatFromState(connected, enabled));
+        }
+
+        waitForVideoFormatWatcherTick(true);
+    }
+
+    return NULL;
 }
 
 /**
@@ -480,6 +615,22 @@ dsError_t  dsVideoPortInit()
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index);
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_isEnabled = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_isEnabled);
     _resolution = kResolutionsSettings[kDefaultResIndex];
+
+    pthread_mutex_lock(&_videoFormatCbMutex);
+    _videoFormatWatcherStop = false;
+    _videoFormatWatcherRunning = false;
+    _videoFormatNotifyRequested = false;
+    pthread_mutex_unlock(&_videoFormatCbMutex);
+
+    dsRegisterConnectorChangeHook(onHdmiConnectorChange);
+
+    if (pthread_create(&_videoFormatWatcherThread, NULL, videoFormatWatcherThreadMain, NULL) == 0) {
+        pthread_mutex_lock(&_videoFormatCbMutex);
+        _videoFormatWatcherRunning = true;
+        pthread_mutex_unlock(&_videoFormatCbMutex);
+    } else {
+        hal_warn("Unable to start video format watcher thread; callback updates will be unavailable.\n");
+    }
 
     /* HDCP callback registration removed: tvservice eliminated, HDCP status assumed authenticated by default */
     _bIsVideoPortInitialized = true;
@@ -1230,11 +1381,34 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 dsError_t  dsVideoPortTerm()
 {
     hal_info("invoked.\n");
+    bool joinWatcher = false;
+    bool selfJoin = false;
+
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
+
+    dsRegisterConnectorChangeHook(NULL);
+
+    pthread_mutex_lock(&_videoFormatCbMutex);
+    _videoFormatWatcherStop = true;
+    joinWatcher = _videoFormatWatcherRunning;
+    _videoFormatWatcherRunning = false;
+    pthread_cond_signal(&_videoFormatWatcherCond);
+    pthread_mutex_unlock(&_videoFormatCbMutex);
+
+    if (joinWatcher) {
+        selfJoin = pthread_equal(pthread_self(), _videoFormatWatcherThread);
+        if (!selfJoin) {
+            (void)pthread_join(_videoFormatWatcherThread, NULL);
+        }
+    }
+
     /* HDCP callback unregistration removed: tvservice eliminated */
     _halhdcpcallback = NULL;
+    pthread_mutex_lock(&_videoFormatCbMutex);
+    _videoFormatUpdateCb = NULL;
+    pthread_mutex_unlock(&_videoFormatCbMutex);
     _bIsVideoPortInitialized = false;
     return dsERR_NONE;
 }
@@ -1653,6 +1827,24 @@ dsError_t dsGetSurroundMode(intptr_t handle, int *surround)
     return dsERR_NONE;
 }
 
+/**
+ * @brief Callback Registration for the Video Format update event.
+ *
+ * This function registers a callback function to receive the Video Format update events.
+ *
+ * @param[in] cb        - Callback function
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre dsVideoPortInit() must be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
 dsError_t dsVideoFormatUpdateRegisterCB(dsVideoFormatUpdateCB_t cb)
 {
     hal_info("invoked.\n");
@@ -1666,7 +1858,13 @@ dsError_t dsVideoFormatUpdateRegisterCB(dsVideoFormatUpdateCB_t cb)
         return dsERR_INVALID_PARAM;
     }
 
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    pthread_mutex_lock(&_videoFormatCbMutex);
+    _videoFormatUpdateCb = cb;
+    _videoFormatNotifyRequested = true;
+    pthread_cond_signal(&_videoFormatWatcherCond);
+    pthread_mutex_unlock(&_videoFormatCbMutex);
+
+    return dsERR_NONE;
 }
 
 /**

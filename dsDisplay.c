@@ -46,6 +46,7 @@ extern size_t kNumResolutionsSettings;
 
 dsDisplayEventCallback_t _halcallback = NULL;
 extern dsAudioOutPortConnectCB_t _halhdmiaudioCB;
+static void (*gConnectorChangeHook)(void) = NULL;
 dsVideoPortResolution_t *HdmiSupportedResolution = NULL;
 static unsigned int numSupportedResn = 0;
 static bool _bDisplayInited = false;
@@ -59,6 +60,13 @@ static dsAudioOutPortConnectCB_t get_hdmi_audio_cb(void)
     cb = _halhdmiaudioCB;
     pthread_mutex_unlock(&gHdmiAudioCbMutex);
     return cb;
+}
+
+void dsRegisterConnectorChangeHook(void (*hook)(void))
+{
+    pthread_mutex_lock(&gHdmiWatcherMutex);
+    gConnectorChangeHook = hook;
+    pthread_mutex_unlock(&gHdmiWatcherMutex);
 }
 
 static void notify_audio_hotplug(bool connected)
@@ -175,6 +183,14 @@ static void* hdmi_watcher_thread(void *arg)
                 }
 
                 notify_audio_hotplug(notifyConnected);
+
+                void (*hook)(void) = NULL;
+                pthread_mutex_lock(&gHdmiWatcherMutex);
+                hook = gConnectorChangeHook;
+                pthread_mutex_unlock(&gHdmiWatcherMutex);
+                if (hook != NULL) {
+                    hook();
+                }
             }
         }
     }
