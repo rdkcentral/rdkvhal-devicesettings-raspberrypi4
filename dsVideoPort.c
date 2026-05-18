@@ -466,9 +466,9 @@ static void populateResolutionNameFromFields(dsVideoPortResolution_t *resolution
 
     bool requestedInterlaced = false;
     if (resolution->interlaced == dsVIDEO_SCANMODE_INTERLACED) {
-        requestedInterlaced = true;
+        requestedInterlaced = _INTERLACED;
     } else if (resolution->interlaced == dsVIDEO_SCANMODE_PROGRESSIVE) {
-        requestedInterlaced = false;
+        requestedInterlaced = _PROGRESSIVE;
     } else {
         requestedInterlaced = (resolution->interlaced != 0);
     }
