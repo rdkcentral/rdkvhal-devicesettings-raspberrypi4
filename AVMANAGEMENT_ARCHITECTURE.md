@@ -83,10 +83,13 @@ Video format callback path (`dsVideoFormatUpdateRegisterCB`):
 - Current format mapping on RPi4 is state-based:
   - disconnected or disabled HDMI -> `dsHDRSTANDARD_NONE`
   - connected and enabled HDMI -> `dsHDRSTANDARD_SDR`
-- Subsequent notifications are emitted only when one of these changes:
+- Subsequent notifications are emitted only when the watcher wakes and detects a change in one of these values:
   - connector connected state,
   - connector enabled state,
   - active mode token (resolution string).
+- In the default event-driven path, connector connected/enabled transitions wake the watcher through the display connector-change hook.
+- Active mode changes are observed immediately when they go through `dsSetResolution()`.
+- Active mode changes made outside `dsSetResolution()` are not standalone wake events; they are only observed later if another wakeup occurs, or via the optional polling safety-net when enabled.
 
 Cross-module event wiring:
 
