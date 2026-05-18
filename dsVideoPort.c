@@ -464,13 +464,13 @@ static void populateResolutionNameFromFields(dsVideoPortResolution_t *resolution
         return;
     }
 
-    bool requestedInterlaced = false;
+    bool requestedInterlaced = _PROGRESSIVE;
     if (resolution->interlaced == dsVIDEO_SCANMODE_INTERLACED) {
         requestedInterlaced = _INTERLACED;
     } else if (resolution->interlaced == dsVIDEO_SCANMODE_PROGRESSIVE) {
         requestedInterlaced = _PROGRESSIVE;
     } else {
-        requestedInterlaced = (resolution->interlaced != 0);
+        requestedInterlaced = (resolution->interlaced != 0) ? _INTERLACED : _PROGRESSIVE;
     }
 
     for (size_t i = 0; i < kNumResolutionsSettings; i++) {
