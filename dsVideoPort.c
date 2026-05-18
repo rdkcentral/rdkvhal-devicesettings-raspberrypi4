@@ -76,6 +76,140 @@ static bool drm_get_hdmi_connector_state(bool *connected, bool *enabled)
     return dsGetHdmiConnectorState(connected, enabled);
 }
 
+/**
+ * @brief Normalize a display mode token into canonical <height><scan><rate> form.
+ *
+ * Accepts mode tokens returned by or passed to westeros-gl, including status-
+ * prefixed responses (for example: "0: mode 1920x1080px60") and direct mode
+ * strings (for example: "1920x1080p60", "1920x1080px60", "1080p60",
+ * "1080p60hz", "smpte60hz").
+ *
+ * On success, writes a normalized token such as "1080p60" to @a normalizedToken.
+ *
+ * @param[in] token                 Input mode token to parse.
+ * @param[out] normalizedToken      Output buffer for normalized token.
+ * @param[in] normalizedTokenSize   Size of @a normalizedToken in bytes.
+ *
+ * @return true if normalization succeeded and output token was written, false otherwise.
+ */
+static bool normalizeModeToken(const char *token, char *normalizedToken, size_t normalizedTokenSize)
+{
+    if (token == NULL || normalizedToken == NULL || normalizedTokenSize == 0) {
+        return false;
+    }
+
+    normalizedToken[0] = '\0';
+
+    char parseToken[64] = {'\0'};
+    const size_t parseTokenCapacity = sizeof(parseToken);
+    strncpy(parseToken, token, sizeof(parseToken) - 1);
+    parseToken[sizeof(parseToken) - 1] = '\0';
+
+    size_t lead = 0;
+    while (lead < (parseTokenCapacity - 1) && parseToken[lead] != '\0' &&
+           isspace((unsigned char)parseToken[lead])) {
+        lead++;
+    }
+    if (lead > 0) {
+        memmove(parseToken, parseToken + lead, strlen(parseToken + lead) + 1);
+    }
+
+    size_t parseLen = strlen(parseToken);
+    if (parseLen >= parseTokenCapacity) {
+        parseLen = parseTokenCapacity - 1;
+        parseToken[parseLen] = '\0';
+    }
+    while (parseLen > 0 && isspace((unsigned char)parseToken[parseLen - 1])) {
+        parseToken[--parseLen] = '\0';
+    }
+
+    char extractedMode[64] = {'\0'};
+    int ignoredStatus = -1;
+    if (sscanf(parseToken, "%d: mode %63s", &ignoredStatus, extractedMode) == 2 ||
+        sscanf(parseToken, "%d: set mode %63s", &ignoredStatus, extractedMode) == 2 ||
+        sscanf(parseToken, "mode %63s", extractedMode) == 1 ||
+        sscanf(parseToken, "set mode %63s", extractedMode) == 1) {
+        strncpy(parseToken, extractedMode, sizeof(parseToken) - 1);
+        parseToken[sizeof(parseToken) - 1] = '\0';
+        parseLen = strlen(parseToken);
+        if (parseLen >= parseTokenCapacity) {
+            parseLen = parseTokenCapacity - 1;
+            parseToken[parseLen] = '\0';
+        }
+    }
+
+    for (size_t i = 0; i < parseLen && i < (parseTokenCapacity - 1); ++i) {
+        parseToken[i] = (char)tolower((unsigned char)parseToken[i]);
+    }
+
+    if (parseLen == 0) {
+        return false;
+    }
+
+    int width = -1;
+    int height = -1;
+    int rate = -1;
+    char scanMode = '\0';
+    bool parsed = false;
+
+    if (sscanf(parseToken, "%dx%dx%d", &width, &height, &rate) == 3) {
+        scanMode = 'p';
+        parsed = true;
+    } else if (sscanf(parseToken, "%dx%d%cx%d", &width, &height, &scanMode, &rate) == 4 ||
+               sscanf(parseToken, "%dx%d%c%d", &width, &height, &scanMode, &rate) == 4) {
+        parsed = true;
+    } else if (sscanf(parseToken, "%dx%d", &width, &height) == 2) {
+        char last = parseToken[parseLen - 1];
+        scanMode = (last == 'i') ? 'i' : 'p';
+        rate = 60;
+        parsed = true;
+    } else if (sscanf(parseToken, "%dp%dhz", &height, &rate) == 2) {
+        scanMode = 'p';
+        parsed = true;
+    } else if (sscanf(parseToken, "%di%dhz", &height, &rate) == 2) {
+        scanMode = 'i';
+        parsed = true;
+    } else if (sscanf(parseToken, "%d%c%d", &height, &scanMode, &rate) == 3 && (scanMode == 'p' || scanMode == 'i')) {
+        parsed = true;
+    } else if (sscanf(parseToken, "%dp", &height) == 1) {
+        scanMode = 'p';
+        rate = 60;
+        parsed = true;
+    } else if (sscanf(parseToken, "%di", &height) == 1) {
+        scanMode = 'i';
+        rate = 60;
+        parsed = true;
+    } else if (sscanf(parseToken, "smpte%dhz", &rate) == 1) {
+        height = 2160;
+        scanMode = 'p';
+        parsed = true;
+    }
+
+    if (!parsed) {
+        return false;
+    }
+
+    scanMode = (char)tolower((unsigned char)scanMode);
+    if (height > 0 && rate > 0 && (scanMode == 'p' || scanMode == 'i')) {
+        (void)snprintf(normalizedToken, normalizedTokenSize, "%d%c%d", height, scanMode, rate);
+        return (normalizedToken[0] != '\0');
+    }
+
+    return false;
+}
+
+/**
+ * @brief Resolve an input resolution token to the canonical RDK resolution name.
+ *
+ * The input may be a raw mode token from westeros-gl or an already normalized
+ * RDK token. This function normalizes when possible, then matches against
+ * resolutionMap entries, including aliases that omit an explicit refresh rate
+ * by applying a default 60 Hz comparison.
+ *
+ * @param[in] token       Input token to resolve.
+ * @param[out] out        Output buffer for resolved token.
+ * @param[in] outSize     Size of @a out in bytes.
+ */
 static void resolveResolutionToken(const char *token, char *out, size_t outSize)
 {
     if (out == NULL || outSize == 0) {
@@ -101,19 +235,9 @@ static void resolveResolutionToken(const char *token, char *out, size_t outSize)
     }
 
     char normalizedToken[64] = {'\0'};
-    int width = -1;
-    int height = -1;
-    int rate = -1;
-    char scanMode = '\0';
+    bool hasNormalizedToken = normalizeModeToken(trimmedToken, normalizedToken, sizeof(normalizedToken));
 
-    if (sscanf(trimmedToken, "%dx%d%c%d", &width, &height, &scanMode, &rate) == 4) {
-        scanMode = (char)tolower((unsigned char)scanMode);
-        if (width > 0 && height > 0 && rate > 0 && (scanMode == 'p' || scanMode == 'i')) {
-            (void)snprintf(normalizedToken, sizeof(normalizedToken), "%d%c%d", height, scanMode, rate);
-        }
-    }
-
-    const char *candidate = (normalizedToken[0] != '\0') ? normalizedToken : trimmedToken;
+    const char *candidate = hasNormalizedToken ? normalizedToken : trimmedToken;
     for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
         const char *mapRes = resolutionMap[i].rdkRes;
         size_t mapLen = strlen(mapRes);
@@ -140,6 +264,17 @@ static void resolveResolutionToken(const char *token, char *out, size_t outSize)
     out[outSize - 1] = '\0';
 }
 
+/**
+ * @brief Compare two resolution names after canonical token resolution.
+ *
+ * This helper resolves both input names through resolveResolutionToken and
+ * returns true only when both resolve successfully to the same canonical value.
+ *
+ * @param[in] requested   Requested resolution token.
+ * @param[in] active      Active/current resolution token.
+ *
+ * @return true if both tokens resolve to the same canonical resolution, false otherwise.
+ */
 static bool resolutionNamesEquivalent(const char *requested, const char *active)
 {
     char requestedCanonical[64] = {'\0'};
@@ -866,18 +1001,9 @@ static const char* dsVideoGetResolution(void)
         resName[--resLen] = '\0';
     }
 
-    int width = -1;
-    int height = -1;
-    int rate = -1;
-    char scanMode = '\0';
-    if (sscanf(resName, "%dx%d%c%d", &width, &height, &scanMode, &rate) == 4) {
-        scanMode = (char)tolower((unsigned char)scanMode);
-        if (width > 0 && height > 0 && rate > 0 && (scanMode == 'p' || scanMode == 'i')) {
-            snprintf(normalizedRes, sizeof(normalizedRes), "%d%c%d", height, scanMode, rate);
-        }
-    }
+    bool hasNormalizedMode = normalizeModeToken(resName, normalizedRes, sizeof(normalizedRes));
 
-    if (normalizedRes[0] == '\0') {
+    if (!hasNormalizedMode || normalizedRes[0] == '\0') {
         strncpy(normalizedRes, resName, sizeof(normalizedRes) - 1);
         normalizedRes[sizeof(normalizedRes) - 1] = '\0';
     }
