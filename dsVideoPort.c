@@ -196,6 +196,8 @@ static void* videoFormatWatcherThreadMain(void *arg)
 
         if (notifyRequested || !hasLastSnapshot || lastConnected != connected || lastEnabled != enabled ||
                 strcmp(lastMode, currentModeBuf) != 0) {
+            hal_dbg("Video format state changed: connected=%d enabled=%d mode='%s'\n",
+                     connected, enabled, currentModeBuf);
             lastConnected = connected;
             lastEnabled = enabled;
             strncpy(lastMode, currentModeBuf, sizeof(lastMode) - 1);
