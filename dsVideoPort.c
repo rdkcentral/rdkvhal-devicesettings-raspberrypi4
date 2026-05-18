@@ -441,6 +441,74 @@ static bool resolutionNamesEquivalent(const char *requested, const char *active)
             strcmp(requestedCanonical, activeCanonical) == 0);
 }
 
+/**
+ * @brief Populate the resolution name field based on other resolution attributes.
+ *
+ * This function attempts to fill in the name field of a dsVideoPortResolution_t
+ * if that is not already set, by comparing the pixel resolution, frame rate, and scan mode
+ * attributes against the known resolution settings in kResolutionsSettings.
+ * Matching is ranked to prefer the most specific candidate first and only then fallback.
+ *
+ * @param[in,out] resolution Pointer to the resolution structure to populate.
+ */
+static void populateResolutionNameFromFields(dsVideoPortResolution_t *resolution)
+{
+    if (resolution == NULL || resolution->name[0] != '\0') {
+        hal_dbg("Resolution name already set or resolution is NULL, skipping population\n");
+        return;
+    }
+
+    bool requestedInterlaced = false;
+    if (resolution->interlaced == dsVIDEO_SCANMODE_INTERLACED) {
+        requestedInterlaced = true;
+    } else if (resolution->interlaced == dsVIDEO_SCANMODE_PROGRESSIVE) {
+        requestedInterlaced = false;
+    } else {
+        requestedInterlaced = (resolution->interlaced != 0);
+    }
+
+    for (size_t i = 0; i < kNumResolutionsSettings; i++) {
+        const dsVideoPortResolution_t *candidate = &kResolutionsSettings[i];
+        if (candidate->pixelResolution == resolution->pixelResolution &&
+            candidate->frameRate == resolution->frameRate &&
+            candidate->interlaced == requestedInterlaced) {
+            strncpy(resolution->name, candidate->name, sizeof(resolution->name) - 1);
+            resolution->name[sizeof(resolution->name) - 1] = '\0';
+            return;
+        }
+    }
+
+    for (size_t i = 0; i < kNumResolutionsSettings; i++) {
+        const dsVideoPortResolution_t *candidate = &kResolutionsSettings[i];
+        if (candidate->pixelResolution == resolution->pixelResolution &&
+            candidate->frameRate == resolution->frameRate) {
+            strncpy(resolution->name, candidate->name, sizeof(resolution->name) - 1);
+            resolution->name[sizeof(resolution->name) - 1] = '\0';
+            return;
+        }
+    }
+
+    for (size_t i = 0; i < kNumResolutionsSettings; i++) {
+        const dsVideoPortResolution_t *candidate = &kResolutionsSettings[i];
+        if (candidate->pixelResolution == resolution->pixelResolution &&
+            candidate->interlaced == requestedInterlaced) {
+            strncpy(resolution->name, candidate->name, sizeof(resolution->name) - 1);
+            resolution->name[sizeof(resolution->name) - 1] = '\0';
+            return;
+        }
+    }
+
+    for (size_t i = 0; i < kNumResolutionsSettings; i++) {
+        const dsVideoPortResolution_t *candidate = &kResolutionsSettings[i];
+        if (candidate->pixelResolution == resolution->pixelResolution) {
+            strncpy(resolution->name, candidate->name, sizeof(resolution->name) - 1);
+            resolution->name[sizeof(resolution->name) - 1] = '\0';
+            return;
+        }
+    }
+    /* No match found - resolution remains unsupported (name stays empty). */
+}
+
 static dsError_t getHdmiEdidForConnectedDisplay(dsVideoPortType_t video_port_type,
         int video_port_index,
         unsigned char **edid_buf,
@@ -1245,7 +1313,8 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (!isValidVopHandle(handle) || NULL == resolution || resolution->name[0] == '\0' ||
+
+    if (!isValidVopHandle(handle) || NULL == resolution ||
         !dsVideoPortPixelResolution_isValid(resolution->pixelResolution) ||
         !dsVideoPortAspectRatio_isValid(resolution->aspectRatio) ||
         !dsVideoPortStereoScopicMode_isValid(resolution->stereoScopicMode) ||
@@ -1254,6 +1323,21 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         hal_err("dsSetResolution dsERR_INVALID_PARAM - Invalid handle or resolution parameters\n");
         return dsERR_INVALID_PARAM;
     }
+
+    if (resolution->name[0] == '\0') {
+        populateResolutionNameFromFields(resolution);
+        hal_dbg("Resolution name was empty, populated from fields as '%s'\n", resolution->name);
+        if (resolution->name[0] == '\0') {
+            hal_err("Failed to populate resolution name from fields; not supported combination.\n");
+            hal_dbg("Received resolution parameters: pixelResolution=%d, aspectRatio=%d, stereoScopicMode=%d, frameRate=%d, interlaced=%d\n",
+                        resolution->pixelResolution, resolution->aspectRatio, resolution->stereoScopicMode,
+                        resolution->frameRate, resolution->interlaced);
+            return dsERR_INVALID_PARAM;
+        }
+    } else {
+        hal_dbg("Using requested resolution name is '%s'\n", resolution->name);
+    }
+
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
         hal_dbg("Setting HDMI resolution '%s'\n", resolution->name);
         char cmdBuf[256] = {'\0'};
@@ -1920,25 +2004,23 @@ dsError_t dsSetActiveSource(intptr_t handle)
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
-/**
+ /**
  * @brief Gets the current HDCP status of the specified video port.
  *
- * @param[in] handle    - Handle of the video port returned from
- * dsGetVideoPort()
- * @param[out] status   - HDCP status of the video port.  Please refer
- * ::dsHdcpStatus_t
+ * For sink devices, this function returns the authentication status as dsHDCP_STATUS_AUTHENTICATED and returns dsERR_NONE always.
+ * For source device, this function gives current HDCP status of the specified video port. It must return dsERR_OPERATION_NOT_SUPPORTED if connected  video port does not support HDCP.
+ *
+ * @param[in] handle    - Handle of the video port returned from dsGetVideoPort()
+ * @param[out] status   - HDCP status of the video port.  Please refer ::dsHdcpStatus_t
  *
  * @return dsError_t                      -  Status
  * @retval dsERR_NONE                     -  Success
  * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
- * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function
- * is invalid
- * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not
- * supported
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
  * @retval dsERR_GENERAL                  -  Underlying undefined platform error
  *
- * @pre dsVideoPortInit() and dsGetVideoPort() must be called before calling
- * this API.
+ * @pre dsVideoPortInit() and dsGetVideoPort() must be called before calling this API.
  *
  * @warning  This API is Not thread safe.
  *
