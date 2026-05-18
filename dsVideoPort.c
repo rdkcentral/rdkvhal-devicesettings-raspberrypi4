@@ -55,11 +55,18 @@ static const char *dsVideoGetResolution(void);
 
 static pthread_mutex_t _videoFormatCbMutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t _videoFormatWatcherCond = PTHREAD_COND_INITIALIZER;
+static bool _videoFormatWatcherEventPending = false;
+
+static void signalVideoFormatWatcherEventLocked(void)
+{
+    _videoFormatWatcherEventPending = true;
+    pthread_cond_signal(&_videoFormatWatcherCond);
+}
 
 static void onHdmiConnectorChange(void)
 {
     pthread_mutex_lock(&_videoFormatCbMutex);
-    pthread_cond_signal(&_videoFormatWatcherCond);
+    signalVideoFormatWatcherEventLocked();
     pthread_mutex_unlock(&_videoFormatCbMutex);
 }
 static dsVideoFormatUpdateCB_t _videoFormatUpdateCb = NULL;
@@ -132,27 +139,27 @@ static void waitForVideoFormatWatcherTick(bool hasCallback)
     struct timespec wakeTime;
 
     pthread_mutex_lock(&_videoFormatCbMutex);
-    if (_videoFormatWatcherStop) {
-        pthread_mutex_unlock(&_videoFormatCbMutex);
-        return;
+    while (!_videoFormatWatcherStop) {
+        if (_videoFormatNotifyRequested || _videoFormatWatcherEventPending) {
+            _videoFormatWatcherEventPending = false;
+            break;
+        }
+
+        if (!hasCallback) {
+            (void)pthread_cond_wait(&_videoFormatWatcherCond, &_videoFormatCbMutex);
+            continue;
+        }
+
+        if (!isVideoFormatWatcherPollingEnabled()) {
+            (void)pthread_cond_wait(&_videoFormatWatcherCond, &_videoFormatCbMutex);
+            continue;
+        }
+
+        (void)timespec_get(&wakeTime, TIME_UTC);
+        wakeTime.tv_sec += 5;  /* Optional safety-net, enabled via runtime flag file. */
+
+        (void)pthread_cond_timedwait(&_videoFormatWatcherCond, &_videoFormatCbMutex, &wakeTime);
     }
-
-    if (!hasCallback && !_videoFormatNotifyRequested) {
-        (void)pthread_cond_wait(&_videoFormatWatcherCond, &_videoFormatCbMutex);
-        pthread_mutex_unlock(&_videoFormatCbMutex);
-        return;
-    }
-
-    if (!isVideoFormatWatcherPollingEnabled()) {
-        (void)pthread_cond_wait(&_videoFormatWatcherCond, &_videoFormatCbMutex);
-        pthread_mutex_unlock(&_videoFormatCbMutex);
-        return;
-    }
-
-    (void)timespec_get(&wakeTime, TIME_UTC);
-    wakeTime.tv_sec += 5;  /* Optional safety-net, enabled via runtime flag file. */
-
-    (void)pthread_cond_timedwait(&_videoFormatWatcherCond, &_videoFormatCbMutex, &wakeTime);
     pthread_mutex_unlock(&_videoFormatCbMutex);
 }
 
@@ -445,9 +452,8 @@ static bool resolutionNamesEquivalent(const char *requested, const char *active)
  * @brief Populate the resolution name field based on other resolution attributes.
  *
  * This function attempts to fill in the name field of a dsVideoPortResolution_t
- * if that is not already set, by comparing the pixel resolution, frame rate, and scan mode
- * attributes against the known resolution settings in kResolutionsSettings.
- * Matching is ranked to prefer the most specific candidate first and only then fallback.
+ * if that is not already set, by exact matching all mode-defining attributes
+ * against the known resolution settings in kResolutionsSettings.
  *
  * @param[in,out] resolution Pointer to the resolution structure to populate.
  */
@@ -470,37 +476,10 @@ static void populateResolutionNameFromFields(dsVideoPortResolution_t *resolution
     for (size_t i = 0; i < kNumResolutionsSettings; i++) {
         const dsVideoPortResolution_t *candidate = &kResolutionsSettings[i];
         if (candidate->pixelResolution == resolution->pixelResolution &&
+            candidate->aspectRatio == resolution->aspectRatio &&
+            candidate->stereoScopicMode == resolution->stereoScopicMode &&
             candidate->frameRate == resolution->frameRate &&
             candidate->interlaced == requestedInterlaced) {
-            strncpy(resolution->name, candidate->name, sizeof(resolution->name) - 1);
-            resolution->name[sizeof(resolution->name) - 1] = '\0';
-            return;
-        }
-    }
-
-    for (size_t i = 0; i < kNumResolutionsSettings; i++) {
-        const dsVideoPortResolution_t *candidate = &kResolutionsSettings[i];
-        if (candidate->pixelResolution == resolution->pixelResolution &&
-            candidate->frameRate == resolution->frameRate) {
-            strncpy(resolution->name, candidate->name, sizeof(resolution->name) - 1);
-            resolution->name[sizeof(resolution->name) - 1] = '\0';
-            return;
-        }
-    }
-
-    for (size_t i = 0; i < kNumResolutionsSettings; i++) {
-        const dsVideoPortResolution_t *candidate = &kResolutionsSettings[i];
-        if (candidate->pixelResolution == resolution->pixelResolution &&
-            candidate->interlaced == requestedInterlaced) {
-            strncpy(resolution->name, candidate->name, sizeof(resolution->name) - 1);
-            resolution->name[sizeof(resolution->name) - 1] = '\0';
-            return;
-        }
-    }
-
-    for (size_t i = 0; i < kNumResolutionsSettings; i++) {
-        const dsVideoPortResolution_t *candidate = &kResolutionsSettings[i];
-        if (candidate->pixelResolution == resolution->pixelResolution) {
             strncpy(resolution->name, candidate->name, sizeof(resolution->name) - 1);
             resolution->name[sizeof(resolution->name) - 1] = '\0';
             return;
@@ -707,6 +686,7 @@ dsError_t  dsVideoPortInit()
     _videoFormatWatcherStop = false;
     _videoFormatWatcherRunning = false;
     _videoFormatNotifyRequested = false;
+    _videoFormatWatcherEventPending = false;
     pthread_mutex_unlock(&_videoFormatCbMutex);
 
     dsRegisterConnectorChangeHook(onHdmiConnectorChange);
@@ -1453,6 +1433,11 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
                     resolution->name, activeRes ? activeRes : "<unknown>");
             return dsERR_GENERAL;
         }
+
+        pthread_mutex_lock(&_videoFormatCbMutex);
+        signalVideoFormatWatcherEventLocked();
+        pthread_mutex_unlock(&_videoFormatCbMutex);
+
         dsRegisterFrameratePostChangeCB_t frameratePostCB = dsVideoDeviceGetFrameratePostChangeCB();
         if (frameratePostCB) {
             frameratePostCB((unsigned int)rate);
@@ -1497,6 +1482,7 @@ dsError_t  dsVideoPortTerm()
     _videoFormatWatcherStop = true;
     joinWatcher = _videoFormatWatcherRunning;
     _videoFormatWatcherRunning = false;
+    _videoFormatWatcherEventPending = false;
     pthread_cond_signal(&_videoFormatWatcherCond);
     pthread_mutex_unlock(&_videoFormatCbMutex);
 
@@ -1511,6 +1497,7 @@ dsError_t  dsVideoPortTerm()
     _halhdcpcallback = NULL;
     pthread_mutex_lock(&_videoFormatCbMutex);
     _videoFormatUpdateCb = NULL;
+    _videoFormatWatcherEventPending = false;
     pthread_mutex_unlock(&_videoFormatCbMutex);
     _bIsVideoPortInitialized = false;
     return dsERR_NONE;
@@ -1962,9 +1949,14 @@ dsError_t dsVideoFormatUpdateRegisterCB(dsVideoFormatUpdateCB_t cb)
     }
 
     pthread_mutex_lock(&_videoFormatCbMutex);
+    if (!_videoFormatWatcherRunning || _videoFormatWatcherStop) {
+        pthread_mutex_unlock(&_videoFormatCbMutex);
+        hal_err("Video format watcher thread is not running; callback registration unavailable\n");
+        return dsERR_GENERAL;
+    }
     _videoFormatUpdateCb = cb;
     _videoFormatNotifyRequested = true;
-    pthread_cond_signal(&_videoFormatWatcherCond);
+    signalVideoFormatWatcherEventLocked();
     pthread_mutex_unlock(&_videoFormatCbMutex);
 
     return dsERR_NONE;

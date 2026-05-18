@@ -113,11 +113,16 @@ static void* hdmi_watcher_thread(void *arg)
     int nativeHandle = (int)(intptr_t)arg;
     bool currentConnected = false, currentEnabled = false;
     bool lastConnected = false;
+    bool lastEnabled = false;
     unsigned char eventData = 0;
 
     pthread_mutex_lock(&gHdmiWatcherMutex);
     lastConnected = gLastHdmiConnected;
     pthread_mutex_unlock(&gHdmiWatcherMutex);
+
+    if (drm_get_hdmi_connector_state(&currentConnected, &currentEnabled)) {
+        lastEnabled = currentEnabled;
+    }
 
     hal_info("HDMI watcher thread (udev + libdrm) started\n");
 
@@ -151,15 +156,23 @@ static void* hdmi_watcher_thread(void *arg)
         /* Refresh connector state for both udev events and timeout wakeups. */
         if (drm_get_hdmi_connector_state(&currentConnected, &currentEnabled)) {
             bool stateChanged = false;
+            bool connectionChanged = false;
             bool notifyConnected = false;
             dsDisplayEventCallback_t callback = NULL;
 
             pthread_mutex_lock(&gHdmiWatcherMutex);
 
             /* Detect state change and snapshot callback under lock. */
-            if (currentConnected != lastConnected) {
-                hal_info("HDMI connection state changed: connected=%d (was %d)\n", currentConnected, lastConnected);
+            if (currentConnected != lastConnected || currentEnabled != lastEnabled) {
+                if (currentConnected != lastConnected) {
+                    hal_info("HDMI connection state changed: connected=%d (was %d)\n", currentConnected, lastConnected);
+                    connectionChanged = true;
+                }
+                if (currentEnabled != lastEnabled) {
+                    hal_info("HDMI enabled state changed: enabled=%d (was %d)\n", currentEnabled, lastEnabled);
+                }
                 lastConnected = currentConnected;
+                lastEnabled = currentEnabled;
                 gLastHdmiConnected = currentConnected;
                 callback = _halcallback;
                 stateChanged = true;
@@ -170,7 +183,7 @@ static void* hdmi_watcher_thread(void *arg)
 
             /* Invoke callbacks outside lock to avoid callback re-entry deadlock. */
             if (stateChanged) {
-                if (NULL != callback) {
+                if (connectionChanged && NULL != callback) {
                     if (notifyConnected) {
                         hal_dbg("HDMI cable connected, triggering CONNECTED event\n");
                         callback(nativeHandle, dsDISPLAY_EVENT_CONNECTED, &eventData);
@@ -178,11 +191,13 @@ static void* hdmi_watcher_thread(void *arg)
                         hal_dbg("HDMI cable disconnected, triggering DISCONNECTED event\n");
                         callback(nativeHandle, dsDISPLAY_EVENT_DISCONNECTED, &eventData);
                     }
-                } else {
+                } else if (connectionChanged) {
                     hal_warn("_halcallback is NULL, cannot report event\n");
                 }
 
-                notify_audio_hotplug(notifyConnected);
+                if (connectionChanged) {
+                    notify_audio_hotplug(notifyConnected);
+                }
 
                 void (*hook)(void) = NULL;
                 pthread_mutex_lock(&gHdmiWatcherMutex);
