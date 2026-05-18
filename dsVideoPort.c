@@ -137,6 +137,7 @@ static bool isVideoFormatWatcherPollingEnabled(void)
 static void waitForVideoFormatWatcherTick(bool hasCallback)
 {
     struct timespec wakeTime;
+    int waitRc = 0;
 
     pthread_mutex_lock(&_videoFormatCbMutex);
     while (!_videoFormatWatcherStop) {
@@ -158,7 +159,10 @@ static void waitForVideoFormatWatcherTick(bool hasCallback)
         (void)timespec_get(&wakeTime, TIME_UTC);
         wakeTime.tv_sec += 5;  /* Optional safety-net, enabled via runtime flag file. */
 
-        (void)pthread_cond_timedwait(&_videoFormatWatcherCond, &_videoFormatCbMutex, &wakeTime);
+        waitRc = pthread_cond_timedwait(&_videoFormatWatcherCond, &_videoFormatCbMutex, &wakeTime);
+        if (waitRc == ETIMEDOUT) {
+            break;
+        }
     }
     pthread_mutex_unlock(&_videoFormatCbMutex);
 }
@@ -464,14 +468,8 @@ static void populateResolutionNameFromFields(dsVideoPortResolution_t *resolution
         return;
     }
 
-    bool requestedInterlaced = _PROGRESSIVE;
-    if (resolution->interlaced == dsVIDEO_SCANMODE_INTERLACED) {
-        requestedInterlaced = _INTERLACED;
-    } else if (resolution->interlaced == dsVIDEO_SCANMODE_PROGRESSIVE) {
-        requestedInterlaced = _PROGRESSIVE;
-    } else {
-        requestedInterlaced = (resolution->interlaced != 0) ? _INTERLACED : _PROGRESSIVE;
-    }
+    /* kResolutionsSettings stores scan mode as boolean interlaced/progressive. */
+    bool requestedInterlaced = (resolution->interlaced != 0) ? _INTERLACED : _PROGRESSIVE;
 
     for (size_t i = 0; i < kNumResolutionsSettings; i++) {
         const dsVideoPortResolution_t *candidate = &kResolutionsSettings[i];
