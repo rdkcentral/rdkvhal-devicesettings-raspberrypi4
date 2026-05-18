@@ -68,6 +68,8 @@ static bool _videoFormatWatcherRunning = false;
 static bool _videoFormatWatcherStop = false;
 static bool _videoFormatNotifyRequested = false;
 
+#define VIDEO_FORMAT_WATCHER_POLL_FLAG_FILE "/opt/.dshal-enable-polling-for-cbs"
+
 #define MAX_HDMI_MODE_ID (127)
 
 #ifndef XDG_RUNTIME_DIR
@@ -116,6 +118,15 @@ static dsHDRStandard_t getCurrentVideoFormatFromState(bool connected, bool enabl
     return dsHDRSTANDARD_SDR;
 }
 
+/**
+ * @brief Check for existence of runtime flag file to determine if video format watcher should use polling.
+ * @return true if polling is enabled, false if watcher should rely on event notifications and condition variable signaling.
+ */
+static bool isVideoFormatWatcherPollingEnabled(void)
+{
+    return (access(VIDEO_FORMAT_WATCHER_POLL_FLAG_FILE, F_OK) == 0);
+}
+
 static void waitForVideoFormatWatcherTick(bool hasCallback)
 {
     struct timespec wakeTime;
@@ -132,8 +143,14 @@ static void waitForVideoFormatWatcherTick(bool hasCallback)
         return;
     }
 
+    if (!isVideoFormatWatcherPollingEnabled()) {
+        (void)pthread_cond_wait(&_videoFormatWatcherCond, &_videoFormatCbMutex);
+        pthread_mutex_unlock(&_videoFormatCbMutex);
+        return;
+    }
+
     (void)timespec_get(&wakeTime, TIME_UTC);
-    wakeTime.tv_sec += 5;  /* 5s safety-net; connector events wake us early via cond signal */
+    wakeTime.tv_sec += 5;  /* Optional safety-net, enabled via runtime flag file. */
 
     (void)pthread_cond_timedwait(&_videoFormatWatcherCond, &_videoFormatCbMutex, &wakeTime);
     pthread_mutex_unlock(&_videoFormatCbMutex);

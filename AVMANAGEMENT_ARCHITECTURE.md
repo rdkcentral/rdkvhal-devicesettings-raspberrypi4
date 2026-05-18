@@ -75,6 +75,32 @@ Behavior:
 - Watcher releases mutex before invoking callback to avoid re-entry deadlocks.
 - Audio hotplug notification is also issued from watcher on the same state transition.
 
+Video format callback path (`dsVideoFormatUpdateRegisterCB`):
+
+- `dsVideoPort` starts a dedicated video-format watcher thread during `dsVideoPortInit()`.
+- Callback registration stores the callback and sets an initial-notify flag.
+- The watcher waits ~10 ms for the initial notify path, then reports current format.
+- Current format mapping on RPi4 is state-based:
+  - disconnected or disabled HDMI -> `dsHDRSTANDARD_NONE`
+  - connected and enabled HDMI -> `dsHDRSTANDARD_SDR`
+- Subsequent notifications are emitted only when one of these changes:
+  - connector connected state,
+  - connector enabled state,
+  - active mode token (resolution string).
+
+Cross-module event wiring:
+
+- `dsDisplay` exposes a connector-change hook registration API (`dsRegisterConnectorChangeHook`).
+- `dsVideoPort` registers `onHdmiConnectorChange` as this hook.
+- On HDMI state transition, `dsDisplay` invokes this hook after display/audio callbacks, waking the video-format watcher immediately.
+
+Polling safety-net control:
+
+- Video-format watcher is event-driven by default (condition-variable waits only).
+- Optional periodic fallback polling is enabled at runtime only when this file exists:
+  - `/opt/.dshal-enable-polling-for-cbs`
+- When enabled, watcher uses a 5-second timed wait as a safety-net in addition to event wakeups.
+
 ### Resolution change flow
 
 Resolution set/get is handled in video-port HAL with DRM-aware validation around HDMI state:
