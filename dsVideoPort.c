@@ -28,6 +28,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <threads.h>
+#include <time.h>
 
 #include "dsUtl.h"
 #include "dsError.h"
@@ -46,10 +47,35 @@
 dsError_t dsGetAudioEncoding(intptr_t handle, dsAudioEncoding_t *encoding);
 extern dsRegisterFrameratePreChangeCB_t dsVideoDeviceGetFrameratePreChangeCB(void);
 extern dsRegisterFrameratePostChangeCB_t dsVideoDeviceGetFrameratePostChangeCB(void);
+void dsRegisterConnectorChangeHook(void (*hook)(void));
 
 static bool _bIsVideoPortInitialized = false;
 static bool isValidVopHandle(intptr_t handle);
 static const char *dsVideoGetResolution(void);
+
+static pthread_mutex_t _videoFormatCbMutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t _videoFormatWatcherCond = PTHREAD_COND_INITIALIZER;
+static bool _videoFormatWatcherEventPending = false;
+
+static void signalVideoFormatWatcherEventLocked(void)
+{
+    _videoFormatWatcherEventPending = true;
+    pthread_cond_signal(&_videoFormatWatcherCond);
+}
+
+static void onHdmiConnectorChange(void)
+{
+    pthread_mutex_lock(&_videoFormatCbMutex);
+    signalVideoFormatWatcherEventLocked();
+    pthread_mutex_unlock(&_videoFormatCbMutex);
+}
+static dsVideoFormatUpdateCB_t _videoFormatUpdateCb = NULL;
+static pthread_t _videoFormatWatcherThread;
+static bool _videoFormatWatcherRunning = false;
+static bool _videoFormatWatcherStop = false;
+static bool _videoFormatNotifyRequested = false;
+
+#define VIDEO_FORMAT_WATCHER_POLL_FLAG_FILE "/opt/.dshal-enable-polling-for-cbs"
 
 #define MAX_HDMI_MODE_ID (127)
 
@@ -76,6 +102,279 @@ static bool drm_get_hdmi_connector_state(bool *connected, bool *enabled)
     return dsGetHdmiConnectorState(connected, enabled);
 }
 
+static void notifyVideoFormatUpdate(dsHDRStandard_t format)
+{
+    dsVideoFormatUpdateCB_t cb = NULL;
+
+    pthread_mutex_lock(&_videoFormatCbMutex);
+    cb = _videoFormatUpdateCb;
+    pthread_mutex_unlock(&_videoFormatCbMutex);
+
+    if (cb != NULL) {
+        cb(format);
+    }
+}
+
+static dsHDRStandard_t getCurrentVideoFormatFromState(bool connected, bool enabled)
+{
+    if (!connected || !enabled) {
+        return dsHDRSTANDARD_NONE;
+    }
+
+    /* RPi4 output format is SDR-only when active. */
+    return dsHDRSTANDARD_SDR;
+}
+
+/**
+ * @brief Check for existence of runtime flag file to determine if video format watcher should use polling.
+ * @return true if polling is enabled, false if watcher should rely on event notifications and condition variable signaling.
+ */
+static bool isVideoFormatWatcherPollingEnabled(void)
+{
+    return (access(VIDEO_FORMAT_WATCHER_POLL_FLAG_FILE, F_OK) == 0);
+}
+
+static void waitForVideoFormatWatcherTick(bool hasCallback)
+{
+    struct timespec wakeTime;
+    int waitRc = 0;
+
+    pthread_mutex_lock(&_videoFormatCbMutex);
+    while (!_videoFormatWatcherStop) {
+        if (_videoFormatNotifyRequested || _videoFormatWatcherEventPending) {
+            _videoFormatWatcherEventPending = false;
+            break;
+        }
+
+        if (!hasCallback) {
+            (void)pthread_cond_wait(&_videoFormatWatcherCond, &_videoFormatCbMutex);
+            continue;
+        }
+
+        if (!isVideoFormatWatcherPollingEnabled()) {
+            (void)pthread_cond_wait(&_videoFormatWatcherCond, &_videoFormatCbMutex);
+            continue;
+        }
+
+        (void)timespec_get(&wakeTime, TIME_UTC);
+        wakeTime.tv_sec += 5;  /* Optional safety-net, enabled via runtime flag file. */
+
+        waitRc = pthread_cond_timedwait(&_videoFormatWatcherCond, &_videoFormatCbMutex, &wakeTime);
+        if (waitRc == ETIMEDOUT) {
+            break;
+        }
+    }
+    pthread_mutex_unlock(&_videoFormatCbMutex);
+}
+
+static void* videoFormatWatcherThreadMain(void *arg)
+{
+    (void)arg;
+
+    bool lastConnected = false;
+    bool lastEnabled = false;
+    char lastMode[64] = {'\0'};
+    bool hasLastSnapshot = false;
+
+    while (true) {
+        bool shouldStop = false;
+        bool notifyRequested = false;
+        bool hasCallback = false;
+        bool connected = false;
+        bool enabled = false;
+
+        pthread_mutex_lock(&_videoFormatCbMutex);
+        shouldStop = _videoFormatWatcherStop;
+        notifyRequested = _videoFormatNotifyRequested;
+        hasCallback = (_videoFormatUpdateCb != NULL);
+        _videoFormatNotifyRequested = false;
+        pthread_mutex_unlock(&_videoFormatCbMutex);
+
+        if (shouldStop) {
+            break;
+        }
+
+        if (!hasCallback && !notifyRequested) {
+            waitForVideoFormatWatcherTick(false);
+            continue;
+        }
+
+        if (notifyRequested) {
+            // CB registration sets this for an initial report. Wait for a short time before update.
+            const struct timespec notifyDelay = { .tv_sec = 0, .tv_nsec = 10000000L };
+            thrd_sleep(&notifyDelay, NULL);
+        }
+
+        bool stateValid = drm_get_hdmi_connector_state(&connected, &enabled);
+
+        if (!stateValid) {
+            if (notifyRequested) {
+                notifyVideoFormatUpdate(dsHDRSTANDARD_Invalid);
+            }
+            waitForVideoFormatWatcherTick(true);
+            continue;
+        }
+
+        char currentModeBuf[64] = {'\0'};
+        const char *currentMode = dsVideoGetResolution();
+        if (currentMode != NULL) {
+            strncpy(currentModeBuf, currentMode, sizeof(currentModeBuf) - 1);
+            currentModeBuf[sizeof(currentModeBuf) - 1] = '\0';
+        }
+
+        if (notifyRequested || !hasLastSnapshot || lastConnected != connected || lastEnabled != enabled ||
+                strcmp(lastMode, currentModeBuf) != 0) {
+            hal_dbg("Video format state changed: connected=%d enabled=%d mode='%s'\n",
+                     connected, enabled, currentModeBuf);
+            lastConnected = connected;
+            lastEnabled = enabled;
+            strncpy(lastMode, currentModeBuf, sizeof(lastMode) - 1);
+            lastMode[sizeof(lastMode) - 1] = '\0';
+            hasLastSnapshot = true;
+
+            notifyVideoFormatUpdate(getCurrentVideoFormatFromState(connected, enabled));
+        }
+
+        waitForVideoFormatWatcherTick(true);
+    }
+
+    return NULL;
+}
+
+/**
+ * @brief Normalize a display mode token into canonical <height><scan><rate> form.
+ *
+ * Accepts mode tokens returned by or passed to westeros-gl, including status-
+ * prefixed responses (for example: "0: mode 1920x1080px60") and direct mode
+ * strings (for example: "1920x1080p60", "1920x1080px60", "1080p60",
+ * "1080p60hz", "smpte60hz").
+ *
+ * On success, writes a normalized token such as "1080p60" to @a normalizedToken.
+ *
+ * @param[in] token                 Input mode token to parse.
+ * @param[out] normalizedToken      Output buffer for normalized token.
+ * @param[in] normalizedTokenSize   Size of @a normalizedToken in bytes.
+ *
+ * @return true if normalization succeeded and output token was written, false otherwise.
+ */
+static bool normalizeModeToken(const char *token, char *normalizedToken, size_t normalizedTokenSize)
+{
+    if (token == NULL || normalizedToken == NULL || normalizedTokenSize == 0) {
+        return false;
+    }
+
+    normalizedToken[0] = '\0';
+
+    char parseToken[64] = {'\0'};
+    const size_t parseTokenCapacity = sizeof(parseToken);
+    strncpy(parseToken, token, sizeof(parseToken) - 1);
+    parseToken[sizeof(parseToken) - 1] = '\0';
+
+    size_t lead = 0;
+    while (lead < (parseTokenCapacity - 1) && parseToken[lead] != '\0' &&
+           isspace((unsigned char)parseToken[lead])) {
+        lead++;
+    }
+    if (lead > 0) {
+        memmove(parseToken, parseToken + lead, strlen(parseToken + lead) + 1);
+    }
+
+    size_t parseLen = strlen(parseToken);
+    if (parseLen >= parseTokenCapacity) {
+        parseLen = parseTokenCapacity - 1;
+        parseToken[parseLen] = '\0';
+    }
+    while (parseLen > 0 && isspace((unsigned char)parseToken[parseLen - 1])) {
+        parseToken[--parseLen] = '\0';
+    }
+
+    char extractedMode[64] = {'\0'};
+    int ignoredStatus = -1;
+    if (sscanf(parseToken, "%d: mode %63s", &ignoredStatus, extractedMode) == 2 ||
+        sscanf(parseToken, "%d: set mode %63s", &ignoredStatus, extractedMode) == 2 ||
+        sscanf(parseToken, "mode %63s", extractedMode) == 1 ||
+        sscanf(parseToken, "set mode %63s", extractedMode) == 1) {
+        strncpy(parseToken, extractedMode, sizeof(parseToken) - 1);
+        parseToken[sizeof(parseToken) - 1] = '\0';
+        parseLen = strlen(parseToken);
+        if (parseLen >= parseTokenCapacity) {
+            parseLen = parseTokenCapacity - 1;
+            parseToken[parseLen] = '\0';
+        }
+    }
+
+    for (size_t i = 0; i < parseLen && i < (parseTokenCapacity - 1); ++i) {
+        parseToken[i] = (char)tolower((unsigned char)parseToken[i]);
+    }
+
+    if (parseLen == 0) {
+        return false;
+    }
+
+    int width = -1;
+    int height = -1;
+    int rate = -1;
+    char scanMode = '\0';
+    bool parsed = false;
+
+    if (sscanf(parseToken, "%dx%dx%d", &width, &height, &rate) == 3) {
+        scanMode = 'p';
+        parsed = true;
+    } else if (sscanf(parseToken, "%dx%d%cx%d", &width, &height, &scanMode, &rate) == 4 ||
+               sscanf(parseToken, "%dx%d%c%d", &width, &height, &scanMode, &rate) == 4) {
+        parsed = true;
+    } else if (sscanf(parseToken, "%dx%d", &width, &height) == 2) {
+        char last = parseToken[parseLen - 1];
+        scanMode = (last == 'i') ? 'i' : 'p';
+        rate = 60;
+        parsed = true;
+    } else if (sscanf(parseToken, "%dp%dhz", &height, &rate) == 2) {
+        scanMode = 'p';
+        parsed = true;
+    } else if (sscanf(parseToken, "%di%dhz", &height, &rate) == 2) {
+        scanMode = 'i';
+        parsed = true;
+    } else if (sscanf(parseToken, "%d%c%d", &height, &scanMode, &rate) == 3 && (scanMode == 'p' || scanMode == 'i')) {
+        parsed = true;
+    } else if (sscanf(parseToken, "%dp", &height) == 1) {
+        scanMode = 'p';
+        rate = 60;
+        parsed = true;
+    } else if (sscanf(parseToken, "%di", &height) == 1) {
+        scanMode = 'i';
+        rate = 60;
+        parsed = true;
+    } else if (sscanf(parseToken, "smpte%dhz", &rate) == 1) {
+        height = 2160;
+        scanMode = 'p';
+        parsed = true;
+    }
+
+    if (!parsed) {
+        return false;
+    }
+
+    scanMode = (char)tolower((unsigned char)scanMode);
+    if (height > 0 && rate > 0 && (scanMode == 'p' || scanMode == 'i')) {
+        (void)snprintf(normalizedToken, normalizedTokenSize, "%d%c%d", height, scanMode, rate);
+        return (normalizedToken[0] != '\0');
+    }
+
+    return false;
+}
+
+/**
+ * @brief Resolve an input resolution token to the canonical RDK resolution name.
+ *
+ * The input may be a raw mode token from westeros-gl or an already normalized
+ * RDK token. This function normalizes when possible, then matches against
+ * resolutionMap entries, including aliases that omit an explicit refresh rate
+ * by applying a default 60 Hz comparison.
+ *
+ * @param[in] token       Input token to resolve.
+ * @param[out] out        Output buffer for resolved token.
+ * @param[in] outSize     Size of @a out in bytes.
+ */
 static void resolveResolutionToken(const char *token, char *out, size_t outSize)
 {
     if (out == NULL || outSize == 0) {
@@ -101,19 +400,9 @@ static void resolveResolutionToken(const char *token, char *out, size_t outSize)
     }
 
     char normalizedToken[64] = {'\0'};
-    int width = -1;
-    int height = -1;
-    int rate = -1;
-    char scanMode = '\0';
+    bool hasNormalizedToken = normalizeModeToken(trimmedToken, normalizedToken, sizeof(normalizedToken));
 
-    if (sscanf(trimmedToken, "%dx%d%c%d", &width, &height, &scanMode, &rate) == 4) {
-        scanMode = (char)tolower((unsigned char)scanMode);
-        if (width > 0 && height > 0 && rate > 0 && (scanMode == 'p' || scanMode == 'i')) {
-            (void)snprintf(normalizedToken, sizeof(normalizedToken), "%d%c%d", height, scanMode, rate);
-        }
-    }
-
-    const char *candidate = (normalizedToken[0] != '\0') ? normalizedToken : trimmedToken;
+    const char *candidate = hasNormalizedToken ? normalizedToken : trimmedToken;
     for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
         const char *mapRes = resolutionMap[i].rdkRes;
         size_t mapLen = strlen(mapRes);
@@ -140,6 +429,17 @@ static void resolveResolutionToken(const char *token, char *out, size_t outSize)
     out[outSize - 1] = '\0';
 }
 
+/**
+ * @brief Compare two resolution names after canonical token resolution.
+ *
+ * This helper resolves both input names through resolveResolutionToken and
+ * returns true only when both resolve successfully to the same canonical value.
+ *
+ * @param[in] requested   Requested resolution token.
+ * @param[in] active      Active/current resolution token.
+ *
+ * @return true if both tokens resolve to the same canonical resolution, false otherwise.
+ */
 static bool resolutionNamesEquivalent(const char *requested, const char *active)
 {
     char requestedCanonical[64] = {'\0'};
@@ -150,6 +450,40 @@ static bool resolutionNamesEquivalent(const char *requested, const char *active)
 
     return (requestedCanonical[0] != '\0' && activeCanonical[0] != '\0' &&
             strcmp(requestedCanonical, activeCanonical) == 0);
+}
+
+/**
+ * @brief Populate the resolution name field based on other resolution attributes.
+ *
+ * This function attempts to fill in the name field of a dsVideoPortResolution_t
+ * if that is not already set, by exact matching all mode-defining attributes
+ * against the known resolution settings in kResolutionsSettings.
+ *
+ * @param[in,out] resolution Pointer to the resolution structure to populate.
+ */
+static void populateResolutionNameFromFields(dsVideoPortResolution_t *resolution)
+{
+    if (resolution == NULL || resolution->name[0] != '\0') {
+        hal_dbg("Resolution name already set or resolution is NULL, skipping population\n");
+        return;
+    }
+
+    /* kResolutionsSettings stores scan mode as boolean interlaced/progressive. */
+    bool requestedInterlaced = (resolution->interlaced != 0) ? _INTERLACED : _PROGRESSIVE;
+
+    for (size_t i = 0; i < kNumResolutionsSettings; i++) {
+        const dsVideoPortResolution_t *candidate = &kResolutionsSettings[i];
+        if (candidate->pixelResolution == resolution->pixelResolution &&
+            candidate->aspectRatio == resolution->aspectRatio &&
+            candidate->stereoScopicMode == resolution->stereoScopicMode &&
+            candidate->frameRate == resolution->frameRate &&
+            candidate->interlaced == requestedInterlaced) {
+            strncpy(resolution->name, candidate->name, sizeof(resolution->name) - 1);
+            resolution->name[sizeof(resolution->name) - 1] = '\0';
+            return;
+        }
+    }
+    /* No match found - resolution remains unsupported (name stays empty). */
 }
 
 static dsError_t getHdmiEdidForConnectedDisplay(dsVideoPortType_t video_port_type,
@@ -345,6 +679,23 @@ dsError_t  dsVideoPortInit()
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index);
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_isEnabled = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_isEnabled);
     _resolution = kResolutionsSettings[kDefaultResIndex];
+
+    pthread_mutex_lock(&_videoFormatCbMutex);
+    _videoFormatWatcherStop = false;
+    _videoFormatWatcherRunning = false;
+    _videoFormatNotifyRequested = false;
+    _videoFormatWatcherEventPending = false;
+    pthread_mutex_unlock(&_videoFormatCbMutex);
+
+    dsRegisterConnectorChangeHook(onHdmiConnectorChange);
+
+    if (pthread_create(&_videoFormatWatcherThread, NULL, videoFormatWatcherThreadMain, NULL) == 0) {
+        pthread_mutex_lock(&_videoFormatCbMutex);
+        _videoFormatWatcherRunning = true;
+        pthread_mutex_unlock(&_videoFormatCbMutex);
+    } else {
+        hal_warn("Unable to start video format watcher thread; callback updates will be unavailable.\n");
+    }
 
     /* HDCP callback registration removed: tvservice eliminated, HDCP status assumed authenticated by default */
     _bIsVideoPortInitialized = true;
@@ -866,18 +1217,9 @@ static const char* dsVideoGetResolution(void)
         resName[--resLen] = '\0';
     }
 
-    int width = -1;
-    int height = -1;
-    int rate = -1;
-    char scanMode = '\0';
-    if (sscanf(resName, "%dx%d%c%d", &width, &height, &scanMode, &rate) == 4) {
-        scanMode = (char)tolower((unsigned char)scanMode);
-        if (width > 0 && height > 0 && rate > 0 && (scanMode == 'p' || scanMode == 'i')) {
-            snprintf(normalizedRes, sizeof(normalizedRes), "%d%c%d", height, scanMode, rate);
-        }
-    }
+    bool hasNormalizedMode = normalizeModeToken(resName, normalizedRes, sizeof(normalizedRes));
 
-    if (normalizedRes[0] == '\0') {
+    if (!hasNormalizedMode || normalizedRes[0] == '\0') {
         strncpy(normalizedRes, resName, sizeof(normalizedRes) - 1);
         normalizedRes[sizeof(normalizedRes) - 1] = '\0';
     }
@@ -949,7 +1291,8 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
-    if (!isValidVopHandle(handle) || NULL == resolution || resolution->name[0] == '\0' ||
+
+    if (!isValidVopHandle(handle) || NULL == resolution ||
         !dsVideoPortPixelResolution_isValid(resolution->pixelResolution) ||
         !dsVideoPortAspectRatio_isValid(resolution->aspectRatio) ||
         !dsVideoPortStereoScopicMode_isValid(resolution->stereoScopicMode) ||
@@ -958,6 +1301,21 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         hal_err("dsSetResolution dsERR_INVALID_PARAM - Invalid handle or resolution parameters\n");
         return dsERR_INVALID_PARAM;
     }
+
+    if (resolution->name[0] == '\0') {
+        populateResolutionNameFromFields(resolution);
+        hal_dbg("Resolution name was empty, populated from fields as '%s'\n", resolution->name);
+        if (resolution->name[0] == '\0') {
+            hal_err("Failed to populate resolution name from fields; not supported combination.\n");
+            hal_dbg("Received resolution parameters: pixelResolution=%d, aspectRatio=%d, stereoScopicMode=%d, frameRate=%d, interlaced=%d\n",
+                        resolution->pixelResolution, resolution->aspectRatio, resolution->stereoScopicMode,
+                        resolution->frameRate, resolution->interlaced);
+            return dsERR_INVALID_PARAM;
+        }
+    } else {
+        hal_dbg("Using requested resolution name is '%s'\n", resolution->name);
+    }
+
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
         hal_dbg("Setting HDMI resolution '%s'\n", resolution->name);
         char cmdBuf[256] = {'\0'};
@@ -1073,6 +1431,11 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
                     resolution->name, activeRes ? activeRes : "<unknown>");
             return dsERR_GENERAL;
         }
+
+        pthread_mutex_lock(&_videoFormatCbMutex);
+        signalVideoFormatWatcherEventLocked();
+        pthread_mutex_unlock(&_videoFormatCbMutex);
+
         dsRegisterFrameratePostChangeCB_t frameratePostCB = dsVideoDeviceGetFrameratePostChangeCB();
         if (frameratePostCB) {
             frameratePostCB((unsigned int)rate);
@@ -1104,11 +1467,36 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 dsError_t  dsVideoPortTerm()
 {
     hal_info("invoked.\n");
+    bool joinWatcher = false;
+    bool selfJoin = false;
+
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
+
+    dsRegisterConnectorChangeHook(NULL);
+
+    pthread_mutex_lock(&_videoFormatCbMutex);
+    _videoFormatWatcherStop = true;
+    joinWatcher = _videoFormatWatcherRunning;
+    _videoFormatWatcherRunning = false;
+    _videoFormatWatcherEventPending = false;
+    pthread_cond_signal(&_videoFormatWatcherCond);
+    pthread_mutex_unlock(&_videoFormatCbMutex);
+
+    if (joinWatcher) {
+        selfJoin = pthread_equal(pthread_self(), _videoFormatWatcherThread);
+        if (!selfJoin) {
+            (void)pthread_join(_videoFormatWatcherThread, NULL);
+        }
+    }
+
     /* HDCP callback unregistration removed: tvservice eliminated */
     _halhdcpcallback = NULL;
+    pthread_mutex_lock(&_videoFormatCbMutex);
+    _videoFormatUpdateCb = NULL;
+    _videoFormatWatcherEventPending = false;
+    pthread_mutex_unlock(&_videoFormatCbMutex);
     _bIsVideoPortInitialized = false;
     return dsERR_NONE;
 }
@@ -1527,6 +1915,24 @@ dsError_t dsGetSurroundMode(intptr_t handle, int *surround)
     return dsERR_NONE;
 }
 
+/**
+ * @brief Callback Registration for the Video Format update event.
+ *
+ * This function registers a callback function to receive the Video Format update events.
+ *
+ * @param[in] cb        - Callback function
+ *
+ * @return dsError_t                      -  Status
+ * @retval dsERR_NONE                     -  Success
+ * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
+ * @retval dsERR_GENERAL                  -  Underlying undefined platform error
+ *
+ * @pre dsVideoPortInit() must be called before calling this API.
+ *
+ * @warning  This API is Not thread safe.
+ */
 dsError_t dsVideoFormatUpdateRegisterCB(dsVideoFormatUpdateCB_t cb)
 {
     hal_info("invoked.\n");
@@ -1540,7 +1946,18 @@ dsError_t dsVideoFormatUpdateRegisterCB(dsVideoFormatUpdateCB_t cb)
         return dsERR_INVALID_PARAM;
     }
 
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    pthread_mutex_lock(&_videoFormatCbMutex);
+    if (!_videoFormatWatcherRunning || _videoFormatWatcherStop) {
+        pthread_mutex_unlock(&_videoFormatCbMutex);
+        hal_err("Video format watcher thread is not running; callback registration unavailable\n");
+        return dsERR_GENERAL;
+    }
+    _videoFormatUpdateCb = cb;
+    _videoFormatNotifyRequested = true;
+    signalVideoFormatWatcherEventLocked();
+    pthread_mutex_unlock(&_videoFormatCbMutex);
+
+    return dsERR_NONE;
 }
 
 /**
@@ -1577,25 +1994,23 @@ dsError_t dsSetActiveSource(intptr_t handle)
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
-/**
+ /**
  * @brief Gets the current HDCP status of the specified video port.
  *
- * @param[in] handle    - Handle of the video port returned from
- * dsGetVideoPort()
- * @param[out] status   - HDCP status of the video port.  Please refer
- * ::dsHdcpStatus_t
+ * For sink devices, this function returns the authentication status as dsHDCP_STATUS_AUTHENTICATED and returns dsERR_NONE always.
+ * For source device, this function gives current HDCP status of the specified video port. It must return dsERR_OPERATION_NOT_SUPPORTED if connected  video port does not support HDCP.
+ *
+ * @param[in] handle    - Handle of the video port returned from dsGetVideoPort()
+ * @param[out] status   - HDCP status of the video port.  Please refer ::dsHdcpStatus_t
  *
  * @return dsError_t                      -  Status
  * @retval dsERR_NONE                     -  Success
  * @retval dsERR_NOT_INITIALIZED          -  Module is not initialised
- * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function
- * is invalid
- * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not
- * supported
+ * @retval dsERR_INVALID_PARAM            -  Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED  -  The attempted operation is not supported
  * @retval dsERR_GENERAL                  -  Underlying undefined platform error
  *
- * @pre dsVideoPortInit() and dsGetVideoPort() must be called before calling
- * this API.
+ * @pre dsVideoPortInit() and dsGetVideoPort() must be called before calling this API.
  *
  * @warning  This API is Not thread safe.
  *
