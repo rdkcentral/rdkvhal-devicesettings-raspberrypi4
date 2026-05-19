@@ -69,5 +69,6 @@ const char *getXDGRuntimeDir();
 int dsOpenDrmCardFd(void);
 bool dsGetHdmiConnectorState(bool *connected, bool *enabled);
 bool dsGetPreferredHdmiMode(char *mode, size_t len);
+void dsRegisterConnectorChangeHook(void (*hook)(void));
 
 #endif

@@ -46,6 +46,8 @@ extern size_t kNumResolutionsSettings;
 
 dsDisplayEventCallback_t _halcallback = NULL;
 extern dsAudioOutPortConnectCB_t _halhdmiaudioCB;
+static void (*gConnectorChangeHook)(void) = NULL;
+static pthread_mutex_t gHdmiWatcherMutex = PTHREAD_MUTEX_INITIALIZER;
 dsVideoPortResolution_t *HdmiSupportedResolution = NULL;
 static unsigned int numSupportedResn = 0;
 static bool _bDisplayInited = false;
@@ -59,6 +61,13 @@ static dsAudioOutPortConnectCB_t get_hdmi_audio_cb(void)
     cb = _halhdmiaudioCB;
     pthread_mutex_unlock(&gHdmiAudioCbMutex);
     return cb;
+}
+
+void dsRegisterConnectorChangeHook(void (*hook)(void))
+{
+    pthread_mutex_lock(&gHdmiWatcherMutex);
+    gConnectorChangeHook = hook;
+    pthread_mutex_unlock(&gHdmiWatcherMutex);
 }
 
 static void notify_audio_hotplug(bool connected)
@@ -95,7 +104,6 @@ static pthread_t gHdmiWatcherThread = (pthread_t)(-1);
 static atomic_bool gHdmiWatcherRunning = ATOMIC_VAR_INIT(false);
 static pthread_t gInitialStateReporterThread = (pthread_t)(-1);
 static bool gLastHdmiConnected = false;
-static pthread_mutex_t gHdmiWatcherMutex = PTHREAD_MUTEX_INITIALIZER;
 static struct udev *gUdevCtx = NULL;
 static struct udev_monitor *gUdevMonitor = NULL;
 static int gUdevFd = -1;
@@ -105,11 +113,16 @@ static void* hdmi_watcher_thread(void *arg)
     int nativeHandle = (int)(intptr_t)arg;
     bool currentConnected = false, currentEnabled = false;
     bool lastConnected = false;
+    bool lastEnabled = false;
     unsigned char eventData = 0;
 
     pthread_mutex_lock(&gHdmiWatcherMutex);
     lastConnected = gLastHdmiConnected;
     pthread_mutex_unlock(&gHdmiWatcherMutex);
+
+    if (drm_get_hdmi_connector_state(&currentConnected, &currentEnabled)) {
+        lastEnabled = currentEnabled;
+    }
 
     hal_info("HDMI watcher thread (udev + libdrm) started\n");
 
@@ -143,15 +156,23 @@ static void* hdmi_watcher_thread(void *arg)
         /* Refresh connector state for both udev events and timeout wakeups. */
         if (drm_get_hdmi_connector_state(&currentConnected, &currentEnabled)) {
             bool stateChanged = false;
+            bool connectionChanged = false;
             bool notifyConnected = false;
             dsDisplayEventCallback_t callback = NULL;
 
             pthread_mutex_lock(&gHdmiWatcherMutex);
 
             /* Detect state change and snapshot callback under lock. */
-            if (currentConnected != lastConnected) {
-                hal_info("HDMI connection state changed: connected=%d (was %d)\n", currentConnected, lastConnected);
+            if (currentConnected != lastConnected || currentEnabled != lastEnabled) {
+                if (currentConnected != lastConnected) {
+                    hal_info("HDMI connection state changed: connected=%d (was %d)\n", currentConnected, lastConnected);
+                    connectionChanged = true;
+                }
+                if (currentEnabled != lastEnabled) {
+                    hal_info("HDMI enabled state changed: enabled=%d (was %d)\n", currentEnabled, lastEnabled);
+                }
                 lastConnected = currentConnected;
+                lastEnabled = currentEnabled;
                 gLastHdmiConnected = currentConnected;
                 callback = _halcallback;
                 stateChanged = true;
@@ -162,7 +183,7 @@ static void* hdmi_watcher_thread(void *arg)
 
             /* Invoke callbacks outside lock to avoid callback re-entry deadlock. */
             if (stateChanged) {
-                if (NULL != callback) {
+                if (connectionChanged && NULL != callback) {
                     if (notifyConnected) {
                         hal_dbg("HDMI cable connected, triggering CONNECTED event\n");
                         callback(nativeHandle, dsDISPLAY_EVENT_CONNECTED, &eventData);
@@ -170,11 +191,21 @@ static void* hdmi_watcher_thread(void *arg)
                         hal_dbg("HDMI cable disconnected, triggering DISCONNECTED event\n");
                         callback(nativeHandle, dsDISPLAY_EVENT_DISCONNECTED, &eventData);
                     }
-                } else {
+                } else if (connectionChanged) {
                     hal_warn("_halcallback is NULL, cannot report event\n");
                 }
 
-                notify_audio_hotplug(notifyConnected);
+                if (connectionChanged) {
+                    notify_audio_hotplug(notifyConnected);
+                }
+
+                void (*hook)(void) = NULL;
+                pthread_mutex_lock(&gHdmiWatcherMutex);
+                hook = gConnectorChangeHook;
+                pthread_mutex_unlock(&gHdmiWatcherMutex);
+                if (hook != NULL) {
+                    hook();
+                }
             }
         }
     }
