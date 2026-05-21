@@ -15,6 +15,8 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <stdio.h>
@@ -24,6 +26,7 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <dirent.h>
 #include <limits.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -38,6 +41,29 @@
 #include "dshalUtils.h"
 #include "dshalLogger.h"
 
+#define DSHALUTILS_EDID_MAX_BYTES (256)
+
+/**
+ * @brief Resolve the DRM card name to use for HDMI operations.
+ * @param[out] cardName Buffer to store the resolved DRM card name.
+ * @param[in] len Length of the buffer.
+ */
+static void dsResolveDrmCardName(char *cardName, size_t len)
+{
+    const char *cardPath = getenv("WESTEROS_DRM_CARD");
+    if (cardPath == NULL || cardPath[0] == '\0') {
+        cardPath = DRI_CARD;
+    }
+
+    const char *slash = strrchr(cardPath, '/');
+    const char *base = (slash != NULL) ? (slash + 1) : cardPath;
+    snprintf(cardName, len, "%s", base);
+}
+
+/**
+ * @brief Open the DRM card device file as read-only and return its file descriptor.
+ * @return File descriptor of the opened DRM card, or -1 on failure.
+ */
 int dsOpenDrmCardFd(void)
 {
     const char *cardPath = getenv("WESTEROS_DRM_CARD");
@@ -63,6 +89,12 @@ int dsOpenDrmCardFd(void)
     return fd;
 }
 
+/**
+ * @brief Get the state of the HDMI connector.
+ * @param[out] connected Pointer to a boolean to store the connection state.
+ * @param[out] enabled Pointer to a boolean to store the enabled state.
+ * @return true if the connector state was successfully retrieved, false otherwise.
+ */
 bool dsGetHdmiConnectorState(bool *connected, bool *enabled)
 {
     int drmFd = -1;
@@ -165,6 +197,104 @@ bool dsGetHdmiConnectorState(bool *connected, bool *enabled)
     return true;
 }
 
+/**
+ * @brief Get the EDID bytes from the connected HDMI display.
+ * @param[out] edid Buffer to store the retrieved EDID bytes.
+ * @param[out] length Pointer to an integer to store the length of the retrieved EDID data.
+ * @return 0 on success, -1 on failure.
+ */
+int dsGetHdmiEdidBytes(unsigned char *edid, int *length)
+{
+    bool drmConnected = false, drmEnabled = false;
+    char edidPath[PATH_MAX] = {0};
+    char statusPath[PATH_MAX] = {0};
+    char connectorName[64] = {0};
+    char cardName[PATH_MAX] = {0};
+
+    if (edid == NULL || length == NULL) {
+        return -1;
+    }
+
+    if (!dsGetHdmiConnectorState(&drmConnected, &drmEnabled) || !drmConnected) {
+        *length = 0;
+        return -1;
+    }
+
+    dsResolveDrmCardName(cardName, sizeof(cardName));
+    DIR *drmClass = opendir("/sys/class/drm");
+    if (!drmClass) {
+        return -1;
+    }
+
+    struct dirent *entry;
+    *length = 0;
+    while ((entry = readdir(drmClass)) != NULL) {
+        if (strncmp(entry->d_name, cardName, strlen(cardName)) != 0) {
+            continue;
+        }
+        if (strstr(entry->d_name, "HDMI-A-1") == NULL) {
+            continue;
+        }
+
+        int statusLen = snprintf(statusPath, sizeof(statusPath), "/sys/class/drm/%s/status", entry->d_name);
+        if (statusLen < 0 || (size_t)statusLen >= sizeof(statusPath)) {
+            continue;
+        }
+
+        FILE *statusFile = fopen(statusPath, "r");
+        if (statusFile == NULL) {
+            continue;
+        }
+
+        char status[16] = {0};
+        if (fgets(status, sizeof(status), statusFile) == NULL) {
+            fclose(statusFile);
+            continue;
+        }
+        fclose(statusFile);
+
+        if (strncmp(status, "connected", strlen("connected")) != 0) {
+            continue;
+        }
+
+        int pathLen = snprintf(edidPath, sizeof(edidPath), "/sys/class/drm/%s/edid", entry->d_name);
+        if (pathLen < 0 || (size_t)pathLen >= sizeof(edidPath)) {
+            continue;
+        }
+
+        FILE *edidFile = fopen(edidPath, "rb");
+        if (!edidFile) {
+            continue;
+        }
+
+        *length = (int)fread(edid, 1, DSHALUTILS_EDID_MAX_BYTES, edidFile);
+        fclose(edidFile);
+
+        if (*length <= 0) {
+            closedir(drmClass);
+            return -1;
+        }
+
+        strncpy(connectorName, entry->d_name, sizeof(connectorName) - 1);
+        connectorName[sizeof(connectorName) - 1] = '\0';
+        hal_dbg("Read %d bytes of EDID from %s(%s)\n", *length, edidPath, connectorName);
+        break;
+    }
+    closedir(drmClass);
+
+    if (*length == 0) {
+        return -1;
+    }
+
+    return 0;
+}
+
+/**
+ * @brief Get the preferred HDMI mode.
+ * @param[out] mode Buffer to store the preferred HDMI mode.
+ * @param[in] len Length of the buffer.
+ * @return true if a preferred HDMI mode was found, false otherwise.
+ */
 bool dsGetPreferredHdmiMode(char *mode, size_t len)
 {
     int drmFd = -1;

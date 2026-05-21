@@ -15,6 +15,8 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <string.h>
@@ -491,19 +493,19 @@ static dsError_t getHdmiEdidForConnectedDisplay(dsVideoPortType_t video_port_typ
         unsigned char **edid_buf,
         int *edid_len)
 {
-    intptr_t dispHandle = 0;
+    (void)video_port_type;
+    (void)video_port_index;
 
     if (edid_buf == NULL || edid_len == NULL) {
         return dsERR_INVALID_PARAM;
     }
 
-    *edid_buf = (unsigned char *)calloc(MAX_EDID_BYTES_LEN, sizeof(unsigned char));
+    *edid_buf = (unsigned char *)calloc(256, sizeof(unsigned char));
     if (*edid_buf == NULL) {
         return dsERR_GENERAL;
     }
 
-    if (dsGetDisplay(video_port_type, video_port_index, &dispHandle) != dsERR_NONE ||
-            dsGetEDIDBytes(dispHandle, *edid_buf, edid_len) != dsERR_NONE ||
+    if (dsGetHdmiEdidBytes(*edid_buf, edid_len) != 0 ||
             *edid_len < DSHAL_EDID_BLOCK_SIZE) {
         free(*edid_buf);
         *edid_buf = NULL;
