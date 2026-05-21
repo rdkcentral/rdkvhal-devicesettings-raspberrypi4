@@ -110,6 +110,47 @@ static struct udev *gUdevCtx = NULL;
 static struct udev_monitor *gUdevMonitor = NULL;
 static int gUdevFd = -1;
 
+#define HDMI_CONNECT_SETTLE_MS_DEFAULT      (25)
+#define HDMI_DISCONNECT_SETTLE_MS_DEFAULT   (75)
+#define HDMI_SETTLE_MS_MAX                  (2000)
+#define HDMI_CONNECT_DEBOUNCE_ENV           "DSHAL_HDMI_CONNECT_DEBOUNCE_MS"
+#define HDMI_DISCONNECT_DEBOUNCE_ENV        "DSHAL_HDMI_DISCONNECT_DEBOUNCE_MS"
+
+static int get_env_ms_or_default(const char *name, int fallback)
+{
+    const char *value = getenv(name);
+    if (value == NULL || value[0] == '\0') {
+        return fallback;
+    }
+
+    char *end = NULL;
+    long parsed = strtol(value, &end, 10);
+    if (end == value || (end != NULL && *end != '\0')) {
+        hal_warn("Invalid %s='%s', using default %d ms\n", name, value, fallback);
+        return fallback;
+    }
+
+    if (parsed < 0) {
+        parsed = 0;
+    } else if (parsed > HDMI_SETTLE_MS_MAX) {
+        parsed = HDMI_SETTLE_MS_MAX;
+    }
+
+    return (int)parsed;
+}
+
+static struct timespec get_hdmi_settle_delay(bool connected)
+{
+    int connectDelayMs = get_env_ms_or_default(HDMI_CONNECT_DEBOUNCE_ENV, HDMI_CONNECT_SETTLE_MS_DEFAULT);
+    int disconnectDelayMs = get_env_ms_or_default(HDMI_DISCONNECT_DEBOUNCE_ENV, HDMI_DISCONNECT_SETTLE_MS_DEFAULT);
+    int delayMs = connected ? connectDelayMs : disconnectDelayMs;
+
+    struct timespec ts;
+    ts.tv_sec = delayMs / 1000;
+    ts.tv_nsec = (long)(delayMs % 1000) * 1000000L;
+    return ts;
+}
+
 static void* hdmi_watcher_thread(void *arg)
 {
     int nativeHandle = (int)(intptr_t)arg;
@@ -157,6 +198,31 @@ static void* hdmi_watcher_thread(void *arg)
 
         /* Refresh connector state for both udev events and timeout wakeups. */
         if (drm_get_hdmi_connector_state(&currentConnected, &currentEnabled)) {
+            bool verifiedConnected = currentConnected;
+            bool verifiedEnabled = currentEnabled;
+
+            /* Confirm connection transitions once more before notifying clients.
+             * This filters transient drm samples seen during hotplug settle. */
+            if (currentConnected != lastConnected) {
+                const struct timespec verifyDelay = get_hdmi_settle_delay(currentConnected);
+                if (verifyDelay.tv_sec != 0 || verifyDelay.tv_nsec != 0) {
+                    nanosleep(&verifyDelay, NULL);
+                }
+
+                if (drm_get_hdmi_connector_state(&verifiedConnected, &verifiedEnabled)) {
+                    if (verifiedConnected != currentConnected) {
+                        hal_dbg("Ignoring transient HDMI state sample: connected=%d -> verified=%d\n",
+                                currentConnected, verifiedConnected);
+                        continue;
+                    }
+                    currentEnabled = verifiedEnabled;
+                } else {
+                    /* Skip reporting state transitions when verification fails. */
+                    hal_dbg("Skipping HDMI transition event: verification read failed\n");
+                    continue;
+                }
+            }
+
             bool stateChanged = false;
             bool connectionChanged = false;
             bool notifyConnected = false;

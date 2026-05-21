@@ -102,6 +102,7 @@ bool dsGetHdmiConnectorState(bool *connected, bool *enabled)
     bool foundConnector = false;
     bool bestConnected = false;
     bool bestEnabled = false;
+    int bestRank = -1;
 
     if (connected == NULL || enabled == NULL) {
         return false;
@@ -125,6 +126,7 @@ bool dsGetHdmiConnectorState(bool *connected, bool *enabled)
     for (int i = 0; i < resources->count_connectors; i++) {
         bool entryConnected = false;
         bool entryEnabled = false;
+        int entryRank = 0;
         drmModeConnector *connector = drmModeGetConnectorCurrent(drmFd, resources->connectors[i]);
 
         if (!connector) {
@@ -168,20 +170,25 @@ bool dsGetHdmiConnectorState(bool *connected, bool *enabled)
             entryEnabled = true;
         }
 
-        if (entryConnected && entryEnabled) {
-            bestConnected = true;
-            bestEnabled = true;
+        /* Rank candidates to avoid false disconnects when multiple HDMI connectors
+         * are present (for example HDMI-A-1 connected, HDMI-A-2 disconnected):
+         *   2 = connected+enabled (best)
+         *   1 = connected only
+         *   0 = disconnected */
+        entryRank = entryConnected ? (entryEnabled ? 2 : 1) : 0;
+
+        if (!foundConnector || entryRank > bestRank) {
+            bestConnected = entryConnected;
+            bestEnabled = entryEnabled;
+            bestRank = entryRank;
             foundConnector = true;
+        }
+
+        if (entryRank == 2) {
             drmModeFreeConnector(connector);
             break;
         }
 
-        if (!foundConnector) {
-            bestConnected = entryConnected;
-            bestEnabled = entryEnabled;
-        }
-
-        foundConnector = true;
         drmModeFreeConnector(connector);
     }
 
