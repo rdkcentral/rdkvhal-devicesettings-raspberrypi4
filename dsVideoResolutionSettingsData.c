@@ -37,8 +37,24 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
         /*.frameRate = */           dsVIDEO_FRAMERATE_60,
         /*.interlaced = */          _PROGRESSIVE,
     },
+    {   /*480p60*/
+        /*.name = */                "480p60",
+        /*.pixelResolution = */     dsVIDEO_PIXELRES_720x480,
+        /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
+        /*.stereoscopicMode = */    dsVIDEO_SSMODE_2D,
+        /*.frameRate = */           dsVIDEO_FRAMERATE_60,
+        /*.interlaced = */          _PROGRESSIVE,
+    },
     {   /*480i*/
         /*.name = */                "480i",
+        /*.pixelResolution = */     dsVIDEO_PIXELRES_720x480,
+        /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
+        /*.stereoscopicMode = */    dsVIDEO_SSMODE_2D,
+        /*.frameRate = */           dsVIDEO_FRAMERATE_60,
+        /*.interlaced = */          _INTERLACED,
+    },
+    {   /*480i60*/
+        /*.name = */                "480i60",
         /*.pixelResolution = */     dsVIDEO_PIXELRES_720x480,
         /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
         /*.stereoscopicMode = */    dsVIDEO_SSMODE_2D,
@@ -63,6 +79,14 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
     },
     {   /*720p*/
         /*.name = */                "720p",
+        /*.pixelResolution = */     dsVIDEO_PIXELRES_1280x720,
+        /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
+        /*.stereoscopicMode = */    dsVIDEO_SSMODE_2D,
+        /*.frameRate = */           dsVIDEO_FRAMERATE_60,
+        /*.interlaced = */          _PROGRESSIVE,
+    },
+    {   /*720p60*/
+        /*.name = */                "720p60",
         /*.pixelResolution = */     dsVIDEO_PIXELRES_1280x720,
         /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
         /*.stereoscopicMode = */    dsVIDEO_SSMODE_2D,
@@ -117,8 +141,24 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
         /*.frameRate = */           dsVIDEO_FRAMERATE_60,
         /*.interlaced = */          _PROGRESSIVE,
     },
+    {   /*1080p*/
+        /*.name = */                "1080p",
+        /*.pixelResolution = */     dsVIDEO_PIXELRES_1920x1080,
+        /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
+        /*.stereoscopicMode = */    dsVIDEO_SSMODE_2D,
+        /*.frameRate = */           dsVIDEO_FRAMERATE_60,
+        /*.interlaced = */          _PROGRESSIVE,
+    },
     {   /*1080i*/
         /*.name = */                "1080i",
+        /*.pixelResolution = */     dsVIDEO_PIXELRES_1920x1080,
+        /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
+        /*.stereoscopicMode = */    dsVIDEO_SSMODE_2D,
+        /*.frameRate = */           dsVIDEO_FRAMERATE_60,
+        /*.interlaced = */          _INTERLACED,
+    },
+    {   /*1080i60*/
+        /*.name = */                "1080i60",
         /*.pixelResolution = */     dsVIDEO_PIXELRES_1920x1080,
         /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
         /*.stereoscopicMode = */    dsVIDEO_SSMODE_2D,
@@ -178,5 +218,5 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
 int    kResolutionsSettings_size = sizeof(kResolutionsSettings) / sizeof(kResolutionsSettings[0]);
 size_t kNumResolutionsSettings   = sizeof(kResolutionsSettings) / sizeof(kResolutionsSettings[0]);
 
-/* Default resolution index: 720p60 (index 4) matches RPi boot configuration */
-int kDefaultResIndex = 4;
+/* Default resolution index: 720p60 (index 6) matches RPi boot configuration. */
+int kDefaultResIndex = 6;
