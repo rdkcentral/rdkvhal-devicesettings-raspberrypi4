@@ -391,6 +391,39 @@ typedef struct {
     unsigned int *numSupportedResn;
 } HdmiResolutionParseContext_t;
 
+typedef struct {
+    dsDisplayEDID_t *edid;
+} HdmiVsdbParseContext_t;
+
+static bool parseHdmiVsdbFromCtaDataBlock(int tag,
+        const unsigned char *data,
+        int dataLen,
+        void *context)
+{
+    HdmiVsdbParseContext_t *ctx = (HdmiVsdbParseContext_t *)context;
+
+    if (ctx == NULL || ctx->edid == NULL || data == NULL) {
+        return false;
+    }
+
+    if (tag != DSHAL_EDID_CTA_VENDOR_SPECIFIC_TAG || dataLen < 5) {
+        return false;
+    }
+
+    /* HDMI VSDB OUI = 0x000C03, encoded in CTA payload as 03 0C 00 */
+    if (data[0] == 0x03 && data[1] == 0x0C && data[2] == 0x00) {
+        ctx->edid->hdmiDeviceType = true;
+        ctx->edid->physicalAddressA = (data[3] >> 4) & 0x0F;
+        ctx->edid->physicalAddressB = data[3] & 0x0F;
+        ctx->edid->physicalAddressC = (data[4] >> 4) & 0x0F;
+        ctx->edid->physicalAddressD = data[4] & 0x0F;
+        ctx->edid->isRepeater = (ctx->edid->physicalAddressB != 0);
+        return true;
+    }
+
+    return false;
+}
+
 static bool parseHdmiResolutionsFromCtaDataBlock(int tag,
         const unsigned char *data,
         int dataLen,
@@ -895,6 +928,7 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
     VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
     bool drmConnected = false, drmEnabled = false;
     dsError_t ret = dsERR_NONE;
+    size_t maxSupportedRes = 0;
 
     if (false == _bDisplayInited) {
         return dsERR_NOT_INITIALIZED;
@@ -904,6 +938,9 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
         hal_err("Invalid params, handle %p, edid %p\n", vDispHandle, edid);
         return dsERR_INVALID_PARAM;
     }
+
+    /* Ensure deterministic output for callers/tests that compare the full struct. */
+    memset(edid, 0, sizeof(*edid));
 
     /* Check DRM connectivity before attempting EDID read */
     if (!drm_get_hdmi_connector_state(&drmConnected, &drmEnabled) || !drmConnected) {
@@ -933,7 +970,7 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
         edid->serialNumber = parsed_edid.serial_number;
         edid->manufactureWeek = parsed_edid.week_of_manufacture;
         edid->manufactureYear = parsed_edid.year_of_manufacture;
-        edid->hdmiDeviceType = true;
+        edid->hdmiDeviceType = false;
         edid->isRepeater = false;
         edid->physicalAddressA = 0;
         edid->physicalAddressB = 0;
@@ -941,6 +978,14 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
         edid->physicalAddressD = 0;
         strncpy(edid->monitorName, "Unknown", sizeof(edid->monitorName));
         edid->monitorName[dsEEDID_MAX_MON_NAME_LENGTH - 1] = '\0';
+
+        if (length >= DSHAL_EDID_BLOCK_SIZE) {
+            HdmiVsdbParseContext_t hdmiCtx = {
+                .edid = edid,
+            };
+            (void)dshalEdidForEachCtaDataBlock(raw, length, parseHdmiVsdbFromCtaDataBlock, &hdmiCtx);
+        }
+
         if (dsQueryHdmiResolution(raw, length) != dsERR_NONE) {
             hal_err("Failed to query HDMI resolution\n");
             ret = dsERR_GENERAL;
@@ -952,11 +997,17 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
             ret = dsERR_GENERAL;
             goto cleanup;
         }
-        for (unsigned int i = 0; i < numSupportedResn; i++) {
+        maxSupportedRes = sizeof(edid->suppResolutionList) / sizeof(edid->suppResolutionList[0]);
+        if (numSupportedResn > maxSupportedRes) {
+            hal_warn("Truncating supported resolution list from %u to %zu entries\n",
+                    numSupportedResn, maxSupportedRes);
+        }
+
+        for (unsigned int i = 0; i < numSupportedResn && i < maxSupportedRes; i++) {
             memcpy(&edid->suppResolutionList[i], &HdmiSupportedResolution[i], sizeof(dsVideoPortResolution_t));
             hal_dbg("Copied resolution %s\n", edid->suppResolutionList[i].name);
         }
-        edid->numOfSupportedResolution = numSupportedResn;
+        edid->numOfSupportedResolution = (numSupportedResn < maxSupportedRes) ? numSupportedResn : maxSupportedRes;
     } else {
         hal_err("Handle type %d is not supported(not dsVIDEOPORT_TYPE_HDMI)\n", vDispHandle->m_vType);
         ret = dsERR_OPERATION_NOT_SUPPORTED;
