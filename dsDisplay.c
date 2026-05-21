@@ -1042,10 +1042,32 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
         edid->physicalAddressB = 0;
         edid->physicalAddressC = 0;
         edid->physicalAddressD = 0;
+        /* Extract monitor name from EDID base block descriptor tag 0xFC.
+         * Detailed timing descriptors: 4 × 18 bytes. Non-timing descriptor
+         * header: [0]=0x00 [1]=0x00 [2]=0x00 [3]=tag [4]=0x00 [5..17]=data */
         strncpy(edid->monitorName, "Unknown", sizeof(edid->monitorName));
         edid->monitorName[dsEEDID_MAX_MON_NAME_LENGTH - 1] = '\0';
+        hal_dbg("Searching for monitor name in EDID descriptors\n");
+        for (int _d = 0; _d < 4; _d++) {
+            const unsigned char *_desc = parsed_edid.detailed_timing_descriptors + _d * 18;
+            hal_dbg("Descriptor %d: [0]=%02x [1]=%02x [2]=%02x [3]=%02x\n",
+                _d, _desc[0], _desc[1], _desc[2], _desc[3]);
+            if (_desc[0] == 0x00 && _desc[1] == 0x00 && _desc[2] == 0x00 && _desc[3] == 0xFC) {
+                char _name[14] = {0};
+                memcpy(_name, _desc + 5, 13);
+                for (int _c = 12; _c >= 0 && (_name[_c] == '\n' || _name[_c] == ' '); _c--) {
+                    _name[_c] = '\0';
+                }
+                if (_name[0] != '\0') {
+                    strncpy(edid->monitorName, _name, sizeof(edid->monitorName));
+                    edid->monitorName[dsEEDID_MAX_MON_NAME_LENGTH - 1] = '\0';
+                    hal_info("Extracted monitor name from EDID descriptor: %s\n", edid->monitorName);
+                }
+                break;
+            }
+        }
 
-        if (length >= DSHAL_EDID_BLOCK_SIZE) {
+        if (length > DSHAL_EDID_BLOCK_SIZE) {
             HdmiVsdbParseContext_t hdmiCtx = {
                 .edid = edid,
             };
