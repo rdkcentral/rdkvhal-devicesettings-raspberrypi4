@@ -261,10 +261,16 @@ int dsApplyHdmiMaxBpcRequestValue(int requestedMaxBpc)
     requestedMaxBpc = dsClampHdmiMaxBpc(requestedMaxBpc);
     hal_dbg("Applying max bpc=%d via DRM property on %s\n", requestedMaxBpc, cardPath);
 
-    int drmFd = open(cardPath, O_RDWR | O_CLOEXEC);
+    int drmFd = open(cardPath, O_RDWR);
     if (drmFd < 0) {
         hal_warn("Failed to open %s for DRM property write (%s)\n", cardPath, strerror(errno));
         return -1;
+    }
+    {
+        int flags = fcntl(drmFd, F_GETFD);
+        if (flags != -1) {
+            (void)fcntl(drmFd, F_SETFD, flags | FD_CLOEXEC);
+        }
     }
 
     drmModeRes *resources = drmModeGetResources(drmFd);
