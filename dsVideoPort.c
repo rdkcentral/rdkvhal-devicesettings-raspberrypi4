@@ -2835,8 +2835,8 @@ dsError_t dsSetPreferredColorDepth(intptr_t handle, dsDisplayColorDepth_t colorD
     }
 
     if (!applyPreferredColorDepthRequest(colorDepth)) {
-        hal_err("Failed to apply preferred color depth request.\n");
-        return dsERR_GENERAL;
+        hal_warn("max_bpc not supported by platform.\n");
+        return dsERR_OPERATION_NOT_SUPPORTED;
     }
     _preferredColorDepth = colorDepth;
     return dsERR_NONE;

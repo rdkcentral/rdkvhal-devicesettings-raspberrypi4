@@ -244,76 +244,112 @@ bool dsGetHdmiConnectorState(bool *connected, bool *enabled)
 }
 
 /**
- * @brief Apply a specific maximum bits per color (bpc) for HDMI outputs by writing to sysfs.
- * The requested max bpc is clamped to a valid range before being applied.
- * @return 0 on success (at least one HDMI output updated), -1 on failure (no outputs updated or error).
+ * @brief Apply a specific maximum bits per color (bpc) for HDMI outputs via the DRM
+ * connector property "max bpc".  This mirrors what modetest does: enumerate connectors,
+ * find the "max bpc" property ID, and set it with drmModeConnectorSetProperty().
+ * A short-lived O_RDWR fd is used only for this call; drmSetMaster() is never called
+ * so there is no master conflict with Westeros.
+ * @return 0 on success (at least one HDMI output updated), -1 on failure.
  */
 int dsApplyHdmiMaxBpcRequestValue(int requestedMaxBpc)
 {
-    char cardName[PATH_MAX] = {0};
-    char valueBuf[16] = {0};
-    int appliedCount = 0;
+    const char *cardPath = getenv("WESTEROS_DRM_CARD");
+    if (cardPath == NULL || cardPath[0] == '\0') {
+        cardPath = DRI_CARD;
+    }
 
     requestedMaxBpc = dsClampHdmiMaxBpc(requestedMaxBpc);
+    hal_dbg("Applying max bpc=%d via DRM property on %s\n", requestedMaxBpc, cardPath);
 
-    dsResolveDrmCardName(cardName, sizeof(cardName));
-    DIR *drmClass = opendir("/sys/class/drm");
-    if (!drmClass) {
+    int drmFd = open(cardPath, O_RDWR | O_CLOEXEC);
+    if (drmFd < 0) {
+        hal_warn("Failed to open %s for DRM property write (%s)\n", cardPath, strerror(errno));
         return -1;
     }
 
-    (void)snprintf(valueBuf, sizeof(valueBuf), "%d\n", requestedMaxBpc);
-
-    struct dirent *entry = NULL;
-    while ((entry = readdir(drmClass)) != NULL) {
-        char statusPath[PATH_MAX] = {0};
-        char maxBpcPath[PATH_MAX] = {0};
-        char status[32] = {0};
-        FILE *statusFile = NULL;
-        FILE *maxBpcFile = NULL;
-
-        if (strncmp(entry->d_name, cardName, strlen(cardName)) != 0) {
-            continue;
-        }
-
-        if (strstr(entry->d_name, "-HDMI-A-") == NULL) {
-            continue;
-        }
-
-        (void)snprintf(statusPath, sizeof(statusPath), "/sys/class/drm/%s/status", entry->d_name);
-        statusFile = fopen(statusPath, "r");
-        if (statusFile == NULL) {
-            continue;
-        }
-
-        if (fgets(status, sizeof(status), statusFile) == NULL) {
-            fclose(statusFile);
-            continue;
-        }
-        fclose(statusFile);
-
-        if (strncmp(status, "connected", 9) != 0) {
-            continue;
-        }
-
-        (void)snprintf(maxBpcPath, sizeof(maxBpcPath), "/sys/class/drm/%s/max_bpc", entry->d_name);
-        maxBpcFile = fopen(maxBpcPath, "w");
-        if (maxBpcFile == NULL) {
-            hal_warn("Unable to open %s for write (%s)\n", maxBpcPath, strerror(errno));
-            continue;
-        }
-
-        if (fputs(valueBuf, maxBpcFile) >= 0 && fflush(maxBpcFile) == 0) {
-            appliedCount++;
-            hal_info("Applied HDMI max bpc=%d on %s\n", requestedMaxBpc, entry->d_name);
-        } else {
-            hal_warn("Failed writing HDMI max bpc=%d on %s\n", requestedMaxBpc, entry->d_name);
-        }
-
-        fclose(maxBpcFile);
+    drmModeRes *resources = drmModeGetResources(drmFd);
+    if (!resources) {
+        hal_warn("drmModeGetResources failed on %s (%s)\n", cardPath, strerror(errno));
+        close(drmFd);
+        return -1;
     }
 
-    closedir(drmClass);
+    int appliedCount = 0;
+    int foundCount = 0;
+
+    for (int i = 0; i < resources->count_connectors; i++) {
+        drmModeConnector *connector = drmModeGetConnector(drmFd, resources->connectors[i]);
+        if (!connector) {
+            continue;
+        }
+
+        if (connector->connector_type != DRM_MODE_CONNECTOR_HDMIA &&
+            connector->connector_type != DRM_MODE_CONNECTOR_HDMIB) {
+            drmModeFreeConnector(connector);
+            continue;
+        }
+
+        if (connector->connection != DRM_MODE_CONNECTED) {
+            drmModeFreeConnector(connector);
+            continue;
+        }
+
+        foundCount++;
+
+        /* Enumerate connector properties to find "max bpc" */
+        drmModeObjectProperties *props = drmModeObjectGetProperties(drmFd,
+                                             connector->connector_id,
+                                             DRM_MODE_OBJECT_CONNECTOR);
+        if (!props) {
+            hal_warn("drmModeObjectGetProperties failed for connector %u (%s)\n",
+                     connector->connector_id, strerror(errno));
+            drmModeFreeConnector(connector);
+            continue;
+        }
+
+        uint32_t maxBpcPropId = 0;
+        for (uint32_t j = 0; j < props->count_props; j++) {
+            drmModePropertyRes *prop = drmModeGetProperty(drmFd, props->props[j]);
+            if (!prop) {
+                continue;
+            }
+            if (strcmp(prop->name, "max bpc") == 0) {
+                maxBpcPropId = prop->prop_id;
+                drmModeFreeProperty(prop);
+                break;
+            }
+            drmModeFreeProperty(prop);
+        }
+        drmModeFreeObjectProperties(props);
+
+        if (maxBpcPropId == 0) {
+            hal_warn("Connector %u has no 'max bpc' property\n", connector->connector_id);
+            drmModeFreeConnector(connector);
+            continue;
+        }
+
+        int ret = drmModeConnectorSetProperty(drmFd, connector->connector_id,
+                                              maxBpcPropId, (uint64_t)requestedMaxBpc);
+        if (ret == 0) {
+            appliedCount++;
+            hal_info("Applied max bpc=%d on HDMI connector %u\n",
+                     requestedMaxBpc, connector->connector_id);
+        } else {
+            hal_warn("Failed to set max bpc=%d on connector %u (%s)\n",
+                     requestedMaxBpc, connector->connector_id, strerror(errno));
+        }
+
+        drmModeFreeConnector(connector);
+    }
+
+    drmModeFreeResources(resources);
+    close(drmFd);
+
+    if (foundCount == 0) {
+        hal_warn("No connected HDMI connectors found on %s\n", cardPath);
+    } else if (appliedCount == 0) {
+        hal_warn("'max bpc' property not settable on %s (kernel may not expose it or DRM master required)\n", cardPath);
+    }
     return (appliedCount > 0) ? 0 : -1;
 }
 
