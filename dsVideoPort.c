@@ -740,7 +740,7 @@ dsError_t  dsVideoPortInit()
 
     dsRegisterConnectorChangeHook(onHdmiConnectorChange);
 
-    if (dsApplyHdmiMaxBpcRequest() != 0) {
+    if (applyPreferredColorDepthRequest(_preferredColorDepth) != true) {
         hal_warn("Unable to apply HDMI max bpc request during initialization\n");
     }
 
@@ -942,7 +942,7 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
             return dsERR_GENERAL;
         }
 
-        if (enabled && dsApplyHdmiMaxBpcRequest() != 0) {
+        if (enabled && applyPreferredColorDepthRequest(_preferredColorDepth) != true) {
             hal_warn("Unable to apply HDMI max bpc request after enable\n");
         }
     } else {
@@ -1491,7 +1491,7 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
             return dsERR_GENERAL;
         }
 
-        if (dsApplyHdmiMaxBpcRequest() != 0) {
+        if (applyPreferredColorDepthRequest(_preferredColorDepth) != true) {
             hal_warn("Unable to apply HDMI max bpc request after mode set\n");
         }
 
