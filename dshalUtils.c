@@ -556,135 +556,138 @@ bool dsGetPreferredHdmiMode(char *mode, size_t len)
     return (mode[0] != '\0');
 }
 
+/**
+ * @brief Map of HDMI resolutions to their corresponding CTA-861 VICs for enumeration based on EDID.
+ * @reference This list is not exhaustive; it includes commonly used HDMI resolutions.  The parseHdmiResolutionsFromCtaDataBlock()
+ */
 const hdmiSupportedRes_t resolutionMap[] = {
-    {"480p", 2},       // 720x480p @ 59.94/60Hz
-    {"480p", 3},       // 720x480p @ 59.94/60Hz
-    {"480i", 6},       // 720x480i @ 59.94/60Hz
-    {"480i", 7},       // 720x480i @ 59.94/60Hz
-    {"576p50", 17},      // 720x576p @ 50Hz
-    {"576p50", 18},      // 720x576p @ 50Hz
-    {"576i50", 21},      // 720x576i @ 50Hz
-    {"576i50", 22},      // 720x576i @ 50Hz
-    {"720p", 4},       // 1280x720p @ 59.94/60Hz
-    {"720p50", 19},    // 1280x720p @ 50Hz
-    {"1080i", 5},      // 1920x1080i @ 59.94/60Hz
-    {"1080i50", 20},   // 1920x1080i @ 50Hz
-    {"1080p24", 32},   // 1920x1080p @ 24Hz
-    {"1080p25", 33},   // 1920x1080p @ 25Hz
-    {"1080p30", 34},   // 1920x1080p @ 30Hz
-    {"1080p50", 31},   // 1920x1080p @ 50Hz
-    {"1080p60", 16},   // 1920x1080p @ 59.94/60Hz
-    {"2160p24", 93},   // 3840x2160p @ 24Hz
-    {"2160p25", 94},   // 3840x2160p @ 25Hz
-    {"2160p30", 95},   // 3840x2160p @ 30Hz
-    {"2160p24", 98},   // 4096x2160p @ 24Hz
-    {"2160p25", 99},   // 4096x2160p @ 25Hz
-    {"2160p30", 100},  // 4096x2160p @ 30Hz
-    {"2160p50", 101},  // 4096x2160p @ 50Hz
-    {"2160p60", 102}   // 4096x2160p @ 60Hz
+    {"480p", 2},       // 720x480p @ 59.94/60Hz  (CTA-861 VIC 2)
+    {"480p60", 2},     // 720x480p @ 59.94/60Hz  (CTA-861 VIC 2, rate-explicit alias)
+    {"480p", 3},       // 720x480p @ 59.94/60Hz  (CTA-861 VIC 3)
+    {"480p60", 3},     // 720x480p @ 59.94/60Hz  (CTA-861 VIC 3, rate-explicit alias)
+    {"480i", 6},       // 720x480i @ 59.94/60Hz  (CTA-861 VIC 6)
+    {"480i60", 6},     // 720x480i @ 59.94/60Hz  (CTA-861 VIC 6, rate-explicit alias)
+    {"480i", 7},       // 720x480i @ 59.94/60Hz  (CTA-861 VIC 7)
+    {"480i60", 7},     // 720x480i @ 59.94/60Hz  (CTA-861 VIC 7, rate-explicit alias)
+    {"576p50", 17},    // 720x576p @ 50Hz        (CTA-861 VIC 17)
+    {"576p50", 18},    // 720x576p @ 50Hz        (CTA-861 VIC 18)
+    {"576i50", 21},    // 720x576i @ 50Hz        (CTA-861 VIC 21)
+    {"576i50", 22},    // 720x576i @ 50Hz        (CTA-861 VIC 22)
+    {"720p", 4},       // 1280x720p @ 59.94/60Hz (CTA-861 VIC 4)
+    {"720p60", 4},     // 1280x720p @ 59.94/60Hz (CTA-861 VIC 4, rate-explicit alias)
+    {"720p50", 19},    // 1280x720p @ 50Hz       (CTA-861 VIC 19)
+    {"1080i", 5},      // 1920x1080i @ 59.94/60Hz (CTA-861 VIC 5)
+    {"1080i60", 5},    // 1920x1080i @ 59.94/60Hz (CTA-861 VIC 5, rate-explicit alias)
+    {"1080i50", 20},   // 1920x1080i @ 50Hz      (CTA-861 VIC 20)
+    {"1080p24", 32},   // 1920x1080p @ 24Hz      (CTA-861 VIC 32)
+    {"1080p25", 33},   // 1920x1080p @ 25Hz      (CTA-861 VIC 33)
+    {"1080p30", 34},   // 1920x1080p @ 30Hz      (CTA-861 VIC 34)
+    {"1080p50", 31},   // 1920x1080p @ 50Hz      (CTA-861 VIC 31)
+    {"1080p60", 16},   // 1920x1080p @ 59.94/60Hz (CTA-861 VIC 16)
+    {"1080p", 16},     // 1920x1080p @ 59.94/60Hz (CTA-861 VIC 16, rate-implicit alias)
+    {"2160p24", 93},   // 3840x2160p @ 23.97/24Hz   (CTA-861 VIC 93,  16:9)
+    {"2160p25", 94},   // 3840x2160p @ 25Hz         (CTA-861 VIC 94,  16:9)
+    {"2160p30", 95},   // 3840x2160p @ 29.97/30Hz   (CTA-861 VIC 95,  16:9)
+    {"2160p50", 96},   // 3840x2160p @ 50Hz         (CTA-861 VIC 96,  16:9)
+    {"2160p60", 97},   // 3840x2160p @ 59.94/60Hz   (CTA-861 VIC 97,  16:9)
+    {"2160p24", 98},   // 4096x2160p @ 23.97/24Hz   (CTA-861 VIC 98,  256:135)
+    {"2160p25", 99},   // 4096x2160p @ 25Hz         (CTA-861 VIC 99,  256:135)
+    {"2160p30", 100},  // 4096x2160p @ 29.97/30Hz   (CTA-861 VIC 100, 256:135)
+    {"2160p50", 101},  // 4096x2160p @ 50Hz         (CTA-861 VIC 101, 256:135)
+    {"2160p60", 102},  // 4096x2160p @ 59.94/60Hz   (CTA-861 VIC 102, 256:135)
+    {"2160p24", 103},  // 3840x2160p @ 23.97/24Hz   (CTA-861 VIC 103, 64:27)
+    {"2160p25", 104},  // 3840x2160p @ 25Hz         (CTA-861 VIC 104, 64:27)
+    {"2160p30", 105},  // 3840x2160p @ 29.97/30Hz   (CTA-861 VIC 105, 64:27)
+    {"2160p50", 106},  // 3840x2160p @ 50Hz         (CTA-861 VIC 106, 64:27)
+    {"2160p60", 107},  // 3840x2160p @ 59.94/60Hz   (CTA-861 VIC 107, 64:27)
 };
 
 const size_t noOfItemsInResolutionMap = sizeof(resolutionMap) / sizeof(hdmiSupportedRes_t);
 
 const VicMapEntry vicMapTable[] = {
-    // 480i resolutions
-    {6, dsTV_RESOLUTION_480i},    // 720x480i @ 59.94/60Hz
-    {7, dsTV_RESOLUTION_480i},    // 720x480i @ 59.94/60Hz
-    {48, dsTV_RESOLUTION_480i},   // 720x480i @ 120Hz
-    {49, dsTV_RESOLUTION_480i},   // 720x480i @ 120Hz
-    {56, dsTV_RESOLUTION_480i},   // 720x480i @ 240Hz
-    {57, dsTV_RESOLUTION_480i},   // 720x480i @ 240Hz
+    // 480i — VIC 6,7: 720x480i @ 59.94/60Hz (no 120/240Hz 480i VICs exist in CTA-861)
+    {6,   dsTV_RESOLUTION_480i},    // 720x480i @ 59.94/60Hz (CTA-861 VIC 6,  4:3)
+    {7,   dsTV_RESOLUTION_480i},    // 720x480i @ 59.94/60Hz (CTA-861 VIC 7,  16:9)
 
-    // 480p resolutions
-    {2, dsTV_RESOLUTION_480p},    // 720x480p @ 59.94/60Hz
-    {3, dsTV_RESOLUTION_480p},    // 720x480p @ 59.94/60Hz
-    {46, dsTV_RESOLUTION_480p},   // 720x480p @ 120Hz
-    {47, dsTV_RESOLUTION_480p},   // 720x480p @ 120Hz
-    {54, dsTV_RESOLUTION_480p},   // 720x480p @ 240Hz
-    {55, dsTV_RESOLUTION_480p},   // 720x480p @ 240Hz
+    // 480p — VIC 2,3: 59.94/60Hz; VIC 48,49: 119.88/120Hz; VIC 56,57: 239.76/240Hz
+    {2,   dsTV_RESOLUTION_480p},    // 720x480p @ 59.94/60Hz  (CTA-861 VIC 2,  4:3)
+    {3,   dsTV_RESOLUTION_480p},    // 720x480p @ 59.94/60Hz  (CTA-861 VIC 3,  16:9)
+    {48,  dsTV_RESOLUTION_480p},    // 720x480p @ 119.88/120Hz (CTA-861 VIC 48, 4:3)
+    {49,  dsTV_RESOLUTION_480p},    // 720x480p @ 119.88/120Hz (CTA-861 VIC 49, 16:9)
+    {56,  dsTV_RESOLUTION_480p},    // 720x480p @ 239.76/240Hz (CTA-861 VIC 56, 4:3)
+    {57,  dsTV_RESOLUTION_480p},    // 720x480p @ 239.76/240Hz (CTA-861 VIC 57, 16:9)
 
-    // 576i resolutions
-    {21, dsTV_RESOLUTION_576i},   // 720x576i @ 50Hz
-    {22, dsTV_RESOLUTION_576i},   // 720x576i @ 50Hz
-    {42, dsTV_RESOLUTION_576i},   // 720x576i @ 100Hz
-    {43, dsTV_RESOLUTION_576i},   // 720x576i @ 100Hz
-    {52, dsTV_RESOLUTION_576i},   // 720x576i @ 200Hz
-    {53, dsTV_RESOLUTION_576i},   // 720x576i @ 200Hz
+    // 576i — VIC 21,22: 50Hz only (no 100/200Hz 576i VICs in standard use)
+    {21,  dsTV_RESOLUTION_576i},    // 720x576i @ 50Hz (CTA-861 VIC 21, 4:3)
+    {22,  dsTV_RESOLUTION_576i},    // 720x576i @ 50Hz (CTA-861 VIC 22, 16:9)
 
-    // 576p resolutions
-    {17, dsTV_RESOLUTION_576p},   // 720x576p @ 50Hz
-    {18, dsTV_RESOLUTION_576p},   // 720x576p @ 50Hz
-    {40, dsTV_RESOLUTION_576p},   // 720x576p @ 100Hz
-    {41, dsTV_RESOLUTION_576p},   // 720x576p @ 100Hz
-    {50, dsTV_RESOLUTION_576p},   // 720x576p @ 200Hz
-    {51, dsTV_RESOLUTION_576p},   // 720x576p @ 200Hz
+    // 576p — VIC 17,18: 50Hz; VIC 42,43: 100Hz; VIC 52,53: 200Hz
+    {17,  dsTV_RESOLUTION_576p50},  // 720x576p @ 50Hz  (CTA-861 VIC 17, 4:3)
+    {18,  dsTV_RESOLUTION_576p50},  // 720x576p @ 50Hz  (CTA-861 VIC 18, 16:9)
+    {42,  dsTV_RESOLUTION_576p},    // 720x576p @ 100Hz (CTA-861 VIC 42, 4:3)
+    {43,  dsTV_RESOLUTION_576p},    // 720x576p @ 100Hz (CTA-861 VIC 43, 16:9)
+    {52,  dsTV_RESOLUTION_576p},    // 720x576p @ 200Hz (CTA-861 VIC 52, 4:3)
+    {53,  dsTV_RESOLUTION_576p},    // 720x576p @ 200Hz (CTA-861 VIC 53, 16:9)
 
-    // 720p resolutions
-    {4, dsTV_RESOLUTION_720p},    // 1280x720p @ 59.94/60Hz
-    {19, dsTV_RESOLUTION_720p50}, // 1280x720p @ 50Hz
-    {39, dsTV_RESOLUTION_720p},   // 1280x720p @ 100Hz
-    {45, dsTV_RESOLUTION_720p},   // 1280x720p @ 120Hz
-    {58, dsTV_RESOLUTION_720p},   // 1280x720p @ 24Hz
-    {59, dsTV_RESOLUTION_720p},   // 1280x720p @ 25Hz
-    {60, dsTV_RESOLUTION_720p},   // 1280x720p @ 30Hz
-    {63, dsTV_RESOLUTION_720p},   // 1280x720p @ 24Hz
-    {64, dsTV_RESOLUTION_720p},   // 1280x720p @ 25Hz
-    {65, dsTV_RESOLUTION_720p},   // 1280x720p @ 30Hz
-    {66, dsTV_RESOLUTION_720p50}, // 1280x720p @ 50Hz
-    {67, dsTV_RESOLUTION_720p},   // 1280x720p @ 60Hz
-    {68, dsTV_RESOLUTION_720p},   // 1280x720p @ 100Hz
-    {69, dsTV_RESOLUTION_720p},   // 1280x720p @ 120Hz
+    // 720p — VIC 4: 60Hz; VIC 19: 50Hz; VIC 41: 100Hz; VIC 47: 120Hz
+    //        VIC 60-62: 24/25/30Hz; VIC 65-71: 64:27 wide variants
+    {4,   dsTV_RESOLUTION_720p},    // 1280x720p @ 59.94/60Hz  (CTA-861 VIC 4)
+    {19,  dsTV_RESOLUTION_720p50},  // 1280x720p @ 50Hz         (CTA-861 VIC 19)
+    {41,  dsTV_RESOLUTION_720p},    // 1280x720p @ 100Hz        (CTA-861 VIC 41)
+    {47,  dsTV_RESOLUTION_720p},    // 1280x720p @ 119.88/120Hz (CTA-861 VIC 47)
+    {60,  dsTV_RESOLUTION_720p},    // 1280x720p @ 23.97/24Hz   (CTA-861 VIC 60)
+    {61,  dsTV_RESOLUTION_720p},    // 1280x720p @ 25Hz         (CTA-861 VIC 61)
+    {62,  dsTV_RESOLUTION_720p},    // 1280x720p @ 29.97/30Hz   (CTA-861 VIC 62)
+    {65,  dsTV_RESOLUTION_720p},    // 1280x720p @ 23.97/24Hz   (CTA-861 VIC 65, 64:27)
+    {66,  dsTV_RESOLUTION_720p},    // 1280x720p @ 25Hz         (CTA-861 VIC 66, 64:27)
+    {67,  dsTV_RESOLUTION_720p},    // 1280x720p @ 29.97/30Hz   (CTA-861 VIC 67, 64:27)
+    {68,  dsTV_RESOLUTION_720p50},  // 1280x720p @ 50Hz         (CTA-861 VIC 68, 64:27)
+    {69,  dsTV_RESOLUTION_720p},    // 1280x720p @ 59.94/60Hz   (CTA-861 VIC 69, 64:27)
+    {70,  dsTV_RESOLUTION_720p},    // 1280x720p @ 100Hz        (CTA-861 VIC 70, 64:27)
+    {71,  dsTV_RESOLUTION_720p},    // 1280x720p @ 119.88/120Hz (CTA-861 VIC 71, 64:27)
 
-    // 1080i resolutions
-    {5, dsTV_RESOLUTION_1080i},   // 1920x1080i @ 59.94/60Hz
-    {20, dsTV_RESOLUTION_1080i50},// 1920x1080i @ 50Hz
-    {37, dsTV_RESOLUTION_1080i50},// 1920x1080i @ 50Hz
-    {38, dsTV_RESOLUTION_1080i},  // 1920x1080i @ 100Hz
-    {44, dsTV_RESOLUTION_1080i},  // 1920x1080i @ 120Hz
+    // 1080i — VIC 5: 60Hz; VIC 20: 50Hz; VIC 39: 1250-line 50Hz; VIC 40: 100Hz; VIC 46: 120Hz
+    {5,   dsTV_RESOLUTION_1080i},   // 1920x1080i @ 59.94/60Hz        (CTA-861 VIC 5)
+    {20,  dsTV_RESOLUTION_1080i50}, // 1920x1080i @ 50Hz              (CTA-861 VIC 20)
+    {39,  dsTV_RESOLUTION_1080i50}, // 1920x1080i (1250-line) @ 50Hz  (CTA-861 VIC 39)
+    {40,  dsTV_RESOLUTION_1080i},   // 1920x1080i @ 100Hz             (CTA-861 VIC 40)
+    {46,  dsTV_RESOLUTION_1080i},   // 1920x1080i @ 119.88/120Hz      (CTA-861 VIC 46)
 
-    // 1080p resolutions
-    {16, dsTV_RESOLUTION_1080p},  // 1920x1080p @ 59.94/60Hz
-    {31, dsTV_RESOLUTION_1080p50},// 1920x1080p @ 50Hz
-    {32, dsTV_RESOLUTION_1080p24},// 1920x1080p @ 24Hz
-    {33, dsTV_RESOLUTION_1080p25},// 1920x1080p @ 25Hz
-    {34, dsTV_RESOLUTION_1080p30},// 1920x1080p @ 30Hz
-    {44, dsTV_RESOLUTION_1080p},  // 1920x1080p @ 120Hz
-    {61, dsTV_RESOLUTION_1080p},  // 1920x1080p @ 120Hz
-    {62, dsTV_RESOLUTION_1080p},  // 1920x1080p @ 100Hz
-    {70, dsTV_RESOLUTION_1080p24},// 1920x1080p @ 24Hz
-    {71, dsTV_RESOLUTION_1080p25},// 1920x1080p @ 25Hz
-    {72, dsTV_RESOLUTION_1080p30},// 1920x1080p @ 30Hz
-    {73, dsTV_RESOLUTION_1080p50},// 1920x1080p @ 50Hz
-    {74, dsTV_RESOLUTION_1080p60},// 1920x1080p @ 60Hz
-    {75, dsTV_RESOLUTION_1080p},  // 1920x1080p @ 100Hz
-    {76, dsTV_RESOLUTION_1080p},  // 1920x1080p @ 120Hz
+    // 1080p — VIC 16: 60Hz; VIC 31: 50Hz; VIC 32-34: 24/25/30Hz
+    //         VIC 63: 120Hz; VIC 64: 100Hz; VIC 72-78: 64:27 wide variants
+    {16,  dsTV_RESOLUTION_1080p60}, // 1920x1080p @ 59.94/60Hz  (CTA-861 VIC 16)
+    {31,  dsTV_RESOLUTION_1080p50}, // 1920x1080p @ 50Hz         (CTA-861 VIC 31)
+    {32,  dsTV_RESOLUTION_1080p24}, // 1920x1080p @ 23.97/24Hz   (CTA-861 VIC 32)
+    {33,  dsTV_RESOLUTION_1080p25}, // 1920x1080p @ 25Hz         (CTA-861 VIC 33)
+    {34,  dsTV_RESOLUTION_1080p30}, // 1920x1080p @ 29.97/30Hz   (CTA-861 VIC 34)
+    {63,  dsTV_RESOLUTION_1080p},   // 1920x1080p @ 119.88/120Hz (CTA-861 VIC 63)
+    {64,  dsTV_RESOLUTION_1080p},   // 1920x1080p @ 100Hz        (CTA-861 VIC 64)
+    {72,  dsTV_RESOLUTION_1080p24}, // 1920x1080p @ 23.97/24Hz   (CTA-861 VIC 72, 64:27)
+    {73,  dsTV_RESOLUTION_1080p25}, // 1920x1080p @ 25Hz         (CTA-861 VIC 73, 64:27)
+    {74,  dsTV_RESOLUTION_1080p30}, // 1920x1080p @ 29.97/30Hz   (CTA-861 VIC 74, 64:27)
+    {75,  dsTV_RESOLUTION_1080p50}, // 1920x1080p @ 50Hz         (CTA-861 VIC 75, 64:27)
+    {76,  dsTV_RESOLUTION_1080p60}, // 1920x1080p @ 59.94/60Hz   (CTA-861 VIC 76, 64:27)
+    {77,  dsTV_RESOLUTION_1080p},   // 1920x1080p @ 100Hz        (CTA-861 VIC 77, 64:27)
+    {78,  dsTV_RESOLUTION_1080p},   // 1920x1080p @ 119.88/120Hz (CTA-861 VIC 78, 64:27)
 
-    // 2160p resolutions
-    {77, dsTV_RESOLUTION_2160p24},// 3840x2160p @ 24Hz
-    {78, dsTV_RESOLUTION_2160p25},// 3840x2160p @ 25Hz
-    {79, dsTV_RESOLUTION_2160p30},// 3840x2160p @ 30Hz
-    {80, dsTV_RESOLUTION_2160p50},// 3840x2160p @ 50Hz
-    {81, dsTV_RESOLUTION_2160p60},// 3840x2160p @ 60Hz
-    {87, dsTV_RESOLUTION_2160p24},// 3840x2160p @ 24Hz
-    {88, dsTV_RESOLUTION_2160p25},// 3840x2160p @ 25Hz
-    {89, dsTV_RESOLUTION_2160p30},// 3840x2160p @ 30Hz
-    {90, dsTV_RESOLUTION_2160p50},// 3840x2160p @ 50Hz
-    {91, dsTV_RESOLUTION_2160p60},// 3840x2160p @ 60Hz
+    // 3840x2160p (UHD-1) — VIC 93-97: 16:9; VIC 103-107: 64:27
+    {93,  dsTV_RESOLUTION_2160p24}, // 3840x2160p @ 23.97/24Hz   (CTA-861 VIC 93,  16:9)
+    {94,  dsTV_RESOLUTION_2160p25}, // 3840x2160p @ 25Hz         (CTA-861 VIC 94,  16:9)
+    {95,  dsTV_RESOLUTION_2160p30}, // 3840x2160p @ 29.97/30Hz   (CTA-861 VIC 95,  16:9)
+    {96,  dsTV_RESOLUTION_2160p50}, // 3840x2160p @ 50Hz         (CTA-861 VIC 96,  16:9)
+    {97,  dsTV_RESOLUTION_2160p60}, // 3840x2160p @ 59.94/60Hz   (CTA-861 VIC 97,  16:9)
+    {103, dsTV_RESOLUTION_2160p24}, // 3840x2160p @ 23.97/24Hz   (CTA-861 VIC 103, 64:27)
+    {104, dsTV_RESOLUTION_2160p25}, // 3840x2160p @ 25Hz         (CTA-861 VIC 104, 64:27)
+    {105, dsTV_RESOLUTION_2160p30}, // 3840x2160p @ 29.97/30Hz   (CTA-861 VIC 105, 64:27)
+    {106, dsTV_RESOLUTION_2160p50}, // 3840x2160p @ 50Hz         (CTA-861 VIC 106, 64:27)
+    {107, dsTV_RESOLUTION_2160p60}, // 3840x2160p @ 59.94/60Hz   (CTA-861 VIC 107, 64:27)
 
-    // 4K resolutions
-    {82, dsTV_RESOLUTION_2160p24},// 4096x2160p @ 24Hz
-    {83, dsTV_RESOLUTION_2160p25},// 4096x2160p @ 25Hz
-    {84, dsTV_RESOLUTION_2160p30},// 4096x2160p @ 30Hz
-    {85, dsTV_RESOLUTION_2160p50},// 4096x2160p @ 50Hz
-    {86, dsTV_RESOLUTION_2160p60},// 4096x2160p @ 60Hz
-    {93, dsTV_RESOLUTION_2160p24},// 4096x2160p @ 24Hz
-    {94, dsTV_RESOLUTION_2160p25},// 4096x2160p @ 25Hz
-    {95, dsTV_RESOLUTION_2160p30},// 4096x2160p @ 30Hz
-    {98, dsTV_RESOLUTION_2160p24},// 4096x2160p @ 24Hz
-    {99, dsTV_RESOLUTION_2160p25},// 4096x2160p @ 25Hz
-    {100, dsTV_RESOLUTION_2160p30},// 4096x2160p @ 30Hz
-    {101, dsTV_RESOLUTION_2160p50},// 4096x2160p @ 50Hz
-    {102, dsTV_RESOLUTION_2160p60},// 4096x2160p @ 60Hz
+    // 4096x2160p (DCI 4K) — VIC 98-102: 256:135
+    {98,  dsTV_RESOLUTION_2160p24}, // 4096x2160p @ 23.97/24Hz   (CTA-861 VIC 98,  256:135)
+    {99,  dsTV_RESOLUTION_2160p25}, // 4096x2160p @ 25Hz         (CTA-861 VIC 99,  256:135)
+    {100, dsTV_RESOLUTION_2160p30}, // 4096x2160p @ 29.97/30Hz   (CTA-861 VIC 100, 256:135)
+    {101, dsTV_RESOLUTION_2160p50}, // 4096x2160p @ 50Hz         (CTA-861 VIC 101, 256:135)
+    {102, dsTV_RESOLUTION_2160p60}, // 4096x2160p @ 59.94/60Hz   (CTA-861 VIC 102, 256:135)
 };
 
 #define VIC_MAP_TABLE_SIZE (sizeof(vicMapTable) / sizeof(VicMapEntry))
