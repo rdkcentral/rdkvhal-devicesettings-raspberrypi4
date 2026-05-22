@@ -42,6 +42,34 @@
 #include "dshalLogger.h"
 
 #define DSHALUTILS_EDID_MAX_BYTES (256)
+#define DSHAL_DEFAULT_HDMI_MAX_BPC (10)
+#define DSHAL_MIN_HDMI_MAX_BPC (8)
+#define DSHAL_MAX_HDMI_MAX_BPC (12)
+
+static int dsGetRequestedHdmiMaxBpc(void)
+{
+    const char *envMaxBpc = getenv("DSHAL_HDMI_MAX_BPC");
+    int requestedMaxBpc = DSHAL_DEFAULT_HDMI_MAX_BPC;
+
+    if (envMaxBpc != NULL && envMaxBpc[0] != '\0') {
+        char *endPtr = NULL;
+        long parsed = strtol(envMaxBpc, &endPtr, 10);
+        if (endPtr != envMaxBpc && *endPtr == '\0') {
+            requestedMaxBpc = (int)parsed;
+        } else {
+            hal_warn("Ignoring invalid DSHAL_HDMI_MAX_BPC='%s', using default %d\n",
+                     envMaxBpc, DSHAL_DEFAULT_HDMI_MAX_BPC);
+        }
+    }
+
+    if (requestedMaxBpc < DSHAL_MIN_HDMI_MAX_BPC) {
+        requestedMaxBpc = DSHAL_MIN_HDMI_MAX_BPC;
+    } else if (requestedMaxBpc > DSHAL_MAX_HDMI_MAX_BPC) {
+        requestedMaxBpc = DSHAL_MAX_HDMI_MAX_BPC;
+    }
+
+    return requestedMaxBpc;
+}
 
 /**
  * @brief Resolve the DRM card name to use for HDMI operations.
@@ -202,6 +230,74 @@ bool dsGetHdmiConnectorState(bool *connected, bool *enabled)
     *connected = bestConnected;
     *enabled = bestEnabled;
     return true;
+}
+
+int dsApplyHdmiMaxBpcRequest(void)
+{
+    char cardName[PATH_MAX] = {0};
+    char valueBuf[16] = {0};
+    int appliedCount = 0;
+    int requestedMaxBpc = dsGetRequestedHdmiMaxBpc();
+
+    dsResolveDrmCardName(cardName, sizeof(cardName));
+    DIR *drmClass = opendir("/sys/class/drm");
+    if (!drmClass) {
+        return -1;
+    }
+
+    (void)snprintf(valueBuf, sizeof(valueBuf), "%d\n", requestedMaxBpc);
+
+    struct dirent *entry = NULL;
+    while ((entry = readdir(drmClass)) != NULL) {
+        char statusPath[PATH_MAX] = {0};
+        char maxBpcPath[PATH_MAX] = {0};
+        char status[32] = {0};
+        FILE *statusFile = NULL;
+        FILE *maxBpcFile = NULL;
+
+        if (strncmp(entry->d_name, cardName, strlen(cardName)) != 0) {
+            continue;
+        }
+
+        if (strstr(entry->d_name, "-HDMI-A-") == NULL) {
+            continue;
+        }
+
+        (void)snprintf(statusPath, sizeof(statusPath), "/sys/class/drm/%s/status", entry->d_name);
+        statusFile = fopen(statusPath, "r");
+        if (statusFile == NULL) {
+            continue;
+        }
+
+        if (fgets(status, sizeof(status), statusFile) == NULL) {
+            fclose(statusFile);
+            continue;
+        }
+        fclose(statusFile);
+
+        if (strncmp(status, "connected", 9) != 0) {
+            continue;
+        }
+
+        (void)snprintf(maxBpcPath, sizeof(maxBpcPath), "/sys/class/drm/%s/max_bpc", entry->d_name);
+        maxBpcFile = fopen(maxBpcPath, "w");
+        if (maxBpcFile == NULL) {
+            hal_warn("Unable to open %s for write (%s)\n", maxBpcPath, strerror(errno));
+            continue;
+        }
+
+        if (fputs(valueBuf, maxBpcFile) >= 0 && fflush(maxBpcFile) == 0) {
+            appliedCount++;
+            hal_info("Applied HDMI max bpc=%d on %s\n", requestedMaxBpc, entry->d_name);
+        } else {
+            hal_warn("Failed writing HDMI max bpc=%d on %s\n", requestedMaxBpc, entry->d_name);
+        }
+
+        fclose(maxBpcFile);
+    }
+
+    closedir(drmClass);
+    return (appliedCount > 0) ? 0 : -1;
 }
 
 /**

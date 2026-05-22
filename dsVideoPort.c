@@ -691,6 +691,10 @@ dsError_t  dsVideoPortInit()
 
     dsRegisterConnectorChangeHook(onHdmiConnectorChange);
 
+    if (dsApplyHdmiMaxBpcRequest() != 0) {
+        hal_warn("Unable to apply HDMI max bpc request during initialization\n");
+    }
+
     if (pthread_create(&_videoFormatWatcherThread, NULL, videoFormatWatcherThreadMain, NULL) == 0) {
         pthread_mutex_lock(&_videoFormatCbMutex);
         _videoFormatWatcherRunning = true;
@@ -887,6 +891,10 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
         if (!westerosGLConsoleRWWrapper(cmd, resp, sizeof(resp))) {
             hal_err("Failed to run '%s', got response '%s'\n", cmd, resp);
             return dsERR_GENERAL;
+        }
+
+        if (enabled && dsApplyHdmiMaxBpcRequest() != 0) {
+            hal_warn("Unable to apply HDMI max bpc request after enable\n");
         }
     } else {
         hal_err("Unsupported video port type: %d\n", vopHandle->m_vType);
@@ -1432,6 +1440,10 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
             hal_err("Resolution mismatch after set: requested '%s', active '%s'\n",
                     resolution->name, activeRes ? activeRes : "<unknown>");
             return dsERR_GENERAL;
+        }
+
+        if (dsApplyHdmiMaxBpcRequest() != 0) {
+            hal_warn("Unable to apply HDMI max bpc request after mode set\n");
         }
 
         pthread_mutex_lock(&_videoFormatCbMutex);
