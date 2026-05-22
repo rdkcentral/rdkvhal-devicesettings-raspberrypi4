@@ -454,18 +454,25 @@ static void resolveResolutionToken(const char *token, char *out, size_t outSize)
     bool hasNormalizedToken = normalizeModeToken(trimmedToken, normalizedToken, sizeof(normalizedToken));
 
     const char *candidate = hasNormalizedToken ? normalizedToken : trimmedToken;
+
+    /* Pass 1: prefer exact token matches so explicit-rate aliases (e.g. 480p60)
+     * are not collapsed into their implicit-rate aliases (e.g. 480p). */
+    for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
+        const char *mapRes = resolutionMap[i].rdkRes;
+        if (strcmp(mapRes, candidate) == 0) {
+            strncpy(out, mapRes, outSize - 1);
+            out[outSize - 1] = '\0';
+            return;
+        }
+    }
+
+    /* Pass 2: fallback for implicit-rate aliases by appending default 60 Hz. */
     for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
         const char *mapRes = resolutionMap[i].rdkRes;
         size_t mapLen = strlen(mapRes);
         bool mapHasRate = (mapLen > 0 && isdigit((unsigned char)mapRes[mapLen - 1]));
 
-        if (mapHasRate) {
-            if (strcmp(mapRes, candidate) == 0) {
-                strncpy(out, mapRes, outSize - 1);
-                out[outSize - 1] = '\0';
-                return;
-            }
-        } else {
+        if (!mapHasRate) {
             char mapResWithDefaultRate[64] = {'\0'};
             (void)snprintf(mapResWithDefaultRate, sizeof(mapResWithDefaultRate), "%s60", mapRes);
             if (strcmp(mapRes, candidate) == 0 || strcmp(mapResWithDefaultRate, candidate) == 0) {
@@ -493,6 +500,15 @@ static void resolveResolutionToken(const char *token, char *out, size_t outSize)
  */
 static bool resolutionNamesEquivalent(const char *requested, const char *active)
 {
+    char requestedNormalized[64] = {'\0'};
+    char activeNormalized[64] = {'\0'};
+
+    if (normalizeModeToken(requested, requestedNormalized, sizeof(requestedNormalized)) &&
+        normalizeModeToken(active, activeNormalized, sizeof(activeNormalized)) &&
+        strcmp(requestedNormalized, activeNormalized) == 0) {
+        return true;
+    }
+
     char requestedCanonical[64] = {'\0'};
     char activeCanonical[64] = {'\0'};
 
@@ -1277,24 +1293,30 @@ static const char* dsVideoGetResolution(void)
 
     hal_info("resName '%s', normalized '%s'\n", resName, normalizedRes);
 
+    /* Pass 1: exact token match to preserve explicit-rate aliases. */
     for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
         const char *mapRes = resolutionMap[i].rdkRes;
+        if (strcmp(mapRes, normalizedRes) == 0) {
+            resolution_name = mapRes;
+            break;
+        }
+    }
 
-        size_t len = strlen(mapRes);
-        int hasRate = (len > 0 && isdigit((unsigned char)mapRes[len-1]));
+    /* Pass 2: fallback for implicit-rate aliases (e.g. 720p -> 720p60). */
+    if (resolution_name == NULL) {
+        for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
+            const char *mapRes = resolutionMap[i].rdkRes;
+            size_t len = strlen(mapRes);
+            int hasRate = (len > 0 && isdigit((unsigned char)mapRes[len-1]));
 
-        if (hasRate) {
-            if (strcmp(mapRes, normalizedRes) == 0) {
-                resolution_name = mapRes;
-                break;
-            }
-        } else {
-            char temp[32];
-            snprintf(temp,sizeof(temp), "%s60", mapRes);
+            if (!hasRate) {
+                char temp[32];
+                snprintf(temp, sizeof(temp), "%s60", mapRes);
 
-            if (strcmp(temp, normalizedRes) == 0 || strcmp(mapRes, normalizedRes) == 0) {
-                resolution_name = mapRes;
-                break;
+                if (strcmp(temp, normalizedRes) == 0 || strcmp(mapRes, normalizedRes) == 0) {
+                    resolution_name = mapRes;
+                    break;
+                }
             }
         }
     }
@@ -1371,32 +1393,14 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         hal_dbg("Setting HDMI resolution '%s'\n", resolution->name);
         char cmdBuf[256] = {'\0'};
         char respBuf[256] = {'\0'};
-        int width = -1, height = -1;
-        int rate = 60;
-        char interlaced = 'n';
-        if (sscanf (resolution->name, "%dx%dp%d", &width, &height, &rate) == 3) {
-            interlaced = 'p';
-        }
-        else if (sscanf(resolution->name, "%dx%di%d", &width, &height, &rate ) == 3) {
-            interlaced = 'i';
-        }
-        else if (sscanf(resolution->name, "%dx%dx%d", &width, &height, &rate ) == 3) {
-            interlaced = 'p';
-        }
-        else if (sscanf(resolution->name, "%dx%d", &width, &height ) == 2) {
-            interlaced = 'p';
-        }
-        else if (sscanf(resolution->name, "%dp%d", &height, &rate ) == 2) {
-            interlaced = 'p';
-            width= -1;
-        }
-        else if (sscanf(resolution->name, "%di%d", &height, &rate ) == 2) {
-            interlaced = 'i';
-            width= -1;
-        }
-        else if (sscanf(resolution->name, "%d%c", &height, &interlaced ) == 2) {
-            width= -1;
-            rate = 60;
+        int width = -1, height = -1, rate = 60;
+        char interlaced = 'p';
+        char requestedNormalized[64] = {'\0'};
+
+        if (!normalizeModeToken(resolution->name, requestedNormalized, sizeof(requestedNormalized)) ||
+            sscanf(requestedNormalized, "%d%c%d", &height, &interlaced, &rate) != 3) {
+            hal_err("Unsupported resolution format '%s'\n", resolution->name);
+            return dsERR_INVALID_PARAM;
         }
 
         interlaced = (char)tolower((unsigned char)interlaced);
@@ -1463,15 +1467,24 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         /* Verify the mode actually took effect; mode switch can be asynchronous. */
         const char *activeRes = NULL;
         bool modeMatched = false;
+        char activeNormalized[64] = {'\0'};
         const int verifyAttempts = 20;
         const struct timespec verifySleep = { .tv_sec = 0, .tv_nsec = 50000000L }; /* 50 ms */
 
         for (int attempt = 0; attempt < verifyAttempts; attempt++) {
             activeRes = dsVideoGetResolution();
+            if (activeRes != NULL &&
+                normalizeModeToken(activeRes, activeNormalized, sizeof(activeNormalized)) &&
+                strcmp(requestedNormalized, activeNormalized) == 0) {
+                modeMatched = true;
+                break;
+            }
+
             if (activeRes != NULL && resolutionNamesEquivalent(resolution->name, activeRes)) {
                 modeMatched = true;
                 break;
             }
+
             if (attempt < (verifyAttempts - 1)) {
                 thrd_sleep(&verifySleep, NULL);
             }
