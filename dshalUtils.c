@@ -71,6 +71,17 @@ static int dsGetRequestedHdmiMaxBpc(void)
     return requestedMaxBpc;
 }
 
+static int dsClampHdmiMaxBpc(int requestedMaxBpc)
+{
+    if (requestedMaxBpc < DSHAL_MIN_HDMI_MAX_BPC) {
+        return DSHAL_MIN_HDMI_MAX_BPC;
+    }
+    if (requestedMaxBpc > DSHAL_MAX_HDMI_MAX_BPC) {
+        return DSHAL_MAX_HDMI_MAX_BPC;
+    }
+    return requestedMaxBpc;
+}
+
 /**
  * @brief Resolve the DRM card name to use for HDMI operations.
  * @param[out] cardName Buffer to store the resolved DRM card name.
@@ -232,12 +243,18 @@ bool dsGetHdmiConnectorState(bool *connected, bool *enabled)
     return true;
 }
 
-int dsApplyHdmiMaxBpcRequest(void)
+/**
+ * @brief Apply a specific maximum bits per color (bpc) for HDMI outputs by writing to sysfs.
+ * The requested max bpc is clamped to a valid range before being applied.
+ * @return 0 on success (at least one HDMI output updated), -1 on failure (no outputs updated or error).
+ */
+int dsApplyHdmiMaxBpcRequestValue(int requestedMaxBpc)
 {
     char cardName[PATH_MAX] = {0};
     char valueBuf[16] = {0};
     int appliedCount = 0;
-    int requestedMaxBpc = dsGetRequestedHdmiMaxBpc();
+
+    requestedMaxBpc = dsClampHdmiMaxBpc(requestedMaxBpc);
 
     dsResolveDrmCardName(cardName, sizeof(cardName));
     DIR *drmClass = opendir("/sys/class/drm");
@@ -298,6 +315,16 @@ int dsApplyHdmiMaxBpcRequest(void)
 
     closedir(drmClass);
     return (appliedCount > 0) ? 0 : -1;
+}
+
+/**
+ * @brief Apply the requested maximum bits per color (bpc) for HDMI outputs by writing to sysfs.
+ * The requested max bpc is determined by the DSHAL_HDMI_MAX_BPC environment variable.
+ * @return 0 on success (at least one HDMI output updated), -1 on failure (no outputs updated or error).
+ */
+int dsApplyHdmiMaxBpcRequest(void)
+{
+    return dsApplyHdmiMaxBpcRequestValue(dsGetRequestedHdmiMaxBpc());
 }
 
 /**

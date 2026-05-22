@@ -73,6 +73,7 @@ bool dsGetHdmiConnectorState(bool *connected, bool *enabled);
 int dsGetHdmiEdidBytes(unsigned char *edid, int *length);
 bool dsGetPreferredHdmiMode(char *mode, size_t len);
 int dsApplyHdmiMaxBpcRequest(void);
+int dsApplyHdmiMaxBpcRequestValue(int requestedMaxBpc);
 void dsRegisterConnectorChangeHook(void (*hook)(void));
 
 #endif

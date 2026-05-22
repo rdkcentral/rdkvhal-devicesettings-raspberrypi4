@@ -98,6 +98,55 @@ static VOPHandle_t _vopHandles[dsVIDEOPORT_TYPE_MAX][2] = {};
 
 static dsVideoPortResolution_t _resolution;
 static bool _bIgnoreEDID = false;
+static dsDisplayColorDepth_t _preferredColorDepth = dsDISPLAY_COLORDEPTH_AUTO;
+
+static unsigned int getEffectiveOutputColorDepth(void)
+{
+    switch (_preferredColorDepth) {
+        case dsDISPLAY_COLORDEPTH_8BIT:
+        case dsDISPLAY_COLORDEPTH_10BIT:
+        case dsDISPLAY_COLORDEPTH_12BIT:
+            return (unsigned int)_preferredColorDepth;
+        case dsDISPLAY_COLORDEPTH_AUTO:
+        case dsDISPLAY_COLORDEPTH_UNKNOWN:
+        default:
+            /* AUTO/UNKNOWN falls back to default max bpc request path (10-bit). */
+            return (unsigned int)dsDISPLAY_COLORDEPTH_10BIT;
+    }
+}
+
+/**
+ * @brief Apply preferred color depth by translating it to an explicit max bpc request.
+ * @param colorDepth The preferred color depth to apply.
+ * @return true if the request was successfully applied, false otherwise.
+ */
+static bool applyPreferredColorDepthRequest(dsDisplayColorDepth_t colorDepth)
+{
+    int requestedMaxBpc = 10;
+
+    switch (colorDepth) {
+        case dsDISPLAY_COLORDEPTH_8BIT:
+            requestedMaxBpc = 8;
+            break;
+        case dsDISPLAY_COLORDEPTH_10BIT:
+            requestedMaxBpc = 10;
+            break;
+        case dsDISPLAY_COLORDEPTH_12BIT:
+            requestedMaxBpc = 12;
+            break;
+        case dsDISPLAY_COLORDEPTH_AUTO:
+        case dsDISPLAY_COLORDEPTH_UNKNOWN:
+        default:
+            requestedMaxBpc = 10;
+            break;
+    }
+
+    if (dsApplyHdmiMaxBpcRequestValue(requestedMaxBpc) != 0) {
+        hal_warn("Unable to apply HDMI max bpc for preferred color depth 0x%x\n", colorDepth);
+        return false;
+    }
+    return true;
+}
 
 static bool drm_get_hdmi_connector_state(bool *connected, bool *enabled)
 {
@@ -2195,9 +2244,8 @@ dsError_t dsGetColorDepth(intptr_t handle, unsigned int *color_depth)
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
-    /* HDMI will be attached when this gets invoked - default to 8-bit color depth */
-    *color_depth = dsDISPLAY_COLORDEPTH_8BIT;
-    hal_dbg("Color depth defaulted to 8-bit (RPi4 hardware limitation)\n");
+    *color_depth = getEffectiveOutputColorDepth();
+    hal_dbg("Color depth derived from preferred policy: 0x%x\n", *color_depth);
     return dsERR_NONE;
 }
 
@@ -2348,11 +2396,11 @@ dsError_t dsGetCurrentOutputSettings(intptr_t handle, dsHDRStandard_t *video_eot
         return dsERR_NONE;
     }
 
-    /* RPi4 defaults in DRM-only mode */
+    /* Keep current output settings aligned with selected/preferred color depth policy. */
     *video_eotf = dsHDRSTANDARD_SDR;
     *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_BT_709;
     *color_space = dsDISPLAY_COLORSPACE_RGB;
-    *color_depth = dsDISPLAY_COLORDEPTH_8BIT;
+    *color_depth = getEffectiveOutputColorDepth();
     *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_FULL;
 
     hal_dbg("Current output settings: EOTF=%u, MatrixCoeff=%u, ColorSpace=%u, ColorDepth=0x%x, QuantRange=%u\n",
@@ -2689,9 +2737,10 @@ dsError_t dsColorDepthCapabilities(intptr_t handle, unsigned int *colorDepthCapa
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
-    /* RPi4 HDMI output is limited to 8-bit color depth across all modes and resolutions.
-     * VideoCore VI does not support 10-bit or 12-bit deep color output. */
-    *colorDepthCapability = dsDISPLAY_COLORDEPTH_8BIT;
+    *colorDepthCapability = dsDISPLAY_COLORDEPTH_8BIT |
+            dsDISPLAY_COLORDEPTH_10BIT |
+            dsDISPLAY_COLORDEPTH_12BIT |
+            dsDISPLAY_COLORDEPTH_AUTO;
 
     hal_dbg("Color depth capabilities: 0x%x\n", *colorDepthCapability);
     return dsERR_NONE;
@@ -2736,8 +2785,7 @@ dsError_t dsGetPreferredColorDepth(intptr_t handle, dsDisplayColorDepth_t *color
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
-    /* RPi4 only supports 8-bit color depth; 8BIT is both the capability and the preferred depth. */
-    *colorDepth = dsDISPLAY_COLORDEPTH_8BIT;
+    *colorDepth = _preferredColorDepth;
 
     hal_dbg("Preferred color depth: 0x%x\n", *colorDepth);
     return dsERR_NONE;
@@ -2786,8 +2834,10 @@ dsError_t dsSetPreferredColorDepth(intptr_t handle, dsDisplayColorDepth_t colorD
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
-    /* RPi4 color depth is hardware-fixed at 8-bit by VideoCore VI firmware.
-     * There is no TVService API to change the output color depth on this platform. */
-    hal_warn("Preferred color depth set requested, but color depth is fixed at 8-bit on RPi4.\n");
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    if (!applyPreferredColorDepthRequest(colorDepth)) {
+        hal_err("Failed to apply preferred color depth request.\n");
+        return dsERR_GENERAL;
+    }
+    _preferredColorDepth = colorDepth;
+    return dsERR_NONE;
 }
