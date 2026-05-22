@@ -740,10 +740,6 @@ dsError_t  dsVideoPortInit()
 
     dsRegisterConnectorChangeHook(onHdmiConnectorChange);
 
-    if (applyPreferredColorDepthRequest(_preferredColorDepth) != true) {
-        hal_warn("Unable to apply HDMI max bpc request during initialization\n");
-    }
-
     if (pthread_create(&_videoFormatWatcherThread, NULL, videoFormatWatcherThreadMain, NULL) == 0) {
         pthread_mutex_lock(&_videoFormatCbMutex);
         _videoFormatWatcherRunning = true;
