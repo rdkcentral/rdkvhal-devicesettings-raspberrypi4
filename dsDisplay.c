@@ -1318,6 +1318,7 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
         if (strncmp(entry->d_name, cardName, strlen(cardName)) != 0) {
             continue; /* Skip entries not matching our card */
         }
+        /* RPI4 in STB mode configured to enable/support only output through HDMI0*/
         if (strstr(entry->d_name, "HDMI-A-1") == NULL) {
             continue; /* Focus on HDMI0 connector only */
         }

@@ -565,7 +565,7 @@ static dsError_t getHdmiEdidForConnectedDisplay(dsVideoPortType_t video_port_typ
         return dsERR_INVALID_PARAM;
     }
 
-    *edid_buf = (unsigned char *)calloc(256, sizeof(unsigned char));
+    *edid_buf = (unsigned char *)calloc(MAX_EDID_BYTES_LEN, sizeof(unsigned char));
     if (*edid_buf == NULL) {
         return dsERR_GENERAL;
     }
@@ -2738,12 +2738,13 @@ dsError_t dsColorDepthCapabilities(intptr_t handle, unsigned int *colorDepthCapa
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
+    /* modetest confirmed that it supports 8, 10, 12-bit and auto color depth */
     *colorDepthCapability = dsDISPLAY_COLORDEPTH_8BIT |
             dsDISPLAY_COLORDEPTH_10BIT |
             dsDISPLAY_COLORDEPTH_12BIT |
             dsDISPLAY_COLORDEPTH_AUTO;
 
-    hal_dbg("Color depth capabilities: 0x%x\n", *colorDepthCapability);
+    hal_info("Color depth capabilities: 0x%x\n", *colorDepthCapability);
     return dsERR_NONE;
 }
 

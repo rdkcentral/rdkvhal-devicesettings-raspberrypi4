@@ -289,8 +289,11 @@ int dsApplyHdmiMaxBpcRequestValue(int requestedMaxBpc)
             continue;
         }
 
-        if (connector->connector_type != DRM_MODE_CONNECTOR_HDMIA &&
-            connector->connector_type != DRM_MODE_CONNECTOR_HDMIB) {
+        if (connector->connector_type != DRM_MODE_CONNECTOR_HDMIA
+#ifdef DRM_MODE_CONNECTOR_HDMIB
+            && connector->connector_type != DRM_MODE_CONNECTOR_HDMIB
+#endif
+           ) {
             drmModeFreeConnector(connector);
             continue;
         }
@@ -360,7 +363,7 @@ int dsApplyHdmiMaxBpcRequestValue(int requestedMaxBpc)
 }
 
 /**
- * @brief Apply the requested maximum bits per color (bpc) for HDMI outputs by writing to sysfs.
+ * @brief Apply the requested maximum bits per color (bpc) for HDMI outputs via the DRM.
  * The requested max bpc is determined by the DSHAL_HDMI_MAX_BPC environment variable.
  * @return 0 on success (at least one HDMI output updated), -1 on failure (no outputs updated or error).
  */
@@ -404,6 +407,7 @@ int dsGetHdmiEdidBytes(unsigned char *edid, int *length)
         if (strncmp(entry->d_name, cardName, strlen(cardName)) != 0) {
             continue;
         }
+        /* RPI4 in STB mode configured to enable/support only output through HDMI0*/
         if (strstr(entry->d_name, "HDMI-A-1") == NULL) {
             continue;
         }

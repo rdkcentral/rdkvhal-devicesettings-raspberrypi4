@@ -220,5 +220,5 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
 int    kResolutionsSettings_size = sizeof(kResolutionsSettings) / sizeof(kResolutionsSettings[0]);
 size_t kNumResolutionsSettings   = sizeof(kResolutionsSettings) / sizeof(kResolutionsSettings[0]);
 
-/* Default resolution index: 720p60 (index 6) matches RPi boot configuration. */
+/* Default resolution index: 720p (index 6) matches RPi boot configuration. */
 int kDefaultResIndex = 6;
