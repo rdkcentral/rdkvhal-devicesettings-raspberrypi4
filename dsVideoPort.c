@@ -1510,7 +1510,19 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
             // extract framerate from activeRes and pass to callback.
             int activeWidth = -1, activeHeight = -1, activeRate = 0;
             char activeInterlace = 'p';
-            if (sscanf(activeRes, "%dx%d%c%d", &activeWidth, &activeHeight, &activeInterlace, &activeRate) == 4) {
+            char callbackNormalized[64] = {'\0'};
+            const char *callbackToken = NULL;
+
+            if (activeNormalized[0] != '\0') {
+                callbackToken = activeNormalized;
+            } else if (activeRes != NULL && normalizeModeToken(activeRes, callbackNormalized, sizeof(callbackNormalized))) {
+                callbackToken = callbackNormalized;
+            }
+
+            if (callbackToken != NULL && sscanf(callbackToken, "%d%c%d", &activeHeight, &activeInterlace, &activeRate) == 3) {
+                hal_dbg("Parsed active normalized resolution as %d%c%d\n", activeHeight, activeInterlace, activeRate);
+                rate = activeRate;
+            } else if (activeRes != NULL && sscanf(activeRes, "%dx%d%c%d", &activeWidth, &activeHeight, &activeInterlace, &activeRate) == 4) {
                 hal_dbg("Parsed active resolution as %dx%d%c%d\n", activeWidth, activeHeight, activeInterlace, activeRate);
                 rate = activeRate;
             } else {
