@@ -366,6 +366,7 @@ static bool normalizeModeToken(const char *token, char *normalizedToken, size_t 
     int height = -1;
     int rate = -1;
     char scanMode = '\0';
+    int consumed = 0;
     bool parsed = false;
 
     if (sscanf(parseToken, "%dx%dx%d", &width, &height, &rate) == 3) {
@@ -387,12 +388,8 @@ static bool normalizeModeToken(const char *token, char *normalizedToken, size_t 
         parsed = true;
     } else if (sscanf(parseToken, "%d%c%d", &height, &scanMode, &rate) == 3 && (scanMode == 'p' || scanMode == 'i')) {
         parsed = true;
-    } else if (sscanf(parseToken, "%dp", &height) == 1) {
-        scanMode = 'p';
-        rate = 60;
-        parsed = true;
-    } else if (sscanf(parseToken, "%di", &height) == 1) {
-        scanMode = 'i';
+    } else if (sscanf(parseToken, "%d%c%n", &height, &scanMode, &consumed) == 2 &&
+               consumed == (int)parseLen && (scanMode == 'p' || scanMode == 'i')) {
         rate = 60;
         parsed = true;
     } else if (sscanf(parseToken, "smpte%dhz", &rate) == 1) {
@@ -1257,7 +1254,7 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
     bool found = false;
     if (resolution_name) {
         for (size_t i = 0; i < kNumResolutionsSettings; i++) {
-            if (strncmp(resolution_name, kResolutionsSettings[i].name, sizeof(kResolutionsSettings[i].name) > sizeof(resolution_name) ? sizeof(resolution_name) : sizeof(kResolutionsSettings[i].name)) == 0) {
+            if (strcmp(resolution_name, kResolutionsSettings[i].name) == 0) {
                 *resolution = kResolutionsSettings[i];
                 found = true;
                 break;
