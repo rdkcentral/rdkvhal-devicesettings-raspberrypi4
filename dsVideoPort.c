@@ -506,6 +506,8 @@ static bool resolutionNamesEquivalent(const char *requested, const char *active)
     if (normalizeModeToken(requested, requestedNormalized, sizeof(requestedNormalized)) &&
         normalizeModeToken(active, activeNormalized, sizeof(activeNormalized)) &&
         strcmp(requestedNormalized, activeNormalized) == 0) {
+        hal_dbg("Resolution names are equivalent by direct normalization: requested '%s' normalized '%s', active '%s' normalized '%s'\n",
+                 requested, requestedNormalized, active, activeNormalized);
         return true;
     }
 
@@ -514,6 +516,8 @@ static bool resolutionNamesEquivalent(const char *requested, const char *active)
 
     resolveResolutionToken(requested, requestedCanonical, sizeof(requestedCanonical));
     resolveResolutionToken(active, activeCanonical, sizeof(activeCanonical));
+    hal_dbg("Requested resolution '%s' resolves to canonical '%s', active resolution '%s' resolves to canonical '%s'\n",
+             requested, requestedCanonical, active, activeCanonical);
 
     return (requestedCanonical[0] != '\0' && activeCanonical[0] != '\0' &&
             strcmp(requestedCanonical, activeCanonical) == 0);
@@ -1474,15 +1478,19 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
                 normalizeModeToken(activeRes, activeNormalized, sizeof(activeNormalized)) &&
                 strcmp(requestedNormalized, activeNormalized) == 0) {
                 modeMatched = true;
+                hal_dbg("Resolution match on attempt %d: active '%s' normalized '%s'\n", attempt, activeRes, activeNormalized);
                 break;
             }
 
             if (activeRes != NULL && resolutionNamesEquivalent(resolution->name, activeRes)) {
                 modeMatched = true;
+                hal_dbg("Resolution name match on attempt %d: active '%s' matches requested '%s'\n", attempt, activeRes, resolution->name);
                 break;
             }
 
             if (attempt < (verifyAttempts - 1)) {
+                memset(activeNormalized, 0, sizeof(activeNormalized));
+                activeNormalized[0] = '\0';
                 thrd_sleep(&verifySleep, NULL);
             }
         }
@@ -1499,6 +1507,15 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 
         dsRegisterFrameratePostChangeCB_t frameratePostCB = dsVideoDeviceGetFrameratePostChangeCB();
         if (frameratePostCB) {
+            // extract framerate from activeRes and pass to callback.
+            int activeWidth = -1, activeHeight = -1, activeRate = 0;
+            char activeInterlace = 'p';
+            if (sscanf(activeRes, "%dx%d%c%d", &activeWidth, &activeHeight, &activeInterlace, &activeRate) == 4) {
+                hal_dbg("Parsed active resolution as %dx%d%c%d\n", activeWidth, activeHeight, activeInterlace, activeRate);
+                rate = activeRate;
+            } else {
+                hal_err("Failed to parse active resolution '%s' for framerate callback\n", activeRes);
+            }
             frameratePostCB((unsigned int)rate);
         }
     } else {
