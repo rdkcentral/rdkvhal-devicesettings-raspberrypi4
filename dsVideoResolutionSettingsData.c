@@ -45,7 +45,7 @@
  *   - "2160p" before "2160p24"/"2160p25"/"2160p30"/"2160p50"/"2160p60"
  */
 dsVideoPortResolution_t kResolutionsSettings[] = {
-    {   /*480p*/
+    {   /*480p - 0 */
         /*.name = */                "480p",
         /*.pixelResolution = */     dsVIDEO_PIXELRES_720x480,
         /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
@@ -53,7 +53,7 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
         /*.frameRate = */           dsVIDEO_FRAMERATE_60,
         /*.interlaced = */          _PROGRESSIVE,
     },
-    {   /*480p60*/
+    {   /*480p60 - 1 */
         /*.name = */                "480p60",
         /*.pixelResolution = */     dsVIDEO_PIXELRES_720x480,
         /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
@@ -61,7 +61,7 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
         /*.frameRate = */           dsVIDEO_FRAMERATE_60,
         /*.interlaced = */          _PROGRESSIVE,
     },
-    {   /*480i*/
+    {   /*480i - 2 */
         /*.name = */                "480i",
         /*.pixelResolution = */     dsVIDEO_PIXELRES_720x480,
         /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
@@ -69,7 +69,7 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
         /*.frameRate = */           dsVIDEO_FRAMERATE_60,
         /*.interlaced = */          _INTERLACED,
     },
-    {   /*480i60*/
+    {   /*480i60 - 3 */
         /*.name = */                "480i60",
         /*.pixelResolution = */     dsVIDEO_PIXELRES_720x480,
         /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
@@ -77,15 +77,7 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
         /*.frameRate = */           dsVIDEO_FRAMERATE_60,
         /*.interlaced = */          _INTERLACED,
     },
-    {   /*576i*/
-        /*.name = */                "576i",
-        /*.pixelResolution = */     dsVIDEO_PIXELRES_720x576,
-        /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
-        /*.stereoscopicMode = */    dsVIDEO_SSMODE_2D,
-        /*.frameRate = */           dsVIDEO_FRAMERATE_50,
-        /*.interlaced = */          _INTERLACED,
-    },
-    {   /*576i50*/
+    {   /*576i50 - 4 */
         /*.name = */                "576i50",
         /*.pixelResolution = */     dsVIDEO_PIXELRES_720x576,
         /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
@@ -93,15 +85,7 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
         /*.frameRate = */           dsVIDEO_FRAMERATE_50,
         /*.interlaced = */          _INTERLACED,
     },
-    {   /*576p*/
-        /*.name = */                "576p",
-        /*.pixelResolution = */     dsVIDEO_PIXELRES_720x576,
-        /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
-        /*.stereoscopicMode = */    dsVIDEO_SSMODE_2D,
-        /*.frameRate = */           dsVIDEO_FRAMERATE_50,
-        /*.interlaced = */          _PROGRESSIVE,
-    },
-    {   /*576p50*/
+    {   /*576p50 - 5 */
         /*.name = */                "576p50",
         /*.pixelResolution = */     dsVIDEO_PIXELRES_720x576,
         /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
@@ -109,7 +93,7 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
         /*.frameRate = */           dsVIDEO_FRAMERATE_50,
         /*.interlaced = */          _PROGRESSIVE,
     },
-    {   /*720p*/
+    {   /*720p - 6 */
         /*.name = */                "720p",
         /*.pixelResolution = */     dsVIDEO_PIXELRES_1280x720,
         /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
@@ -117,7 +101,7 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
         /*.frameRate = */           dsVIDEO_FRAMERATE_60,
         /*.interlaced = */          _PROGRESSIVE,
     },
-    {   /*720p60*/
+    {   /*720p60 - 7 */
         /*.name = */                "720p60",
         /*.pixelResolution = */     dsVIDEO_PIXELRES_1280x720,
         /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
@@ -125,7 +109,7 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
         /*.frameRate = */           dsVIDEO_FRAMERATE_60,
         /*.interlaced = */          _PROGRESSIVE,
     },
-    {   /*720p50*/
+    {   /*720p50 - 8 */
         /*.name = */                "720p50",
         /*.pixelResolution = */     dsVIDEO_PIXELRES_1280x720,
         /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
@@ -133,7 +117,7 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
         /*.frameRate = */           dsVIDEO_FRAMERATE_50,
         /*.interlaced = */          _PROGRESSIVE,
     },
-    {   /*1080p*/
+    {   /*1080p - 9 */
         /*.name = */                "1080p",
         /*.pixelResolution = */     dsVIDEO_PIXELRES_1920x1080,
         /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
@@ -141,7 +125,7 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
         /*.frameRate = */           dsVIDEO_FRAMERATE_60,
         /*.interlaced = */          _PROGRESSIVE,
     },
-    {   /*1080p24*/
+    {   /*1080p24 - 10 */
         /*.name = */                "1080p24",
         /*.pixelResolution = */     dsVIDEO_PIXELRES_1920x1080,
         /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
@@ -149,7 +133,7 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
         /*.frameRate = */           dsVIDEO_FRAMERATE_24,
         /*.interlaced = */          _PROGRESSIVE,
     },
-    {   /*1080p25*/
+    {   /*1080p25 - 11 */
         /*.name = */                "1080p25",
         /*.pixelResolution = */     dsVIDEO_PIXELRES_1920x1080,
         /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
@@ -157,7 +141,7 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
         /*.frameRate = */           dsVIDEO_FRAMERATE_25,
         /*.interlaced = */          _PROGRESSIVE,
     },
-    {   /*1080p30*/
+    {   /*1080p30 - 12 */
         /*.name = */                "1080p30",
         /*.pixelResolution = */     dsVIDEO_PIXELRES_1920x1080,
         /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
@@ -165,7 +149,7 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
         /*.frameRate = */           dsVIDEO_FRAMERATE_30,
         /*.interlaced = */          _PROGRESSIVE,
     },
-    {   /*1080p50*/
+    {   /*1080p50 - 13 */
         /*.name = */                "1080p50",
         /*.pixelResolution = */     dsVIDEO_PIXELRES_1920x1080,
         /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
@@ -173,7 +157,7 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
         /*.frameRate = */           dsVIDEO_FRAMERATE_50,
         /*.interlaced = */          _PROGRESSIVE,
     },
-    {   /*1080p60*/
+    {   /*1080p60 - 14 */
         /*.name = */                "1080p60",
         /*.pixelResolution = */     dsVIDEO_PIXELRES_1920x1080,
         /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
@@ -181,7 +165,7 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
         /*.frameRate = */           dsVIDEO_FRAMERATE_60,
         /*.interlaced = */          _PROGRESSIVE,
     },
-    {   /*1080i*/
+    {   /*1080i - 15 */
         /*.name = */                "1080i",
         /*.pixelResolution = */     dsVIDEO_PIXELRES_1920x1080,
         /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
@@ -189,7 +173,7 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
         /*.frameRate = */           dsVIDEO_FRAMERATE_60,
         /*.interlaced = */          _INTERLACED,
     },
-    {   /*1080i60*/
+    {   /*1080i60 - 16 */
         /*.name = */                "1080i60",
         /*.pixelResolution = */     dsVIDEO_PIXELRES_1920x1080,
         /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
@@ -197,7 +181,7 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
         /*.frameRate = */           dsVIDEO_FRAMERATE_60,
         /*.interlaced = */          _INTERLACED,
     },
-    {   /*1080i50*/
+    {   /*1080i50 - 17 */
         /*.name = */                "1080i50",
         /*.pixelResolution = */     dsVIDEO_PIXELRES_1920x1080,
         /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
@@ -205,7 +189,7 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
         /*.frameRate = */           dsVIDEO_FRAMERATE_50,
         /*.interlaced = */          _INTERLACED,
     },
-    {   /*2160p*/
+    {   /*2160p - 18 */
         /*.name = */                "2160p",
         /*.pixelResolution = */     dsVIDEO_PIXELRES_3840x2160,
         /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
@@ -213,7 +197,7 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
         /*.frameRate = */           dsVIDEO_FRAMERATE_60,
         /*.interlaced = */          _PROGRESSIVE,
     },
-    {   /*2160p24*/
+    {   /*2160p24 - 19 */
         /*.name = */                "2160p24",
         /*.pixelResolution = */     dsVIDEO_PIXELRES_3840x2160,
         /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
@@ -221,7 +205,7 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
         /*.frameRate = */           dsVIDEO_FRAMERATE_24,
         /*.interlaced = */          _PROGRESSIVE,
     },
-    {   /*2160p25*/
+    {   /*2160p25 - 20 */
         /*.name = */                "2160p25",
         /*.pixelResolution = */     dsVIDEO_PIXELRES_3840x2160,
         /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
@@ -229,7 +213,7 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
         /*.frameRate = */           dsVIDEO_FRAMERATE_25,
         /*.interlaced = */          _PROGRESSIVE,
     },
-    {   /*2160p30*/
+    {   /*2160p30 - 21 */
         /*.name = */                "2160p30",
         /*.pixelResolution = */     dsVIDEO_PIXELRES_3840x2160,
         /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
@@ -237,7 +221,7 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
         /*.frameRate = */           dsVIDEO_FRAMERATE_30,
         /*.interlaced = */          _PROGRESSIVE,
     },
-    {   /*2160p50*/
+    {   /*2160p50 - 22 */
         /*.name = */                "2160p50",
         /*.pixelResolution = */     dsVIDEO_PIXELRES_3840x2160,
         /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
@@ -245,7 +229,7 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
         /*.frameRate = */           dsVIDEO_FRAMERATE_50,
         /*.interlaced = */          _PROGRESSIVE,
     },
-    {   /*2160p60*/
+    {   /*2160p60 - 23 */
         /*.name = */                "2160p60",
         /*.pixelResolution = */     dsVIDEO_PIXELRES_3840x2160,
         /*.aspectRatio = */         dsVIDEO_ASPECT_RATIO_16x9,
@@ -258,5 +242,5 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
 int    kResolutionsSettings_size = sizeof(kResolutionsSettings) / sizeof(kResolutionsSettings[0]);
 size_t kNumResolutionsSettings   = sizeof(kResolutionsSettings) / sizeof(kResolutionsSettings[0]);
 
-/* Default resolution index: 720p (index 8) matches RPi boot configuration. */
-int kDefaultResIndex = 8;
+/* Default resolution index: 720p (index 6) matches RPi boot configuration. */
+int kDefaultResIndex = 6;
