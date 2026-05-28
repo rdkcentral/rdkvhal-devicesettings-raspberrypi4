@@ -53,7 +53,7 @@ void dsRegisterConnectorChangeHook(void (*hook)(void));
 
 static bool _bIsVideoPortInitialized = false;
 static bool isValidVopHandle(intptr_t handle);
-static const char *dsVideoGetResolution(void);
+static const char *dsInternalVideoGetResolution(void);
 
 static pthread_mutex_t _videoFormatCbMutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t _videoFormatWatcherCond = PTHREAD_COND_INITIALIZER;
@@ -267,7 +267,7 @@ static void* videoFormatWatcherThreadMain(void *arg)
         }
 
         char currentModeBuf[64] = {'\0'};
-        const char *currentMode = dsVideoGetResolution();
+        const char *currentMode = dsInternalVideoGetResolution();
         if (currentMode != NULL) {
             strncpy(currentModeBuf, currentMode, sizeof(currentModeBuf) - 1);
             currentModeBuf[sizeof(currentModeBuf) - 1] = '\0';
@@ -415,6 +415,75 @@ static bool normalizeModeToken(const char *token, char *normalizedToken, size_t 
 }
 
 /**
+ * @brief Check whether a user-provided mode token explicitly specifies frame rate.
+ *
+ * This helper inspects the raw token shape (after optional status-prefix removal)
+ * to distinguish explicit inputs (e.g. "720p60", "1920x1080p24", "smpte60hz")
+ * from implicit inputs (e.g. "720p", "1080i").
+ */
+static bool modeTokenSpecifiesRate(const char *token)
+{
+    if (token == NULL) {
+        return false;
+    }
+
+    char parseToken[64] = {'\0'};
+    strncpy(parseToken, token, sizeof(parseToken) - 1);
+    parseToken[sizeof(parseToken) - 1] = '\0';
+
+    size_t lead = 0;
+    while (parseToken[lead] != '\0' && isspace((unsigned char)parseToken[lead])) {
+        lead++;
+    }
+    if (lead > 0) {
+        memmove(parseToken, parseToken + lead, strlen(parseToken + lead) + 1);
+    }
+
+    size_t len = strlen(parseToken);
+    while (len > 0 && isspace((unsigned char)parseToken[len - 1])) {
+        parseToken[--len] = '\0';
+    }
+
+    char extractedMode[64] = {'\0'};
+    int ignoredStatus = -1;
+    if (sscanf(parseToken, "%d: mode %63s", &ignoredStatus, extractedMode) == 2 ||
+        sscanf(parseToken, "%d: set mode %63s", &ignoredStatus, extractedMode) == 2 ||
+        sscanf(parseToken, "mode %63s", extractedMode) == 1 ||
+        sscanf(parseToken, "set mode %63s", extractedMode) == 1) {
+        strncpy(parseToken, extractedMode, sizeof(parseToken) - 1);
+        parseToken[sizeof(parseToken) - 1] = '\0';
+    }
+
+    for (size_t i = 0; parseToken[i] != '\0'; ++i) {
+        parseToken[i] = (char)tolower((unsigned char)parseToken[i]);
+    }
+
+    int width = 0, height = 0, rate = 0;
+    char scanMode = '\0';
+
+    if (sscanf(parseToken, "%dx%dx%d", &width, &height, &rate) == 3) {
+        return true;
+    }
+    if (sscanf(parseToken, "%dx%d%cx%d", &width, &height, &scanMode, &rate) == 4 ||
+        sscanf(parseToken, "%dx%d%c%d", &width, &height, &scanMode, &rate) == 4) {
+        return true;
+    }
+    if (sscanf(parseToken, "%dp%dhz", &height, &rate) == 2 ||
+        sscanf(parseToken, "%di%dhz", &height, &rate) == 2) {
+        return true;
+    }
+    if (sscanf(parseToken, "%d%c%d", &height, &scanMode, &rate) == 3 &&
+        (scanMode == 'p' || scanMode == 'i')) {
+        return true;
+    }
+    if (sscanf(parseToken, "smpte%dhz", &rate) == 1) {
+        return true;
+    }
+
+    return false;
+}
+
+/**
  * @brief Resolve an input resolution token to the canonical RDK resolution name.
  *
  * The input may be a raw mode token from westeros-gl or an already normalized
@@ -488,6 +557,64 @@ static void resolveResolutionToken(const char *token, char *out, size_t outSize)
 }
 
 /**
+ * @brief Resolve a resolution token to its rate-implicit form (bare token without rate suffix).
+ *
+ * This function attempts to find and return the implicit-rate variant of a resolution token.
+ * For example, given "720p60", it returns "720p" (if it exists in the map).
+ * If no implicit variant exists, returns the input token as-is.
+ *
+ * This is useful for set/get flows where the user specifies a resolution without an explicit rate
+ * and expects the readback to also omit the rate (matching the user's original input).
+ *
+ * @param[in]  token     Resolution token (with or without rate, e.g. "720p60" or "720p").
+ * @param[out] out       Buffer to store the rate-implicit token.
+ * @param[in]  outSize   Size of the output buffer.
+ *
+ * @return true on success (token resolved), false if token is NULL or buffer too small.
+ */
+static bool resolveResolutionTokenNoRate(const char *token, char *out, size_t outSize)
+{
+    if (token == NULL || out == NULL || outSize == 0) {
+        return false;
+    }
+
+    char normalized[64] = {'\0'};
+    if (!normalizeModeToken(token, normalized, sizeof(normalized))) {
+        strncpy(out, token, outSize - 1);
+        out[outSize - 1] = '\0';
+        return true;
+    }
+
+    /* Parse normalized form (e.g., "720p60") to extract height, scan mode, rate. */
+    int height = -1, rate = -1;
+    char scanMode = '\0';
+    if (sscanf(normalized, "%d%c%d", &height, &scanMode, &rate) != 3 || height <= 0) {
+        strncpy(out, token, outSize - 1);
+        out[outSize - 1] = '\0';
+        return true;
+    }
+
+    /* Build implicit-rate token: e.g., "720p" from "720p60". */
+    char implicitToken[32] = {'\0'};
+    (void)snprintf(implicitToken, sizeof(implicitToken), "%d%c", height, scanMode);
+
+    /* Check if implicit-rate variant exists in resolutionMap. */
+    for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
+        if (strcmp(resolutionMap[i].rdkRes, implicitToken) == 0) {
+            /* Found implicit variant; return it. */
+            strncpy(out, implicitToken, outSize - 1);
+            out[outSize - 1] = '\0';
+            return true;
+        }
+    }
+
+    /* No implicit variant found; return normalized (explicit-rate) form. */
+    strncpy(out, normalized, outSize - 1);
+    out[outSize - 1] = '\0';
+    return true;
+}
+
+/**
  * @brief Compare two resolution names after canonical token resolution.
  *
  * This helper resolves both input names through resolveResolutionToken and
@@ -547,10 +674,13 @@ static void populateResolutionNameFromFields(dsVideoPortResolution_t *resolution
             candidate->interlaced == requestedInterlaced) {
             strncpy(resolution->name, candidate->name, sizeof(resolution->name) - 1);
             resolution->name[sizeof(resolution->name) - 1] = '\0';
+            hal_dbg("Populated resolution name '%s' from kResolutionsSettings with pixelResolution=%d aspectRatio=%d stereoScopicMode=%d frameRate=%d interlaced=%d\n",
+                    resolution->name, resolution->pixelResolution, resolution->aspectRatio,
+                    resolution->stereoScopicMode, resolution->frameRate, resolution->interlaced);
             return;
         }
     }
-    /* No match found - resolution remains unsupported (name stays empty). */
+    /* No exact match found; resolution name remains unset. */
 }
 
 static dsError_t getHdmiEdidForConnectedDisplay(dsVideoPortType_t video_port_type,
@@ -1229,6 +1359,7 @@ dsError_t dsIsHDCPEnabled(intptr_t handle, bool *pContentProtected)
 dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 {
     hal_info("invoked.\n");
+    VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
@@ -1238,14 +1369,27 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         return dsERR_INVALID_PARAM;
     }
     /* Query the active mode from westeros-gl-console/DRM. */
-    const char *resolution_name = dsVideoGetResolution();
+    const char *resolution_name = dsInternalVideoGetResolution();
+    /* Fill resolution structure with matching from kResolutionsSettings */
     if (resolution_name) {
-        strncpy(resolution->name, resolution_name, sizeof(resolution->name) - 1);
-        resolution->name[sizeof(resolution->name) - 1] = '\0';
-        return dsERR_NONE;
+        bool found = false;
+        for (size_t i = 0; i < kNumResolutionsSettings; i++) {
+            if (strncmp(resolution_name, kResolutionsSettings[i].name, sizeof(kResolutionsSettings[i].name) > sizeof(resolution_name) ? sizeof(resolution_name) : sizeof(kResolutionsSettings[i].name)) == 0) {
+                *resolution = kResolutionsSettings[i];
+                found = true;
+                break;
+            }
+        }
     }
-    resolution->name[0] = '\0';
-    hal_err("Failed to resolve current display mode to RDK resolution token\n");
+    if (found) {
+        hal_info("Matched resolution '%s' to settings entry: pixelResolution=%d, aspectRatio=%d, stereoScopicMode=%d, frameRate=%d, interlaced=%d\n",
+                resolution_name, resolution->pixelResolution, resolution->aspectRatio,
+                resolution->stereoScopicMode, resolution->frameRate, resolution->interlaced);
+        return dsERR_NONE;
+    } else {
+        hal_err("Active resolution '%s' did not match any from kResolutionsSettings\n", resolution_name);
+    }
+
     return dsERR_GENERAL;
 }
 
@@ -1257,7 +1401,7 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
  *
  * @return const char* - Normalized resolution string or NULL if failed.
  */
-static const char* dsVideoGetResolution(void)
+static const char* dsInternalVideoGetResolution(void)
 {
     hal_info("invoked.\n");
     char resName[32] = {'\0'};
@@ -1292,41 +1436,9 @@ static const char* dsVideoGetResolution(void)
     }
 
     hal_info("resName '%s', normalized '%s'\n", resName, normalizedRes);
+    // resName '1280x720p60', normalized '720p60'
 
-    /* Pass 1: exact token match to preserve explicit-rate aliases. */
-    for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
-        const char *mapRes = resolutionMap[i].rdkRes;
-        if (strcmp(mapRes, normalizedRes) == 0) {
-            resolution_name = mapRes;
-            break;
-        }
-    }
-
-    /* Pass 2: fallback for implicit-rate aliases (e.g. 720p -> 720p60). */
-    if (resolution_name == NULL) {
-        for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
-            const char *mapRes = resolutionMap[i].rdkRes;
-            size_t len = strlen(mapRes);
-            int hasRate = (len > 0 && isdigit((unsigned char)mapRes[len-1]));
-
-            if (!hasRate) {
-                char temp[32];
-                snprintf(temp, sizeof(temp), "%s60", mapRes);
-
-                if (strcmp(temp, normalizedRes) == 0 || strcmp(mapRes, normalizedRes) == 0) {
-                    resolution_name = mapRes;
-                    break;
-                }
-            }
-        }
-    }
-    if (resolution_name != NULL) {
-        hal_info("resolution_name %s\n", resolution_name);
-    } else {
-        hal_err("Failed to find matching resolution for mode '%s' (normalized '%s')\n", resName, normalizedRes);
-    }
-
-    return resolution_name;
+    return (strlen(normalizedRes) > 0) ? strdup(normalizedRes) : strdup(resName);
 }
 
 /**
@@ -1385,8 +1497,6 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
                         resolution->frameRate, resolution->interlaced);
             return dsERR_INVALID_PARAM;
         }
-    } else {
-        hal_dbg("Using requested resolution name is '%s'\n", resolution->name);
     }
 
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
@@ -1472,7 +1582,7 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         const struct timespec verifySleep = { .tv_sec = 0, .tv_nsec = 50000000L }; /* 50 ms */
 
         for (int attempt = 0; attempt < verifyAttempts; attempt++) {
-            activeRes = dsVideoGetResolution();
+            activeRes = dsInternalVideoGetResolution();
             if (activeRes != NULL &&
                 normalizeModeToken(activeRes, activeNormalized, sizeof(activeNormalized)) &&
                 strcmp(requestedNormalized, activeNormalized) == 0) {
@@ -1508,6 +1618,7 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         hal_err("Unsupported video port type: %d\n", vopHandle->m_vType);
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
+
     return dsERR_NONE;
 }
 
