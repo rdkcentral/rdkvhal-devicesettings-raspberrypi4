@@ -415,75 +415,6 @@ static bool normalizeModeToken(const char *token, char *normalizedToken, size_t 
 }
 
 /**
- * @brief Check whether a user-provided mode token explicitly specifies frame rate.
- *
- * This helper inspects the raw token shape (after optional status-prefix removal)
- * to distinguish explicit inputs (e.g. "720p60", "1920x1080p24", "smpte60hz")
- * from implicit inputs (e.g. "720p", "1080i").
- */
-static bool modeTokenSpecifiesRate(const char *token)
-{
-    if (token == NULL) {
-        return false;
-    }
-
-    char parseToken[64] = {'\0'};
-    strncpy(parseToken, token, sizeof(parseToken) - 1);
-    parseToken[sizeof(parseToken) - 1] = '\0';
-
-    size_t lead = 0;
-    while (parseToken[lead] != '\0' && isspace((unsigned char)parseToken[lead])) {
-        lead++;
-    }
-    if (lead > 0) {
-        memmove(parseToken, parseToken + lead, strlen(parseToken + lead) + 1);
-    }
-
-    size_t len = strlen(parseToken);
-    while (len > 0 && isspace((unsigned char)parseToken[len - 1])) {
-        parseToken[--len] = '\0';
-    }
-
-    char extractedMode[64] = {'\0'};
-    int ignoredStatus = -1;
-    if (sscanf(parseToken, "%d: mode %63s", &ignoredStatus, extractedMode) == 2 ||
-        sscanf(parseToken, "%d: set mode %63s", &ignoredStatus, extractedMode) == 2 ||
-        sscanf(parseToken, "mode %63s", extractedMode) == 1 ||
-        sscanf(parseToken, "set mode %63s", extractedMode) == 1) {
-        strncpy(parseToken, extractedMode, sizeof(parseToken) - 1);
-        parseToken[sizeof(parseToken) - 1] = '\0';
-    }
-
-    for (size_t i = 0; parseToken[i] != '\0'; ++i) {
-        parseToken[i] = (char)tolower((unsigned char)parseToken[i]);
-    }
-
-    int width = 0, height = 0, rate = 0;
-    char scanMode = '\0';
-
-    if (sscanf(parseToken, "%dx%dx%d", &width, &height, &rate) == 3) {
-        return true;
-    }
-    if (sscanf(parseToken, "%dx%d%cx%d", &width, &height, &scanMode, &rate) == 4 ||
-        sscanf(parseToken, "%dx%d%c%d", &width, &height, &scanMode, &rate) == 4) {
-        return true;
-    }
-    if (sscanf(parseToken, "%dp%dhz", &height, &rate) == 2 ||
-        sscanf(parseToken, "%di%dhz", &height, &rate) == 2) {
-        return true;
-    }
-    if (sscanf(parseToken, "%d%c%d", &height, &scanMode, &rate) == 3 &&
-        (scanMode == 'p' || scanMode == 'i')) {
-        return true;
-    }
-    if (sscanf(parseToken, "smpte%dhz", &rate) == 1) {
-        return true;
-    }
-
-    return false;
-}
-
-/**
  * @brief Resolve an input resolution token to the canonical RDK resolution name.
  *
  * The input may be a raw mode token from westeros-gl or an already normalized
@@ -554,64 +485,6 @@ static void resolveResolutionToken(const char *token, char *out, size_t outSize)
 
     strncpy(out, candidate, outSize - 1);
     out[outSize - 1] = '\0';
-}
-
-/**
- * @brief Resolve a resolution token to its rate-implicit form (bare token without rate suffix).
- *
- * This function attempts to find and return the implicit-rate variant of a resolution token.
- * For example, given "720p60", it returns "720p" (if it exists in the map).
- * If no implicit variant exists, returns the input token as-is.
- *
- * This is useful for set/get flows where the user specifies a resolution without an explicit rate
- * and expects the readback to also omit the rate (matching the user's original input).
- *
- * @param[in]  token     Resolution token (with or without rate, e.g. "720p60" or "720p").
- * @param[out] out       Buffer to store the rate-implicit token.
- * @param[in]  outSize   Size of the output buffer.
- *
- * @return true on success (token resolved), false if token is NULL or buffer too small.
- */
-static bool resolveResolutionTokenNoRate(const char *token, char *out, size_t outSize)
-{
-    if (token == NULL || out == NULL || outSize == 0) {
-        return false;
-    }
-
-    char normalized[64] = {'\0'};
-    if (!normalizeModeToken(token, normalized, sizeof(normalized))) {
-        strncpy(out, token, outSize - 1);
-        out[outSize - 1] = '\0';
-        return true;
-    }
-
-    /* Parse normalized form (e.g., "720p60") to extract height, scan mode, rate. */
-    int height = -1, rate = -1;
-    char scanMode = '\0';
-    if (sscanf(normalized, "%d%c%d", &height, &scanMode, &rate) != 3 || height <= 0) {
-        strncpy(out, token, outSize - 1);
-        out[outSize - 1] = '\0';
-        return true;
-    }
-
-    /* Build implicit-rate token: e.g., "720p" from "720p60". */
-    char implicitToken[32] = {'\0'};
-    (void)snprintf(implicitToken, sizeof(implicitToken), "%d%c", height, scanMode);
-
-    /* Check if implicit-rate variant exists in resolutionMap. */
-    for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
-        if (strcmp(resolutionMap[i].rdkRes, implicitToken) == 0) {
-            /* Found implicit variant; return it. */
-            strncpy(out, implicitToken, outSize - 1);
-            out[outSize - 1] = '\0';
-            return true;
-        }
-    }
-
-    /* No implicit variant found; return normalized (explicit-rate) form. */
-    strncpy(out, normalized, outSize - 1);
-    out[outSize - 1] = '\0';
-    return true;
 }
 
 /**
@@ -1368,11 +1241,17 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         hal_err("handle(%p) is invalid or resolution(%p) is NULL.\n", handle, resolution);
         return dsERR_INVALID_PARAM;
     }
+
+    if (vopHandle->m_vType != dsVIDEOPORT_TYPE_HDMI) {
+        hal_err("Unsupported video port type: %d\n", vopHandle->m_vType);
+        return dsERR_OPERATION_NOT_SUPPORTED;
+    }
+
     /* Query the active mode from westeros-gl-console/DRM. */
     const char *resolution_name = dsInternalVideoGetResolution();
     /* Fill resolution structure with matching from kResolutionsSettings */
+    bool found = false;
     if (resolution_name) {
-        bool found = false;
         for (size_t i = 0; i < kNumResolutionsSettings; i++) {
             if (strncmp(resolution_name, kResolutionsSettings[i].name, sizeof(kResolutionsSettings[i].name) > sizeof(resolution_name) ? sizeof(resolution_name) : sizeof(kResolutionsSettings[i].name)) == 0) {
                 *resolution = kResolutionsSettings[i];
@@ -1406,7 +1285,6 @@ static const char* dsInternalVideoGetResolution(void)
     hal_info("invoked.\n");
     char resName[32] = {'\0'};
     char normalizedRes[32] = {'\0'};
-    const char *resolution_name = NULL;
     char respBuf[256] = {'\0'};
     if (westerosGLConsoleRWWrapper("get mode", respBuf, sizeof(respBuf))) {
         strncpy(resName, respBuf, sizeof(resName) - 1);
@@ -1438,7 +1316,16 @@ static const char* dsInternalVideoGetResolution(void)
     hal_info("resName '%s', normalized '%s'\n", resName, normalizedRes);
     // resName '1280x720p60', normalized '720p60'
 
-    return (strlen(normalizedRes) > 0) ? strdup(normalizedRes) : strdup(resName);
+    const char *result = (normalizedRes[0] != '\0') ? normalizedRes : resName;
+    size_t resultLen = strlen(result) + 1;
+    char *resultDup = (char *)malloc(resultLen);
+    if (resultDup == NULL) {
+        hal_err("Failed to allocate memory for resolution copy\n");
+        return NULL;
+    }
+
+    memcpy(resultDup, result, resultLen);
+    return resultDup;
 }
 
 /**
