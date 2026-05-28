@@ -536,7 +536,6 @@ static void populateResolutionNameFromFields(dsVideoPortResolution_t *resolution
         return;
     }
 
-    /* kResolutionsSettings stores scan mode as boolean interlaced/progressive. */
     bool requestedInterlaced = (resolution->interlaced != 0) ? _INTERLACED : _PROGRESSIVE;
 
     for (size_t i = 0; i < kNumResolutionsSettings; i++) {
