@@ -565,11 +565,22 @@ bool dsGetPreferredHdmiMode(char *mode, size_t len)
 
 /**
  * @brief Map of HDMI resolutions to their corresponding CTA-861 VICs for enumeration based on EDID.
- * @reference This list is not exhaustive; it includes commonly used HDMI resolutions.  The parseHdmiResolutionsFromCtaDataBlock()
+ * @reference This list is not exhaustive; it includes commonly used HDMI resolutions.
  *
- * IMPORTANT ORDERING: Implicit-rate entries (bare tokens like "480p", "720p", "1080p") MUST come
- * before their explicit-rate counterparts ("480p60", "720p60", "1080p60") to ensure dsgetResolutionInfo()
- * prefix-match fallback returns the correct default rate. If adding or removing entries, maintain this grouping.
+ * IMPORTANT ORDERING: parseHdmiResolutionsFromCtaDataBlock() breaks after the FIRST matching entry
+ * per VIC, so the first entry for each VIC is the canonical name that ends up in suppResolutionList.
+ * That canonical name MUST match the string that getSupportedTvResolutions() in the plugin emits for
+ * the corresponding dsTVResolution_t bit (decoded from the dsSupportedTvResolutions() bitmask).
+ *
+ * Concretely:
+ *   - VICs 2,3 (480p@60)  → first entry "480p"   matches dsTV_RESOLUTION_480p  → plugin emits "480p"
+ *   - VICs 6,7 (480i@60)  → first entry "480i"   matches dsTV_RESOLUTION_480i  → plugin emits "480i"
+ *   - VIC  4   (720p@60)  → first entry "720p"   matches dsTV_RESOLUTION_720p  → plugin emits "720p"
+ *   - VIC  5   (1080i@60) → first entry "1080i"  matches dsTV_RESOLUTION_1080i → plugin emits "1080i"
+ *   - VIC  16  (1080p@60) → first entry "1080p60" matches dsTV_RESOLUTION_1080p60 → plugin emits "1080p60"
+ *     (VIC 16 maps to the distinct dsTV_RESOLUTION_1080p60 bit, NOT dsTV_RESOLUTION_1080p)
+ *
+ * When adding new entries, always place the canonical name first for each VIC group.
  */
 const hdmiSupportedRes_t resolutionMap[] = {
     {"480p", 2},       // 720x480p @ 59.94/60Hz  (CTA-861 VIC 2, rate-implicit alias)
@@ -590,12 +601,12 @@ const hdmiSupportedRes_t resolutionMap[] = {
     {"1080i", 5},      // 1920x1080i @ 59.94/60Hz (CTA-861 VIC 5, rate-implicit alias)
     {"1080i50", 20},   // 1920x1080i @ 50Hz      (CTA-861 VIC 20)
     {"1080i60", 5},    // 1920x1080i @ 59.94/60Hz (CTA-861 VIC 5, rate-explicit alias)
+    {"1080p60", 16},   // 1920x1080p @ 59.94/60Hz (CTA-861 VIC 16, rate-explicit alias)
     {"1080p", 16},     // 1920x1080p @ 59.94/60Hz (CTA-861 VIC 16, rate-implicit alias)
     {"1080p24", 32},   // 1920x1080p @ 24Hz      (CTA-861 VIC 32)
     {"1080p25", 33},   // 1920x1080p @ 25Hz      (CTA-861 VIC 33)
     {"1080p30", 34},   // 1920x1080p @ 30Hz      (CTA-861 VIC 34)
     {"1080p50", 31},   // 1920x1080p @ 50Hz      (CTA-861 VIC 31)
-    {"1080p60", 16},   // 1920x1080p @ 59.94/60Hz (CTA-861 VIC 16, rate-explicit alias)
     {"2160p24", 93},   // 3840x2160p @ 23.97/24Hz   (CTA-861 VIC 93,  16:9)
     {"2160p25", 94},   // 3840x2160p @ 25Hz         (CTA-861 VIC 94,  16:9)
     {"2160p30", 95},   // 3840x2160p @ 29.97/30Hz   (CTA-861 VIC 95,  16:9)

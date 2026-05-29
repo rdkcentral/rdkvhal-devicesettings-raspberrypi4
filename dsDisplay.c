@@ -518,6 +518,7 @@ static bool parseHdmiResolutionsFromCtaDataBlock(int tag,
                         ctx->hdmiSupportedResolution[*(ctx->numSupportedResn)].name, vic);
                 (*(ctx->numSupportedResn))++;
             }
+            break; /* first resolutionMap match per VIC is canonical; skip aliases */
         }
     }
 
