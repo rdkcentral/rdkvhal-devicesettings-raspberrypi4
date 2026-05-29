@@ -28,6 +28,7 @@
 
 #include "dsTypes.h"
 #include "dsVideoResolutionSettings.h"
+#include <string.h>
 
 /* Exported resolution table - looked up via dlsym() by the middleware
  *
@@ -244,18 +245,20 @@ dsVideoPortResolution_t kResolutionsSettings[] = {
  * @param defaultResName The name of the default resolution to find (e.g., "720p").
  * @return The index of the default resolution in kResolutionsSettings, or 0 if not found.
  */
-static inline int defaultResolutionIndex(char *defaultResName) {
-	for (size_t i = 0; i < kNumResolutionsSettings; ++i) {
-		if (strcmp(kResolutionsSettings[i].name, defaultResName) == 0) {
-			return (int)i;
-		}
-	}
-	/* Default to the first entry if not found. */
-	return 0;
+int defaultResolutionIndex(const char *defaultResName)
+{
+    for (size_t i = 0; i < kNumResolutionsSettings; ++i) {
+        if (strcmp(kResolutionsSettings[i].name, defaultResName) == 0) {
+            return (int)i;
+        }
+    }
+
+    /* Default to the first entry if not found. */
+    return 0;
 }
 
 int    kResolutionsSettings_size = sizeof(kResolutionsSettings) / sizeof(kResolutionsSettings[0]);
 size_t kNumResolutionsSettings   = sizeof(kResolutionsSettings) / sizeof(kResolutionsSettings[0]);
 
-/* Default resolution index: 720p matches RPi boot configuration. */
-int kDefaultResIndex = defaultResolutionIndex("720p");
+/* Runtime-overridden in dsVideoPortInit() via defaultResolutionIndex("720p"). */
+int kDefaultResIndex = 0;

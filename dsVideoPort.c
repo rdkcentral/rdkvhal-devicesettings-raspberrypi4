@@ -53,7 +53,7 @@ void dsRegisterConnectorChangeHook(void (*hook)(void));
 
 static bool _bIsVideoPortInitialized = false;
 static bool isValidVopHandle(intptr_t handle);
-static const char *dsInternalVideoGetResolution(void);
+static bool dsInternalVideoGetResolution(char *resolution, size_t resolutionSize);
 
 static pthread_mutex_t _videoFormatCbMutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t _videoFormatWatcherCond = PTHREAD_COND_INITIALIZER;
@@ -267,9 +267,7 @@ static void* videoFormatWatcherThreadMain(void *arg)
         }
 
         char currentModeBuf[64] = {'\0'};
-        const char *currentMode = dsInternalVideoGetResolution();
-        if (currentMode != NULL) {
-            strncpy(currentModeBuf, currentMode, sizeof(currentModeBuf) - 1);
+        if (dsInternalVideoGetResolution(currentModeBuf, sizeof(currentModeBuf))) {
             currentModeBuf[sizeof(currentModeBuf) - 1] = '\0';
         }
 
@@ -742,6 +740,12 @@ dsError_t  dsVideoPortInit()
     _vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle = dsVIDEOPORT_TYPE_HDMI;
     _vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index = 0;
     _vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_isEnabled = true;
+
+    kDefaultResIndex = defaultResolutionIndex("720p");
+    if (kDefaultResIndex < 0 || (size_t)kDefaultResIndex >= kNumResolutionsSettings) {
+        hal_warn("defaultResolutionIndex('720p') returned invalid index %d, falling back to 0\n", kDefaultResIndex);
+        kDefaultResIndex = 0;
+    }
 
     hal_info("&_vopHandles = %p\n", &_vopHandles);
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_vType = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_vType);
@@ -1250,10 +1254,10 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
     }
 
     /* Query the active mode from westeros-gl-console/DRM. */
-    const char *resolution_name = dsInternalVideoGetResolution();
-    /* Fill resolution structure with matching from kResolutionsSettings */
+    char resolution_name[32] = {'\0'};
     bool found = false;
-    if (resolution_name) {
+    if (dsInternalVideoGetResolution(resolution_name, sizeof(resolution_name))) {
+        /* Fill resolution structure with matching from kResolutionsSettings */
         for (size_t i = 0; i < kNumResolutionsSettings; i++) {
             if (strcmp(resolution_name, kResolutionsSettings[i].name) == 0) {
                 *resolution = kResolutionsSettings[i];
@@ -1280,14 +1284,21 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
  * This function queries the current video resolution from the underlying
  * platform and normalizes it to a standard format.
  *
- * @return const char* - Normalized resolution string or NULL if failed.
+ * @param[in] resolution - Buffer to hold the normalized resolution string. Caller must ensure this buffer is large enough to hold the result (recommend at least 32 bytes).
+ * @param[in] resolutionSize - Size of the resolution buffer in bytes.
+ * @return bool - true if successful, false otherwise.
  */
-static const char* dsInternalVideoGetResolution(void)
+static bool dsInternalVideoGetResolution(char *resolution, size_t resolutionSize)
 {
     hal_info("invoked.\n");
+    if (resolution == NULL || resolutionSize == 0) {
+        return false;
+    }
+
+    resolution[0] = '\0';
+
     char resName[32] = {'\0'};
     char normalizedRes[32] = {'\0'};
-    static char resultBuf[32] = {'\0'};
     char respBuf[256] = {'\0'};
     if (westerosGLConsoleRWWrapper("get mode", respBuf, sizeof(respBuf))) {
         strncpy(resName, respBuf, sizeof(resName) - 1);
@@ -1301,7 +1312,7 @@ static const char* dsInternalVideoGetResolution(void)
         }
     } else {
         hal_err("Failed to get current mode, got response '%s'\n", respBuf);
-        return NULL;
+        return false;
     }
 
     size_t resLen = strlen(resName);
@@ -1320,9 +1331,9 @@ static const char* dsInternalVideoGetResolution(void)
     // resName '1280x720p60', normalized '720p60'
 
     const char *result = (normalizedRes[0] != '\0') ? normalizedRes : resName;
-    strncpy(resultBuf, result, sizeof(resultBuf) - 1);
-    resultBuf[sizeof(resultBuf) - 1] = '\0';
-    return resultBuf;
+    strncpy(resolution, result, resolutionSize - 1);
+    resolution[resolutionSize - 1] = '\0';
+    return (resolution[0] != '\0');
 }
 
 /**
@@ -1466,23 +1477,22 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         const struct timespec verifySleep = { .tv_sec = 0, .tv_nsec = 50000000L }; /* 50 ms */
 
         for (int attempt = 0; attempt < verifyAttempts; attempt++) {
-            const char *activeRes = dsInternalVideoGetResolution();
-            if (activeRes != NULL) {
-                strncpy(activeResToken, activeRes, sizeof(activeResToken) - 1);
+            activeResToken[0] = '\0';
+            if (dsInternalVideoGetResolution(activeResToken, sizeof(activeResToken))) {
                 activeResToken[sizeof(activeResToken) - 1] = '\0';
             }
 
-            if (activeRes != NULL &&
-                normalizeModeToken(activeRes, activeNormalized, sizeof(activeNormalized)) &&
+            if (activeResToken[0] != '\0' &&
+                normalizeModeToken(activeResToken, activeNormalized, sizeof(activeNormalized)) &&
                 strcmp(requestedNormalized, activeNormalized) == 0) {
                 modeMatched = true;
-                hal_dbg("Resolution match on attempt %d: active '%s' normalized '%s'\n", attempt, activeRes, activeNormalized);
+                hal_dbg("Resolution match on attempt %d: active '%s' normalized '%s'\n", attempt, activeResToken, activeNormalized);
                 break;
             }
 
-            if (activeRes != NULL && resolutionNamesEquivalent(resolution->name, activeRes)) {
+            if (activeResToken[0] != '\0' && resolutionNamesEquivalent(resolution->name, activeResToken)) {
                 modeMatched = true;
-                hal_dbg("Resolution name match on attempt %d: active '%s' matches requested '%s'\n", attempt, activeRes, resolution->name);
+                hal_dbg("Resolution name match on attempt %d: active '%s' matches requested '%s'\n", attempt, activeResToken, resolution->name);
                 break;
             }
 

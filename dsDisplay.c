@@ -83,19 +83,6 @@ static void notify_audio_hotplug(bool connected)
 /* Forward declaration used by watcher helpers defined before full struct body. */
 typedef struct _VDISPHandle_t VDISPHandle_t;
 
-static void resolve_drm_card_name(char *cardName, size_t len)
-{
-    const char *cardPath = getenv("WESTEROS_DRM_CARD");
-    if (cardPath == NULL || cardPath[0] == '\0') {
-        cardPath = DRI_CARD;
-    }
-
-    const char *slash = strrchr(cardPath, '/');
-    const char *base = (slash != NULL) ? (slash + 1) : cardPath;
-
-    snprintf(cardName, len, "%s", base);
-}
-
 static bool drm_get_hdmi_connector_state(bool *connected, bool *enabled)
 {
     return dsGetHdmiConnectorState(connected, enabled);
