@@ -741,12 +741,6 @@ dsError_t  dsVideoPortInit()
     _vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_index = 0;
     _vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_isEnabled = true;
 
-    kDefaultResIndex = defaultResolutionIndex("720p");
-    if (kDefaultResIndex < 0 || (size_t)kDefaultResIndex >= kNumResolutionsSettings) {
-        hal_warn("defaultResolutionIndex('720p') returned invalid index %d, falling back to 0\n", kDefaultResIndex);
-        kDefaultResIndex = 0;
-    }
-
     hal_info("&_vopHandles = %p\n", &_vopHandles);
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_vType = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_vType);
     hal_info("&_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle = %p\n", &_vopHandles[dsVIDEOPORT_TYPE_HDMI][0].m_nativeHandle);

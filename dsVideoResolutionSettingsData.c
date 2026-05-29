@@ -260,5 +260,15 @@ int defaultResolutionIndex(const char *defaultResName)
 int    kResolutionsSettings_size = sizeof(kResolutionsSettings) / sizeof(kResolutionsSettings[0]);
 size_t kNumResolutionsSettings   = sizeof(kResolutionsSettings) / sizeof(kResolutionsSettings[0]);
 
-/* Runtime-overridden in dsVideoPortInit() via defaultResolutionIndex("720p"). */
+/* Default value; finalized at library load by constructor below. */
 int kDefaultResIndex = 0;
+
+/* Ensure dlsym() consumers observe a stable default index before dsVideoPortInit(). */
+__attribute__((constructor)) static void dsInitDefaultResolutionIndex(void)
+{
+    int index = defaultResolutionIndex("720p");
+    if (index < 0 || (size_t)index >= kNumResolutionsSettings) {
+        index = 0;
+    }
+    kDefaultResIndex = index;
+}
