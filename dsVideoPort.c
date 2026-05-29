@@ -573,7 +573,7 @@ static dsError_t getHdmiEdidForConnectedDisplay(dsVideoPortType_t video_port_typ
         return dsERR_GENERAL;
     }
 
-    if (dsGetHdmiEdidBytes(*edid_buf, edid_len) != 0 ||
+    if (dsInternalGetHdmiEdidBytes(*edid_buf, edid_len) != 0 ||
             *edid_len < DSHAL_EDID_BLOCK_SIZE) {
         free(*edid_buf);
         *edid_buf = NULL;
@@ -1242,6 +1242,8 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         return dsERR_INVALID_PARAM;
     }
 
+    memset(resolution, 0, sizeof(*resolution));
+
     if (vopHandle->m_vType != dsVIDEOPORT_TYPE_HDMI) {
         hal_err("Unsupported video port type: %d\n", vopHandle->m_vType);
         return dsERR_OPERATION_NOT_SUPPORTED;
@@ -1285,6 +1287,7 @@ static const char* dsInternalVideoGetResolution(void)
     hal_info("invoked.\n");
     char resName[32] = {'\0'};
     char normalizedRes[32] = {'\0'};
+    static char resultBuf[32] = {'\0'};
     char respBuf[256] = {'\0'};
     if (westerosGLConsoleRWWrapper("get mode", respBuf, sizeof(respBuf))) {
         strncpy(resName, respBuf, sizeof(resName) - 1);
@@ -1317,15 +1320,9 @@ static const char* dsInternalVideoGetResolution(void)
     // resName '1280x720p60', normalized '720p60'
 
     const char *result = (normalizedRes[0] != '\0') ? normalizedRes : resName;
-    size_t resultLen = strlen(result) + 1;
-    char *resultDup = (char *)malloc(resultLen);
-    if (resultDup == NULL) {
-        hal_err("Failed to allocate memory for resolution copy\n");
-        return NULL;
-    }
-
-    memcpy(resultDup, result, resultLen);
-    return resultDup;
+    strncpy(resultBuf, result, sizeof(resultBuf) - 1);
+    resultBuf[sizeof(resultBuf) - 1] = '\0';
+    return resultBuf;
 }
 
 /**
@@ -1462,14 +1459,19 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
             return dsERR_GENERAL;
         }
         /* Verify the mode actually took effect; mode switch can be asynchronous. */
-        const char *activeRes = NULL;
+        char activeResToken[64] = {'\0'};
         bool modeMatched = false;
         char activeNormalized[64] = {'\0'};
         const int verifyAttempts = 20;
         const struct timespec verifySleep = { .tv_sec = 0, .tv_nsec = 50000000L }; /* 50 ms */
 
         for (int attempt = 0; attempt < verifyAttempts; attempt++) {
-            activeRes = dsInternalVideoGetResolution();
+            const char *activeRes = dsInternalVideoGetResolution();
+            if (activeRes != NULL) {
+                strncpy(activeResToken, activeRes, sizeof(activeResToken) - 1);
+                activeResToken[sizeof(activeResToken) - 1] = '\0';
+            }
+
             if (activeRes != NULL &&
                 normalizeModeToken(activeRes, activeNormalized, sizeof(activeNormalized)) &&
                 strcmp(requestedNormalized, activeNormalized) == 0) {
@@ -1493,7 +1495,7 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 
         if (!modeMatched) {
             hal_err("Resolution mismatch after set: requested '%s', active '%s'\n",
-                    resolution->name, activeRes ? activeRes : "<unknown>");
+                    resolution->name, activeResToken[0] != '\0' ? activeResToken : "<unknown>");
             return dsERR_GENERAL;
         }
 
@@ -1511,18 +1513,18 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 
             if (activeNormalized[0] != '\0') {
                 callbackToken = activeNormalized;
-            } else if (activeRes != NULL && normalizeModeToken(activeRes, callbackNormalized, sizeof(callbackNormalized))) {
+            } else if (activeResToken[0] != '\0' && normalizeModeToken(activeResToken, callbackNormalized, sizeof(callbackNormalized))) {
                 callbackToken = callbackNormalized;
             }
 
             if (callbackToken != NULL && sscanf(callbackToken, "%d%c%d", &activeHeight, &activeInterlace, &activeRate) == 3) {
                 hal_dbg("Parsed active normalized resolution as %d%c%d\n", activeHeight, activeInterlace, activeRate);
                 rate = activeRate;
-            } else if (activeRes != NULL && sscanf(activeRes, "%dx%d%c%d", &activeWidth, &activeHeight, &activeInterlace, &activeRate) == 4) {
+            } else if (activeResToken[0] != '\0' && sscanf(activeResToken, "%dx%d%c%d", &activeWidth, &activeHeight, &activeInterlace, &activeRate) == 4) {
                 hal_dbg("Parsed active resolution as %dx%d%c%d\n", activeWidth, activeHeight, activeInterlace, activeRate);
                 rate = activeRate;
             } else {
-                hal_err("Failed to parse active resolution '%s' for framerate callback\n", activeRes);
+                hal_err("Failed to parse active resolution '%s' for framerate callback\n", activeResToken[0] != '\0' ? activeResToken : "<unknown>");
             }
             frameratePostCB((unsigned int)rate);
         }

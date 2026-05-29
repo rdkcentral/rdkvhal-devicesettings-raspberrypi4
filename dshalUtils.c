@@ -378,7 +378,7 @@ int dsApplyHdmiMaxBpcRequest(void)
  * @param[out] length Pointer to an integer to store the length of the retrieved EDID data.
  * @return 0 on success, -1 on failure.
  */
-int dsGetHdmiEdidBytes(unsigned char *edid, int *length)
+int dsInternalGetHdmiEdidBytes(unsigned char *edid, int *length)
 {
     bool drmConnected = false, drmEnabled = false;
     char edidPath[PATH_MAX] = {0};

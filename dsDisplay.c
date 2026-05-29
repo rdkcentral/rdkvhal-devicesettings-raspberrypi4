@@ -1294,11 +1294,6 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
 {
     hal_info("Invoked\n");
     VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
-    bool drmConnected = false, drmEnabled = false;
-    char edid_path[PATH_MAX] = {0};
-    char status_path[PATH_MAX] = {0};
-    char connector_name[64] = {0};
-    char cardName[PATH_MAX] = {0};
 
     if (false == _bDisplayInited) {
         return dsERR_NOT_INITIALIZED;
@@ -1311,84 +1306,9 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
         return dsERR_INVALID_PARAM;
     }
 
-    /* Check DRM connectivity before attempting EDID read */
-    if (!drm_get_hdmi_connector_state(&drmConnected, &drmEnabled) || !drmConnected) {
-        hal_warn("HDMI not connected (DRM), cannot read EDID bytes\n");
-        return dsERR_NONE;
-    }
-
-    /* Scan /sys/class/drm for active HDMI connector and read EDID binary */
-    resolve_drm_card_name(cardName, sizeof(cardName));
-    DIR *drm_class = opendir("/sys/class/drm");
-    if (!drm_class) {
-        hal_err("Failed to open /sys/class/drm\n");
-        return dsERR_GENERAL;
-    }
-
-    struct dirent *entry;
-    *length = 0;
-    while ((entry = readdir(drm_class)) != NULL) {
-        if (strncmp(entry->d_name, cardName, strlen(cardName)) != 0) {
-            continue; /* Skip entries not matching our card */
-        }
-        /* RPI4 in STB mode configured to enable/support only output through HDMI0*/
-        if (strstr(entry->d_name, "HDMI-A-1") == NULL) {
-            continue; /* Focus on HDMI0 connector only */
-        }
-
-        int status_len = snprintf(status_path, sizeof(status_path), "/sys/class/drm/%s/status", entry->d_name);
-        if (status_len < 0 || (size_t)status_len >= sizeof(status_path)) {
-            hal_warn("Status path truncated for connector '%s'\n", entry->d_name);
-            continue;
-        }
-
-        FILE *status_file = fopen(status_path, "r");
-        if (status_file == NULL) {
-            hal_warn("Failed to open connector status at %s\n", status_path);
-            continue;
-        }
-
-        char status[16] = {0};
-        if (fgets(status, sizeof(status), status_file) == NULL) {
-            fclose(status_file);
-            hal_warn("Failed to read connector status from %s\n", status_path);
-            continue;
-        }
-        fclose(status_file);
-
-        if (strncmp(status, "connected", strlen("connected")) != 0) {
-            hal_dbg("Skipping disconnected connector %s (status=%s)\n", entry->d_name, status);
-            continue;
-        }
-
-        int path_len = snprintf(edid_path, sizeof(edid_path), "/sys/class/drm/%s/edid", entry->d_name);
-        if (path_len < 0 || (size_t)path_len >= sizeof(edid_path)) {
-            hal_warn("EDID path truncated for connector '%s'\n", entry->d_name);
-            continue;
-        }
-        FILE *edid_file = fopen(edid_path, "rb");
-        if (!edid_file) {
-            hal_dbg("EDID file not found at %s\n", edid_path);
-            continue;
-        }
-
-        *length = (int)fread(edid, 1, MAX_EDID_BYTES_LEN, edid_file);
-        fclose(edid_file);
-
-        if (*length <= 0) {
-            hal_err("Failed to read EDID from %s\n", edid_path);
-            closedir(drm_class);
-            return dsERR_GENERAL;
-        }
-
-        strncpy(connector_name, entry->d_name, sizeof(connector_name) - 1);
-        hal_dbg("Read %d bytes of EDID from %s(%s)\n", *length, edid_path, connector_name);
-        break;
-    }
-    closedir(drm_class);
-
-    if (*length == 0) {
-        hal_err("EDID not found for connected HDMI0 connector\n");
+    if (dsInternalGetHdmiEdidBytes(edid, length) != 0 || *length <= 0) {
+        hal_err("Failed to get HDMI EDID bytes\n");
+        *length = 0;
         return dsERR_GENERAL;
     }
 
@@ -1399,7 +1319,7 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
             fprintf(file, "%02x", edid[i]);
         }
         fclose(file);
-        hal_info("EDID bytes written to /tmp/.hal-edid-bytes.dat (%d bytes from %s)\n", *length, connector_name);
+        hal_info("EDID bytes written to /tmp/.hal-edid-bytes.dat (%d bytes)\n", *length);
     } else {
         hal_err("Failed to open /tmp/.hal-edid-bytes.dat\n");
     }

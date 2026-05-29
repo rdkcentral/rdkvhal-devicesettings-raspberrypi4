@@ -70,7 +70,7 @@ const int *getVicFromResolution(dsTVResolution_t resolution);
 const char *getXDGRuntimeDir();
 int dsOpenDrmCardFd(void);
 bool dsGetHdmiConnectorState(bool *connected, bool *enabled);
-int dsGetHdmiEdidBytes(unsigned char *edid, int *length);
+int dsInternalGetHdmiEdidBytes(unsigned char *edid, int *length);
 bool dsGetPreferredHdmiMode(char *mode, size_t len);
 int dsApplyHdmiMaxBpcRequest(void);
 int dsApplyHdmiMaxBpcRequestValue(int requestedMaxBpc);
