@@ -1284,7 +1284,7 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
  * This function queries the current video resolution from the underlying
  * platform and normalizes it to a standard format.
  *
- * @param[in] resolution - Buffer to hold the normalized resolution string. Caller must ensure this buffer is large enough to hold the result (recommend at least 32 bytes).
+ * @param[out] resolution - Buffer to hold the normalized resolution string. Caller must ensure this buffer is large enough to hold the result (recommend at least 32 bytes).
  * @param[in] resolutionSize - Size of the resolution buffer in bytes.
  * @return bool - true if successful, false otherwise.
  */
@@ -1328,7 +1328,6 @@ static bool dsInternalVideoGetResolution(char *resolution, size_t resolutionSize
     }
 
     hal_info("resName '%s', normalized '%s'\n", resName, normalizedRes);
-    // resName '1280x720p60', normalized '720p60'
 
     const char *result = (normalizedRes[0] != '\0') ? normalizedRes : resName;
     strncpy(resolution, result, resolutionSize - 1);
@@ -1498,7 +1497,6 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 
             if (attempt < (verifyAttempts - 1)) {
                 memset(activeNormalized, 0, sizeof(activeNormalized));
-                activeNormalized[0] = '\0';
                 thrd_sleep(&verifySleep, NULL);
             }
         }

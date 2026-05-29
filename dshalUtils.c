@@ -249,6 +249,8 @@ bool dsGetHdmiConnectorState(bool *connected, bool *enabled)
  * find the "max bpc" property ID, and set it with drmModeConnectorSetProperty().
  * A short-lived O_RDWR fd is used only for this call; drmSetMaster() is never called
  * so there is no master conflict with Westeros.
+ * @param[in] requestedMaxBpc Requested HDMI max bpc value; values outside
+ * DSHAL_MIN_HDMI_MAX_BPC..DSHAL_MAX_HDMI_MAX_BPC are clamped to that range.
  * @return 0 on success (at least one HDMI output updated), -1 on failure.
  */
 int dsApplyHdmiMaxBpcRequestValue(int requestedMaxBpc)
