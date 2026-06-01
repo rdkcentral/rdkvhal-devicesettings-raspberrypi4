@@ -364,7 +364,6 @@ static bool normalizeModeToken(const char *token, char *normalizedToken, size_t 
     int height = -1;
     int rate = -1;
     char scanMode = '\0';
-    int consumed = 0;
     bool parsed = false;
 
     if (sscanf(parseToken, "%dx%dx%d", &width, &height, &rate) == 3) {
@@ -373,11 +372,6 @@ static bool normalizeModeToken(const char *token, char *normalizedToken, size_t 
     } else if (sscanf(parseToken, "%dx%d%cx%d", &width, &height, &scanMode, &rate) == 4 ||
                sscanf(parseToken, "%dx%d%c%d", &width, &height, &scanMode, &rate) == 4) {
         parsed = true;
-    } else if (sscanf(parseToken, "%dx%d", &width, &height) == 2) {
-        char last = parseToken[parseLen - 1];
-        scanMode = (last == 'i') ? 'i' : 'p';
-        rate = 60;
-        parsed = true;
     } else if (sscanf(parseToken, "%dp%dhz", &height, &rate) == 2) {
         scanMode = 'p';
         parsed = true;
@@ -385,10 +379,6 @@ static bool normalizeModeToken(const char *token, char *normalizedToken, size_t 
         scanMode = 'i';
         parsed = true;
     } else if (sscanf(parseToken, "%d%c%d", &height, &scanMode, &rate) == 3 && (scanMode == 'p' || scanMode == 'i')) {
-        parsed = true;
-    } else if (sscanf(parseToken, "%d%c%n", &height, &scanMode, &consumed) == 2 &&
-               consumed == (int)parseLen && (scanMode == 'p' || scanMode == 'i')) {
-        rate = 60;
         parsed = true;
     } else if (sscanf(parseToken, "smpte%dhz", &rate) == 1) {
         height = 2160;
@@ -414,8 +404,7 @@ static bool normalizeModeToken(const char *token, char *normalizedToken, size_t 
  *
  * The input may be a raw mode token from westeros-gl or an already normalized
  * RDK token. This function normalizes when possible, then matches against
- * resolutionMap entries, including aliases that omit an explicit refresh rate
- * by applying a default 60 Hz comparison.
+ * explicit-rate entries in resolutionMap.
  *
  * @param[in] token       Input token to resolve.
  * @param[out] out        Output buffer for resolved token.
@@ -458,23 +447,6 @@ static void resolveResolutionToken(const char *token, char *out, size_t outSize)
             strncpy(out, mapRes, outSize - 1);
             out[outSize - 1] = '\0';
             return;
-        }
-    }
-
-    /* Pass 2: fallback for implicit-rate aliases by appending default 60 Hz. */
-    for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
-        const char *mapRes = resolutionMap[i].rdkRes;
-        size_t mapLen = strlen(mapRes);
-        bool mapHasRate = (mapLen > 0 && isdigit((unsigned char)mapRes[mapLen - 1]));
-
-        if (!mapHasRate) {
-            char mapResWithDefaultRate[64] = {'\0'};
-            (void)snprintf(mapResWithDefaultRate, sizeof(mapResWithDefaultRate), "%s60", mapRes);
-            if (strcmp(mapRes, candidate) == 0 || strcmp(mapResWithDefaultRate, candidate) == 0) {
-                strncpy(out, mapRes, outSize - 1);
-                out[outSize - 1] = '\0';
-                return;
-            }
         }
     }
 

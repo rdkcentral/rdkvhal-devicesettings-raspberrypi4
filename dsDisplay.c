@@ -1234,19 +1234,9 @@ static dsVideoPortResolution_t* dsgetResolutionInfo(const char *res_name)
     hal_info("Invoked\n");
     size_t iCount = kNumResolutionsSettings;
 
-    /* Pass 1: Try exact match to avoid collapsing explicit-rate aliases.
-     * (e.g., VIC 16 maps to "1080p", but we don't want to return "1080p24"
-     * when looking up the exact token "1080p") */
+    /* Exact-match only: implicit aliases and partial tokens are not accepted. */
     for (size_t i = 0; i < iCount; i++) {
         if (!strcmp(res_name, kResolutionsSettings[i].name)) {
-            return &kResolutionsSettings[i];
-        }
-    }
-
-    /* Pass 2: Prefix match fallback for bare/implicit-rate tokens or partial names
-     * used in EDID enumeration (e.g., "1080p" matches first "1080p*" entry). */
-    for (size_t i = 0; i < iCount; i++) {
-        if (!strncmp(res_name, kResolutionsSettings[i].name, strlen(res_name))) {
             return &kResolutionsSettings[i];
         }
     }

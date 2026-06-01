@@ -567,42 +567,30 @@ bool dsGetPreferredHdmiMode(char *mode, size_t len)
  * @brief Map of HDMI resolutions to their corresponding CTA-861 VICs for enumeration based on EDID.
  * @reference This list is not exhaustive; it includes commonly used HDMI resolutions.
  *
- * IMPORTANT ORDERING: parseHdmiResolutionsFromCtaDataBlock() breaks after the FIRST matching entry
- * per VIC, so the first entry for each VIC is the canonical name that ends up in suppResolutionList.
- * That canonical name MUST match the string that getSupportedTvResolutions() in the plugin emits for
- * the corresponding dsTVResolution_t bit (decoded from the dsSupportedTvResolutions() bitmask).
+ * EXPLICIT-RATE POLICY: parseHdmiResolutionsFromCtaDataBlock() breaks after the FIRST
+ * matching entry per VIC, so the first entry for each VIC must be explicit-rate.
  *
  * Concretely:
- *   - VICs 2,3 (480p@60)  → first entry "480p"   matches dsTV_RESOLUTION_480p  → plugin emits "480p"
- *   - VICs 6,7 (480i@60)  → first entry "480i"   matches dsTV_RESOLUTION_480i  → plugin emits "480i"
- *   - VIC  4   (720p@60)  → first entry "720p"   matches dsTV_RESOLUTION_720p  → plugin emits "720p"
- *   - VIC  5   (1080i@60) → first entry "1080i"  matches dsTV_RESOLUTION_1080i → plugin emits "1080i"
- *   - VIC  16  (1080p@60) → first entry "1080p60" matches dsTV_RESOLUTION_1080p60 → plugin emits "1080p60"
- *     (VIC 16 maps to the distinct dsTV_RESOLUTION_1080p60 bit, NOT dsTV_RESOLUTION_1080p)
- *
- * When adding new entries, always place the canonical name first for each VIC group.
+ *   - VICs 2,3 (480p@60)  → "480p60"
+ *   - VICs 6,7 (480i@60)  → "480i60"
+ *   - VIC  4   (720p@60)  → "720p60"
+ *   - VIC  5   (1080i@60) → "1080i60"
+ *   - VIC  16  (1080p@60) → "1080p60"
  */
 const hdmiSupportedRes_t resolutionMap[] = {
-    {"480p", 2},       // 720x480p @ 59.94/60Hz  (CTA-861 VIC 2, rate-implicit alias)
-    {"480p", 3},       // 720x480p @ 59.94/60Hz  (CTA-861 VIC 3, rate-implicit alias)
-    {"480p60", 2},     // 720x480p @ 59.94/60Hz  (CTA-861 VIC 2, rate-explicit alias)
-    {"480p60", 3},     // 720x480p @ 59.94/60Hz  (CTA-861 VIC 3, rate-explicit alias)
-    {"480i", 6},       // 720x480i @ 59.94/60Hz  (CTA-861 VIC 6, rate-implicit alias)
-    {"480i", 7},       // 720x480i @ 59.94/60Hz  (CTA-861 VIC 7, rate-implicit alias)
-    {"480i60", 6},     // 720x480i @ 59.94/60Hz  (CTA-861 VIC 6, rate-explicit alias)
-    {"480i60", 7},     // 720x480i @ 59.94/60Hz  (CTA-861 VIC 7, rate-explicit alias)
+    {"480p60", 2},     // 720x480p @ 59.94/60Hz  (CTA-861 VIC 2)
+    {"480p60", 3},     // 720x480p @ 59.94/60Hz  (CTA-861 VIC 3)
+    {"480i60", 6},     // 720x480i @ 59.94/60Hz  (CTA-861 VIC 6)
+    {"480i60", 7},     // 720x480i @ 59.94/60Hz  (CTA-861 VIC 7)
     {"576p50", 17},    // 720x576p @ 50Hz        (CTA-861 VIC 17)
     {"576p50", 18},    // 720x576p @ 50Hz        (CTA-861 VIC 18)
     {"576i50", 21},    // 720x576i @ 50Hz        (CTA-861 VIC 21)
     {"576i50", 22},    // 720x576i @ 50Hz        (CTA-861 VIC 22)
-    {"720p", 4},       // 1280x720p @ 59.94/60Hz (CTA-861 VIC 4, rate-implicit alias)
+    {"720p60", 4},     // 1280x720p @ 59.94/60Hz (CTA-861 VIC 4)
     {"720p50", 19},    // 1280x720p @ 50Hz       (CTA-861 VIC 19)
-    {"720p60", 4},     // 1280x720p @ 59.94/60Hz (CTA-861 VIC 4, rate-explicit alias)
-    {"1080i", 5},      // 1920x1080i @ 59.94/60Hz (CTA-861 VIC 5, rate-implicit alias)
+    {"1080i60", 5},    // 1920x1080i @ 59.94/60Hz (CTA-861 VIC 5)
     {"1080i50", 20},   // 1920x1080i @ 50Hz      (CTA-861 VIC 20)
-    {"1080i60", 5},    // 1920x1080i @ 59.94/60Hz (CTA-861 VIC 5, rate-explicit alias)
-    {"1080p60", 16},   // 1920x1080p @ 59.94/60Hz (CTA-861 VIC 16, rate-explicit alias)
-    {"1080p", 16},     // 1920x1080p @ 59.94/60Hz (CTA-861 VIC 16, rate-implicit alias)
+    {"1080p60", 16},   // 1920x1080p @ 59.94/60Hz (CTA-861 VIC 16)
     {"1080p24", 32},   // 1920x1080p @ 24Hz      (CTA-861 VIC 32)
     {"1080p25", 33},   // 1920x1080p @ 25Hz      (CTA-861 VIC 33)
     {"1080p30", 34},   // 1920x1080p @ 30Hz      (CTA-861 VIC 34)
