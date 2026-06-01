@@ -364,6 +364,7 @@ static bool normalizeModeToken(const char *token, char *normalizedToken, size_t 
     int height = -1;
     int rate = -1;
     char scanMode = '\0';
+    int consumed = 0;
     bool parsed = false;
 
     if (sscanf(parseToken, "%dx%dx%d", &width, &height, &rate) == 3) {
@@ -379,6 +380,12 @@ static bool normalizeModeToken(const char *token, char *normalizedToken, size_t 
         scanMode = 'i';
         parsed = true;
     } else if (sscanf(parseToken, "%d%c%d", &height, &scanMode, &rate) == 3 && (scanMode == 'p' || scanMode == 'i')) {
+        parsed = true;
+    } else if (sscanf(parseToken, "%d%c%n", &height, &scanMode, &consumed) == 2 &&
+               consumed == (int)parseLen && (scanMode == 'p' || scanMode == 'i')) {
+        /* Bare token from DRM (e.g. "720p", "1080i") — default rate to 60 Hz and
+         * normalize to the explicit-rate canonical form. */
+        rate = 60;
         parsed = true;
     } else if (sscanf(parseToken, "smpte%dhz", &rate) == 1) {
         height = 2160;
@@ -1366,6 +1373,16 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         int width = -1, height = -1, rate = 60;
         char interlaced = 'p';
         char requestedNormalized[64] = {'\0'};
+
+        /* Extract explicit width from the name before normalization strips it
+         * (e.g. "4096x2160p60" → width=4096; plain "2160p60" leaves width=-1). */
+        {
+            int w, h, r; char s;
+            if (sscanf(resolution->name, "%dx%d%c%d", &w, &h, &s, &r) == 4 ||
+                sscanf(resolution->name, "%dx%dx%d", &w, &h, &r) == 3) {
+                width = w;
+            }
+        }
 
         if (!normalizeModeToken(resolution->name, requestedNormalized, sizeof(requestedNormalized)) ||
             sscanf(requestedNormalized, "%d%c%d", &height, &interlaced, &rate) != 3) {
