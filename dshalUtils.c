@@ -15,6 +15,8 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <stdio.h>
@@ -24,6 +26,7 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <dirent.h>
 #include <limits.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -38,6 +41,68 @@
 #include "dshalUtils.h"
 #include "dshalLogger.h"
 
+#define DSHALUTILS_EDID_MAX_BYTES (256)
+#define DSHAL_DEFAULT_HDMI_MAX_BPC (10)
+#define DSHAL_MIN_HDMI_MAX_BPC (8)
+#define DSHAL_MAX_HDMI_MAX_BPC (12)
+
+static int dsGetRequestedHdmiMaxBpc(void)
+{
+    const char *envMaxBpc = getenv("DSHAL_HDMI_MAX_BPC");
+    int requestedMaxBpc = DSHAL_DEFAULT_HDMI_MAX_BPC;
+
+    if (envMaxBpc != NULL && envMaxBpc[0] != '\0') {
+        char *endPtr = NULL;
+        long parsed = strtol(envMaxBpc, &endPtr, 10);
+        if (endPtr != envMaxBpc && *endPtr == '\0') {
+            requestedMaxBpc = (int)parsed;
+        } else {
+            hal_warn("Ignoring invalid DSHAL_HDMI_MAX_BPC='%s', using default %d\n",
+                     envMaxBpc, DSHAL_DEFAULT_HDMI_MAX_BPC);
+        }
+    }
+
+    if (requestedMaxBpc < DSHAL_MIN_HDMI_MAX_BPC) {
+        requestedMaxBpc = DSHAL_MIN_HDMI_MAX_BPC;
+    } else if (requestedMaxBpc > DSHAL_MAX_HDMI_MAX_BPC) {
+        requestedMaxBpc = DSHAL_MAX_HDMI_MAX_BPC;
+    }
+
+    return requestedMaxBpc;
+}
+
+static int dsClampHdmiMaxBpc(int requestedMaxBpc)
+{
+    if (requestedMaxBpc < DSHAL_MIN_HDMI_MAX_BPC) {
+        return DSHAL_MIN_HDMI_MAX_BPC;
+    }
+    if (requestedMaxBpc > DSHAL_MAX_HDMI_MAX_BPC) {
+        return DSHAL_MAX_HDMI_MAX_BPC;
+    }
+    return requestedMaxBpc;
+}
+
+/**
+ * @brief Resolve the DRM card name to use for HDMI operations.
+ * @param[out] cardName Buffer to store the resolved DRM card name.
+ * @param[in] len Length of the buffer.
+ */
+static void dsResolveDrmCardName(char *cardName, size_t len)
+{
+    const char *cardPath = getenv("WESTEROS_DRM_CARD");
+    if (cardPath == NULL || cardPath[0] == '\0') {
+        cardPath = DRI_CARD;
+    }
+
+    const char *slash = strrchr(cardPath, '/');
+    const char *base = (slash != NULL) ? (slash + 1) : cardPath;
+    snprintf(cardName, len, "%s", base);
+}
+
+/**
+ * @brief Open the DRM card device file as read-only and return its file descriptor.
+ * @return File descriptor of the opened DRM card, or -1 on failure.
+ */
 int dsOpenDrmCardFd(void)
 {
     const char *cardPath = getenv("WESTEROS_DRM_CARD");
@@ -63,6 +128,12 @@ int dsOpenDrmCardFd(void)
     return fd;
 }
 
+/**
+ * @brief Get the state of the HDMI connector.
+ * @param[out] connected Pointer to a boolean to store the connection state.
+ * @param[out] enabled Pointer to a boolean to store the enabled state.
+ * @return true if the connector state was successfully retrieved, false otherwise.
+ */
 bool dsGetHdmiConnectorState(bool *connected, bool *enabled)
 {
     int drmFd = -1;
@@ -70,6 +141,7 @@ bool dsGetHdmiConnectorState(bool *connected, bool *enabled)
     bool foundConnector = false;
     bool bestConnected = false;
     bool bestEnabled = false;
+    int bestRank = -1;
 
     if (connected == NULL || enabled == NULL) {
         return false;
@@ -93,6 +165,7 @@ bool dsGetHdmiConnectorState(bool *connected, bool *enabled)
     for (int i = 0; i < resources->count_connectors; i++) {
         bool entryConnected = false;
         bool entryEnabled = false;
+        int entryRank = 0;
         drmModeConnector *connector = drmModeGetConnectorCurrent(drmFd, resources->connectors[i]);
 
         if (!connector) {
@@ -136,20 +209,25 @@ bool dsGetHdmiConnectorState(bool *connected, bool *enabled)
             entryEnabled = true;
         }
 
-        if (entryConnected && entryEnabled) {
-            bestConnected = true;
-            bestEnabled = true;
+        /* Rank candidates to avoid false disconnects when multiple HDMI connectors
+         * are present (for example HDMI-A-1 connected, HDMI-A-2 disconnected):
+         *   2 = connected+enabled (best)
+         *   1 = connected only
+         *   0 = disconnected */
+        entryRank = entryConnected ? (entryEnabled ? 2 : 1) : 0;
+
+        if (!foundConnector || entryRank > bestRank) {
+            bestConnected = entryConnected;
+            bestEnabled = entryEnabled;
+            bestRank = entryRank;
             foundConnector = true;
+        }
+
+        if (entryRank == 2) {
             drmModeFreeConnector(connector);
             break;
         }
 
-        if (!foundConnector) {
-            bestConnected = entryConnected;
-            bestEnabled = entryEnabled;
-        }
-
-        foundConnector = true;
         drmModeFreeConnector(connector);
     }
 
@@ -165,6 +243,237 @@ bool dsGetHdmiConnectorState(bool *connected, bool *enabled)
     return true;
 }
 
+/**
+ * @brief Apply a specific maximum bits per color (bpc) for HDMI outputs via the DRM
+ * connector property "max bpc".  This mirrors what modetest does: enumerate connectors,
+ * find the "max bpc" property ID, and set it with drmModeConnectorSetProperty().
+ * A short-lived O_RDWR fd is used only for this call; drmSetMaster() is never called
+ * so there is no master conflict with Westeros.
+ * @param[in] requestedMaxBpc Requested HDMI max bpc value; values outside
+ * DSHAL_MIN_HDMI_MAX_BPC..DSHAL_MAX_HDMI_MAX_BPC are clamped to that range.
+ * @return 0 on success (at least one HDMI output updated), -1 on failure.
+ */
+int dsApplyHdmiMaxBpcRequestValue(int requestedMaxBpc)
+{
+    const char *cardPath = getenv("WESTEROS_DRM_CARD");
+    if (cardPath == NULL || cardPath[0] == '\0') {
+        cardPath = DRI_CARD;
+    }
+
+    requestedMaxBpc = dsClampHdmiMaxBpc(requestedMaxBpc);
+    hal_dbg("Applying max bpc=%d via DRM property on %s\n", requestedMaxBpc, cardPath);
+
+    int drmFd = open(cardPath, O_RDWR);
+    if (drmFd < 0) {
+        hal_warn("Failed to open %s for DRM property write (%s)\n", cardPath, strerror(errno));
+        return -1;
+    }
+    {
+        int flags = fcntl(drmFd, F_GETFD);
+        if (flags != -1) {
+            (void)fcntl(drmFd, F_SETFD, flags | FD_CLOEXEC);
+        }
+    }
+
+    drmModeRes *resources = drmModeGetResources(drmFd);
+    if (!resources) {
+        hal_warn("drmModeGetResources failed on %s (%s)\n", cardPath, strerror(errno));
+        close(drmFd);
+        return -1;
+    }
+
+    int appliedCount = 0;
+    int foundCount = 0;
+
+    for (int i = 0; i < resources->count_connectors; i++) {
+        drmModeConnector *connector = drmModeGetConnector(drmFd, resources->connectors[i]);
+        if (!connector) {
+            continue;
+        }
+
+        if (connector->connector_type != DRM_MODE_CONNECTOR_HDMIA
+#ifdef DRM_MODE_CONNECTOR_HDMIB
+            && connector->connector_type != DRM_MODE_CONNECTOR_HDMIB
+#endif
+           ) {
+            drmModeFreeConnector(connector);
+            continue;
+        }
+
+        if (connector->connection != DRM_MODE_CONNECTED) {
+            drmModeFreeConnector(connector);
+            continue;
+        }
+
+        foundCount++;
+
+        /* Enumerate connector properties to find "max bpc" */
+        drmModeObjectProperties *props = drmModeObjectGetProperties(drmFd,
+                                             connector->connector_id,
+                                             DRM_MODE_OBJECT_CONNECTOR);
+        if (!props) {
+            hal_warn("drmModeObjectGetProperties failed for connector %u (%s)\n",
+                     connector->connector_id, strerror(errno));
+            drmModeFreeConnector(connector);
+            continue;
+        }
+
+        uint32_t maxBpcPropId = 0;
+        for (uint32_t j = 0; j < props->count_props; j++) {
+            drmModePropertyRes *prop = drmModeGetProperty(drmFd, props->props[j]);
+            if (!prop) {
+                continue;
+            }
+            if (strcmp(prop->name, "max bpc") == 0) {
+                maxBpcPropId = prop->prop_id;
+                drmModeFreeProperty(prop);
+                break;
+            }
+            drmModeFreeProperty(prop);
+        }
+        drmModeFreeObjectProperties(props);
+
+        if (maxBpcPropId == 0) {
+            hal_warn("Connector %u has no 'max bpc' property\n", connector->connector_id);
+            drmModeFreeConnector(connector);
+            continue;
+        }
+
+        int ret = drmModeConnectorSetProperty(drmFd, connector->connector_id,
+                                              maxBpcPropId, (uint64_t)requestedMaxBpc);
+        if (ret == 0) {
+            appliedCount++;
+            hal_info("Applied max bpc=%d on HDMI connector %u\n",
+                     requestedMaxBpc, connector->connector_id);
+        } else {
+            hal_warn("Failed to set max bpc=%d on connector %u (%s)\n",
+                     requestedMaxBpc, connector->connector_id, strerror(errno));
+        }
+
+        drmModeFreeConnector(connector);
+    }
+
+    drmModeFreeResources(resources);
+    close(drmFd);
+
+    if (foundCount == 0) {
+        hal_warn("No connected HDMI connectors found on %s\n", cardPath);
+    } else if (appliedCount == 0) {
+        hal_warn("'max bpc' property not settable on %s (kernel may not expose it or DRM master required)\n", cardPath);
+    }
+    return (appliedCount > 0) ? 0 : -1;
+}
+
+/**
+ * @brief Apply the requested maximum bits per color (bpc) for HDMI outputs via the DRM.
+ * The requested max bpc is determined by the DSHAL_HDMI_MAX_BPC environment variable.
+ * @return 0 on success (at least one HDMI output updated), -1 on failure (no outputs updated or error).
+ */
+int dsApplyHdmiMaxBpcRequest(void)
+{
+    return dsApplyHdmiMaxBpcRequestValue(dsGetRequestedHdmiMaxBpc());
+}
+
+/**
+ * @brief Get the EDID bytes from the connected HDMI display.
+ * @param[out] edid Buffer to store the retrieved EDID bytes.
+ * @param[out] length Pointer to an integer to store the length of the retrieved EDID data.
+ * @return 0 on success, -1 on failure.
+ */
+int dsInternalGetHdmiEdidBytes(unsigned char *edid, int *length)
+{
+    bool drmConnected = false, drmEnabled = false;
+    char edidPath[PATH_MAX] = {0};
+    char statusPath[PATH_MAX] = {0};
+    char connectorName[64] = {0};
+    char cardName[PATH_MAX] = {0};
+
+    if (edid == NULL || length == NULL) {
+        return -1;
+    }
+
+    if (!dsGetHdmiConnectorState(&drmConnected, &drmEnabled) || !drmConnected) {
+        *length = 0;
+        return -1;
+    }
+    (void)drmEnabled; /* EDID is readable from sysfs regardless of CRTC-enabled state */
+
+    dsResolveDrmCardName(cardName, sizeof(cardName));
+    DIR *drmClass = opendir("/sys/class/drm");
+    if (!drmClass) {
+        return -1;
+    }
+
+    struct dirent *entry;
+    *length = 0;
+    while ((entry = readdir(drmClass)) != NULL) {
+        if (strncmp(entry->d_name, cardName, strlen(cardName)) != 0) {
+            continue;
+        }
+        /* RPI4 in STB mode configured to enable/support only output through HDMI0*/
+        if (strstr(entry->d_name, "HDMI-A-1") == NULL) {
+            continue;
+        }
+
+        int statusLen = snprintf(statusPath, sizeof(statusPath), "/sys/class/drm/%s/status", entry->d_name);
+        if (statusLen < 0 || (size_t)statusLen >= sizeof(statusPath)) {
+            continue;
+        }
+
+        FILE *statusFile = fopen(statusPath, "r");
+        if (statusFile == NULL) {
+            continue;
+        }
+
+        char status[16] = {0};
+        if (fgets(status, sizeof(status), statusFile) == NULL) {
+            fclose(statusFile);
+            continue;
+        }
+        fclose(statusFile);
+
+        if (strncmp(status, "connected", strlen("connected")) != 0) {
+            continue;
+        }
+
+        int pathLen = snprintf(edidPath, sizeof(edidPath), "/sys/class/drm/%s/edid", entry->d_name);
+        if (pathLen < 0 || (size_t)pathLen >= sizeof(edidPath)) {
+            continue;
+        }
+
+        FILE *edidFile = fopen(edidPath, "rb");
+        if (!edidFile) {
+            continue;
+        }
+
+        *length = (int)fread(edid, 1, DSHALUTILS_EDID_MAX_BYTES, edidFile);
+        fclose(edidFile);
+
+        if (*length <= 0) {
+            closedir(drmClass);
+            return -1;
+        }
+
+        strncpy(connectorName, entry->d_name, sizeof(connectorName) - 1);
+        connectorName[sizeof(connectorName) - 1] = '\0';
+        hal_dbg("Read %d bytes of EDID from %s(%s)\n", *length, edidPath, connectorName);
+        break;
+    }
+    closedir(drmClass);
+
+    if (*length == 0) {
+        return -1;
+    }
+
+    return 0;
+}
+
+/**
+ * @brief Get the preferred HDMI mode.
+ * @param[out] mode Buffer to store the preferred HDMI mode.
+ * @param[in] len Length of the buffer.
+ * @return true if a preferred HDMI mode was found, false otherwise.
+ */
 bool dsGetPreferredHdmiMode(char *mode, size_t len)
 {
     int drmFd = -1;
@@ -254,135 +563,141 @@ bool dsGetPreferredHdmiMode(char *mode, size_t len)
     return (mode[0] != '\0');
 }
 
+/**
+ * @brief Map of HDMI resolutions to their corresponding CTA-861 VICs for enumeration based on EDID.
+ * @reference This list is not exhaustive; it includes commonly used HDMI resolutions.
+ *
+ * EXPLICIT-RATE POLICY: parseHdmiResolutionsFromCtaDataBlock() breaks after the FIRST
+ * matching entry per VIC, so the first entry for each VIC must be explicit-rate.
+ *
+ * Concretely:
+ *   - VICs 2,3 (480p@60)  → "480p60"
+ *   - VICs 6,7 (480i@60)  → "480i60"
+ *   - VIC  4   (720p@60)  → "720p60"
+ *   - VIC  5   (1080i@60) → "1080i60"
+ *   - VIC  16  (1080p@60) → "1080p60"
+ */
 const hdmiSupportedRes_t resolutionMap[] = {
-    {"480p", 2},       // 720x480p @ 59.94/60Hz
-    {"480p", 3},       // 720x480p @ 59.94/60Hz
-    {"480i", 6},       // 720x480i @ 59.94/60Hz
-    {"480i", 7},       // 720x480i @ 59.94/60Hz
-    {"576p50", 17},      // 720x576p @ 50Hz
-    {"576p50", 18},      // 720x576p @ 50Hz
-    {"576i50", 21},      // 720x576i @ 50Hz
-    {"576i50", 22},      // 720x576i @ 50Hz
-    {"720p", 4},       // 1280x720p @ 59.94/60Hz
-    {"720p50", 19},    // 1280x720p @ 50Hz
-    {"1080i", 5},      // 1920x1080i @ 59.94/60Hz
-    {"1080i50", 20},   // 1920x1080i @ 50Hz
-    {"1080p24", 32},   // 1920x1080p @ 24Hz
-    {"1080p25", 33},   // 1920x1080p @ 25Hz
-    {"1080p30", 34},   // 1920x1080p @ 30Hz
-    {"1080p50", 31},   // 1920x1080p @ 50Hz
-    {"1080p60", 16},   // 1920x1080p @ 59.94/60Hz
-    {"2160p24", 93},   // 3840x2160p @ 24Hz
-    {"2160p25", 94},   // 3840x2160p @ 25Hz
-    {"2160p30", 95},   // 3840x2160p @ 30Hz
-    {"2160p24", 98},   // 4096x2160p @ 24Hz
-    {"2160p25", 99},   // 4096x2160p @ 25Hz
-    {"2160p30", 100},  // 4096x2160p @ 30Hz
-    {"2160p50", 101},  // 4096x2160p @ 50Hz
-    {"2160p60", 102}   // 4096x2160p @ 60Hz
+    {"480p60", 2},     // 720x480p @ 59.94/60Hz  (CTA-861 VIC 2)
+    {"480p60", 3},     // 720x480p @ 59.94/60Hz  (CTA-861 VIC 3)
+    {"480i60", 6},     // 720x480i @ 59.94/60Hz  (CTA-861 VIC 6)
+    {"480i60", 7},     // 720x480i @ 59.94/60Hz  (CTA-861 VIC 7)
+    {"576p50", 17},    // 720x576p @ 50Hz        (CTA-861 VIC 17)
+    {"576p50", 18},    // 720x576p @ 50Hz        (CTA-861 VIC 18)
+    {"576i50", 21},    // 720x576i @ 50Hz        (CTA-861 VIC 21)
+    {"576i50", 22},    // 720x576i @ 50Hz        (CTA-861 VIC 22)
+    {"720p60", 4},     // 1280x720p @ 59.94/60Hz (CTA-861 VIC 4)
+    {"720p50", 19},    // 1280x720p @ 50Hz       (CTA-861 VIC 19)
+    {"1080i60", 5},    // 1920x1080i @ 59.94/60Hz (CTA-861 VIC 5)
+    {"1080i50", 20},   // 1920x1080i @ 50Hz      (CTA-861 VIC 20)
+    {"1080p60", 16},   // 1920x1080p @ 59.94/60Hz (CTA-861 VIC 16)
+    {"1080p24", 32},   // 1920x1080p @ 24Hz      (CTA-861 VIC 32)
+    {"1080p25", 33},   // 1920x1080p @ 25Hz      (CTA-861 VIC 33)
+    {"1080p30", 34},   // 1920x1080p @ 30Hz      (CTA-861 VIC 34)
+    {"1080p50", 31},   // 1920x1080p @ 50Hz      (CTA-861 VIC 31)
+    {"2160p24", 93},   // 3840x2160p @ 23.97/24Hz   (CTA-861 VIC 93,  16:9)
+    {"2160p25", 94},   // 3840x2160p @ 25Hz         (CTA-861 VIC 94,  16:9)
+    {"2160p30", 95},   // 3840x2160p @ 29.97/30Hz   (CTA-861 VIC 95,  16:9)
+    {"2160p50", 96},   // 3840x2160p @ 50Hz         (CTA-861 VIC 96,  16:9)
+    {"2160p60", 97},   // 3840x2160p @ 59.94/60Hz   (CTA-861 VIC 97,  16:9)
+    {"2160p24", 98},   // 4096x2160p @ 23.97/24Hz   (CTA-861 VIC 98,  256:135)
+    {"2160p25", 99},   // 4096x2160p @ 25Hz         (CTA-861 VIC 99,  256:135)
+    {"2160p30", 100},  // 4096x2160p @ 29.97/30Hz   (CTA-861 VIC 100, 256:135)
+    {"2160p50", 101},  // 4096x2160p @ 50Hz         (CTA-861 VIC 101, 256:135)
+    {"2160p60", 102},  // 4096x2160p @ 59.94/60Hz   (CTA-861 VIC 102, 256:135)
+    {"2160p24", 103},  // 3840x2160p @ 23.97/24Hz   (CTA-861 VIC 103, 64:27)
+    {"2160p25", 104},  // 3840x2160p @ 25Hz         (CTA-861 VIC 104, 64:27)
+    {"2160p30", 105},  // 3840x2160p @ 29.97/30Hz   (CTA-861 VIC 105, 64:27)
+    {"2160p50", 106},  // 3840x2160p @ 50Hz         (CTA-861 VIC 106, 64:27)
+    {"2160p60", 107},  // 3840x2160p @ 59.94/60Hz   (CTA-861 VIC 107, 64:27)
 };
 
 const size_t noOfItemsInResolutionMap = sizeof(resolutionMap) / sizeof(hdmiSupportedRes_t);
 
 const VicMapEntry vicMapTable[] = {
-    // 480i resolutions
-    {6, dsTV_RESOLUTION_480i},    // 720x480i @ 59.94/60Hz
-    {7, dsTV_RESOLUTION_480i},    // 720x480i @ 59.94/60Hz
-    {48, dsTV_RESOLUTION_480i},   // 720x480i @ 120Hz
-    {49, dsTV_RESOLUTION_480i},   // 720x480i @ 120Hz
-    {56, dsTV_RESOLUTION_480i},   // 720x480i @ 240Hz
-    {57, dsTV_RESOLUTION_480i},   // 720x480i @ 240Hz
+    // 480i — VIC 6,7: 720x480i @ 59.94/60Hz (no 120/240Hz 480i VICs exist in CTA-861)
+    {6,   dsTV_RESOLUTION_480i},    // 720x480i @ 59.94/60Hz (CTA-861 VIC 6,  4:3)
+    {7,   dsTV_RESOLUTION_480i},    // 720x480i @ 59.94/60Hz (CTA-861 VIC 7,  16:9)
 
-    // 480p resolutions
-    {2, dsTV_RESOLUTION_480p},    // 720x480p @ 59.94/60Hz
-    {3, dsTV_RESOLUTION_480p},    // 720x480p @ 59.94/60Hz
-    {46, dsTV_RESOLUTION_480p},   // 720x480p @ 120Hz
-    {47, dsTV_RESOLUTION_480p},   // 720x480p @ 120Hz
-    {54, dsTV_RESOLUTION_480p},   // 720x480p @ 240Hz
-    {55, dsTV_RESOLUTION_480p},   // 720x480p @ 240Hz
+    // 480p — VIC 2,3: 59.94/60Hz; VIC 48,49: 119.88/120Hz; VIC 56,57: 239.76/240Hz
+    {2,   dsTV_RESOLUTION_480p},    // 720x480p @ 59.94/60Hz  (CTA-861 VIC 2,  4:3)
+    {3,   dsTV_RESOLUTION_480p},    // 720x480p @ 59.94/60Hz  (CTA-861 VIC 3,  16:9)
+    {48,  dsTV_RESOLUTION_480p},    // 720x480p @ 119.88/120Hz (CTA-861 VIC 48, 4:3)
+    {49,  dsTV_RESOLUTION_480p},    // 720x480p @ 119.88/120Hz (CTA-861 VIC 49, 16:9)
+    {56,  dsTV_RESOLUTION_480p},    // 720x480p @ 239.76/240Hz (CTA-861 VIC 56, 4:3)
+    {57,  dsTV_RESOLUTION_480p},    // 720x480p @ 239.76/240Hz (CTA-861 VIC 57, 16:9)
 
-    // 576i resolutions
-    {21, dsTV_RESOLUTION_576i},   // 720x576i @ 50Hz
-    {22, dsTV_RESOLUTION_576i},   // 720x576i @ 50Hz
-    {42, dsTV_RESOLUTION_576i},   // 720x576i @ 100Hz
-    {43, dsTV_RESOLUTION_576i},   // 720x576i @ 100Hz
-    {52, dsTV_RESOLUTION_576i},   // 720x576i @ 200Hz
-    {53, dsTV_RESOLUTION_576i},   // 720x576i @ 200Hz
+    // 576i — VIC 21,22: 50Hz only (no 100/200Hz 576i VICs in standard use)
+    {21,  dsTV_RESOLUTION_576i},    // 720x576i @ 50Hz (CTA-861 VIC 21, 4:3)
+    {22,  dsTV_RESOLUTION_576i},    // 720x576i @ 50Hz (CTA-861 VIC 22, 16:9)
 
-    // 576p resolutions
-    {17, dsTV_RESOLUTION_576p},   // 720x576p @ 50Hz
-    {18, dsTV_RESOLUTION_576p},   // 720x576p @ 50Hz
-    {40, dsTV_RESOLUTION_576p},   // 720x576p @ 100Hz
-    {41, dsTV_RESOLUTION_576p},   // 720x576p @ 100Hz
-    {50, dsTV_RESOLUTION_576p},   // 720x576p @ 200Hz
-    {51, dsTV_RESOLUTION_576p},   // 720x576p @ 200Hz
+    // 576p — VIC 17,18: 50Hz; VIC 42,43: 100Hz; VIC 52,53: 200Hz
+    {17,  dsTV_RESOLUTION_576p50},  // 720x576p @ 50Hz  (CTA-861 VIC 17, 4:3)
+    {18,  dsTV_RESOLUTION_576p50},  // 720x576p @ 50Hz  (CTA-861 VIC 18, 16:9)
+    {42,  dsTV_RESOLUTION_576p},    // 720x576p @ 100Hz (CTA-861 VIC 42, 4:3)
+    {43,  dsTV_RESOLUTION_576p},    // 720x576p @ 100Hz (CTA-861 VIC 43, 16:9)
+    {52,  dsTV_RESOLUTION_576p},    // 720x576p @ 200Hz (CTA-861 VIC 52, 4:3)
+    {53,  dsTV_RESOLUTION_576p},    // 720x576p @ 200Hz (CTA-861 VIC 53, 16:9)
 
-    // 720p resolutions
-    {4, dsTV_RESOLUTION_720p},    // 1280x720p @ 59.94/60Hz
-    {19, dsTV_RESOLUTION_720p50}, // 1280x720p @ 50Hz
-    {39, dsTV_RESOLUTION_720p},   // 1280x720p @ 100Hz
-    {45, dsTV_RESOLUTION_720p},   // 1280x720p @ 120Hz
-    {58, dsTV_RESOLUTION_720p},   // 1280x720p @ 24Hz
-    {59, dsTV_RESOLUTION_720p},   // 1280x720p @ 25Hz
-    {60, dsTV_RESOLUTION_720p},   // 1280x720p @ 30Hz
-    {63, dsTV_RESOLUTION_720p},   // 1280x720p @ 24Hz
-    {64, dsTV_RESOLUTION_720p},   // 1280x720p @ 25Hz
-    {65, dsTV_RESOLUTION_720p},   // 1280x720p @ 30Hz
-    {66, dsTV_RESOLUTION_720p50}, // 1280x720p @ 50Hz
-    {67, dsTV_RESOLUTION_720p},   // 1280x720p @ 60Hz
-    {68, dsTV_RESOLUTION_720p},   // 1280x720p @ 100Hz
-    {69, dsTV_RESOLUTION_720p},   // 1280x720p @ 120Hz
+    // 720p — VIC 4: 60Hz; VIC 19: 50Hz; VIC 41: 100Hz; VIC 47: 120Hz
+    //        VIC 60-62: 24/25/30Hz; VIC 65-71: 64:27 wide variants
+    {4,   dsTV_RESOLUTION_720p},    // 1280x720p @ 59.94/60Hz  (CTA-861 VIC 4)
+    {19,  dsTV_RESOLUTION_720p50},  // 1280x720p @ 50Hz         (CTA-861 VIC 19)
+    {41,  dsTV_RESOLUTION_720p},    // 1280x720p @ 100Hz        (CTA-861 VIC 41)
+    {47,  dsTV_RESOLUTION_720p},    // 1280x720p @ 119.88/120Hz (CTA-861 VIC 47)
+    {60,  dsTV_RESOLUTION_720p},    // 1280x720p @ 23.97/24Hz   (CTA-861 VIC 60)
+    {61,  dsTV_RESOLUTION_720p},    // 1280x720p @ 25Hz         (CTA-861 VIC 61)
+    {62,  dsTV_RESOLUTION_720p},    // 1280x720p @ 29.97/30Hz   (CTA-861 VIC 62)
+    {65,  dsTV_RESOLUTION_720p},    // 1280x720p @ 23.97/24Hz   (CTA-861 VIC 65, 64:27)
+    {66,  dsTV_RESOLUTION_720p},    // 1280x720p @ 25Hz         (CTA-861 VIC 66, 64:27)
+    {67,  dsTV_RESOLUTION_720p},    // 1280x720p @ 29.97/30Hz   (CTA-861 VIC 67, 64:27)
+    {68,  dsTV_RESOLUTION_720p50},  // 1280x720p @ 50Hz         (CTA-861 VIC 68, 64:27)
+    {69,  dsTV_RESOLUTION_720p},    // 1280x720p @ 59.94/60Hz   (CTA-861 VIC 69, 64:27)
+    {70,  dsTV_RESOLUTION_720p},    // 1280x720p @ 100Hz        (CTA-861 VIC 70, 64:27)
+    {71,  dsTV_RESOLUTION_720p},    // 1280x720p @ 119.88/120Hz (CTA-861 VIC 71, 64:27)
 
-    // 1080i resolutions
-    {5, dsTV_RESOLUTION_1080i},   // 1920x1080i @ 59.94/60Hz
-    {20, dsTV_RESOLUTION_1080i50},// 1920x1080i @ 50Hz
-    {37, dsTV_RESOLUTION_1080i50},// 1920x1080i @ 50Hz
-    {38, dsTV_RESOLUTION_1080i},  // 1920x1080i @ 100Hz
-    {44, dsTV_RESOLUTION_1080i},  // 1920x1080i @ 120Hz
+    // 1080i — VIC 5: 60Hz; VIC 20: 50Hz; VIC 39: 1250-line 50Hz; VIC 40: 100Hz; VIC 46: 120Hz
+    {5,   dsTV_RESOLUTION_1080i},   // 1920x1080i @ 59.94/60Hz        (CTA-861 VIC 5)
+    {20,  dsTV_RESOLUTION_1080i50}, // 1920x1080i @ 50Hz              (CTA-861 VIC 20)
+    {39,  dsTV_RESOLUTION_1080i50}, // 1920x1080i (1250-line) @ 50Hz  (CTA-861 VIC 39)
+    {40,  dsTV_RESOLUTION_1080i},   // 1920x1080i @ 100Hz             (CTA-861 VIC 40)
+    {46,  dsTV_RESOLUTION_1080i},   // 1920x1080i @ 119.88/120Hz      (CTA-861 VIC 46)
 
-    // 1080p resolutions
-    {16, dsTV_RESOLUTION_1080p},  // 1920x1080p @ 59.94/60Hz
-    {31, dsTV_RESOLUTION_1080p50},// 1920x1080p @ 50Hz
-    {32, dsTV_RESOLUTION_1080p24},// 1920x1080p @ 24Hz
-    {33, dsTV_RESOLUTION_1080p25},// 1920x1080p @ 25Hz
-    {34, dsTV_RESOLUTION_1080p30},// 1920x1080p @ 30Hz
-    {44, dsTV_RESOLUTION_1080p},  // 1920x1080p @ 120Hz
-    {61, dsTV_RESOLUTION_1080p},  // 1920x1080p @ 120Hz
-    {62, dsTV_RESOLUTION_1080p},  // 1920x1080p @ 100Hz
-    {70, dsTV_RESOLUTION_1080p24},// 1920x1080p @ 24Hz
-    {71, dsTV_RESOLUTION_1080p25},// 1920x1080p @ 25Hz
-    {72, dsTV_RESOLUTION_1080p30},// 1920x1080p @ 30Hz
-    {73, dsTV_RESOLUTION_1080p50},// 1920x1080p @ 50Hz
-    {74, dsTV_RESOLUTION_1080p60},// 1920x1080p @ 60Hz
-    {75, dsTV_RESOLUTION_1080p},  // 1920x1080p @ 100Hz
-    {76, dsTV_RESOLUTION_1080p},  // 1920x1080p @ 120Hz
+    // 1080p — VIC 16: 60Hz; VIC 31: 50Hz; VIC 32-34: 24/25/30Hz
+    //         VIC 63: 120Hz; VIC 64: 100Hz; VIC 72-78: 64:27 wide variants
+    {16,  dsTV_RESOLUTION_1080p60}, // 1920x1080p @ 59.94/60Hz  (CTA-861 VIC 16)
+    {31,  dsTV_RESOLUTION_1080p50}, // 1920x1080p @ 50Hz         (CTA-861 VIC 31)
+    {32,  dsTV_RESOLUTION_1080p24}, // 1920x1080p @ 23.97/24Hz   (CTA-861 VIC 32)
+    {33,  dsTV_RESOLUTION_1080p25}, // 1920x1080p @ 25Hz         (CTA-861 VIC 33)
+    {34,  dsTV_RESOLUTION_1080p30}, // 1920x1080p @ 29.97/30Hz   (CTA-861 VIC 34)
+    {63,  dsTV_RESOLUTION_1080p},   // 1920x1080p @ 119.88/120Hz (CTA-861 VIC 63)
+    {64,  dsTV_RESOLUTION_1080p},   // 1920x1080p @ 100Hz        (CTA-861 VIC 64)
+    {72,  dsTV_RESOLUTION_1080p24}, // 1920x1080p @ 23.97/24Hz   (CTA-861 VIC 72, 64:27)
+    {73,  dsTV_RESOLUTION_1080p25}, // 1920x1080p @ 25Hz         (CTA-861 VIC 73, 64:27)
+    {74,  dsTV_RESOLUTION_1080p30}, // 1920x1080p @ 29.97/30Hz   (CTA-861 VIC 74, 64:27)
+    {75,  dsTV_RESOLUTION_1080p50}, // 1920x1080p @ 50Hz         (CTA-861 VIC 75, 64:27)
+    {76,  dsTV_RESOLUTION_1080p60}, // 1920x1080p @ 59.94/60Hz   (CTA-861 VIC 76, 64:27)
+    {77,  dsTV_RESOLUTION_1080p},   // 1920x1080p @ 100Hz        (CTA-861 VIC 77, 64:27)
+    {78,  dsTV_RESOLUTION_1080p},   // 1920x1080p @ 119.88/120Hz (CTA-861 VIC 78, 64:27)
 
-    // 2160p resolutions
-    {77, dsTV_RESOLUTION_2160p24},// 3840x2160p @ 24Hz
-    {78, dsTV_RESOLUTION_2160p25},// 3840x2160p @ 25Hz
-    {79, dsTV_RESOLUTION_2160p30},// 3840x2160p @ 30Hz
-    {80, dsTV_RESOLUTION_2160p50},// 3840x2160p @ 50Hz
-    {81, dsTV_RESOLUTION_2160p60},// 3840x2160p @ 60Hz
-    {87, dsTV_RESOLUTION_2160p24},// 3840x2160p @ 24Hz
-    {88, dsTV_RESOLUTION_2160p25},// 3840x2160p @ 25Hz
-    {89, dsTV_RESOLUTION_2160p30},// 3840x2160p @ 30Hz
-    {90, dsTV_RESOLUTION_2160p50},// 3840x2160p @ 50Hz
-    {91, dsTV_RESOLUTION_2160p60},// 3840x2160p @ 60Hz
+    // 3840x2160p (UHD-1) — VIC 93-97: 16:9; VIC 103-107: 64:27
+    {93,  dsTV_RESOLUTION_2160p24}, // 3840x2160p @ 23.97/24Hz   (CTA-861 VIC 93,  16:9)
+    {94,  dsTV_RESOLUTION_2160p25}, // 3840x2160p @ 25Hz         (CTA-861 VIC 94,  16:9)
+    {95,  dsTV_RESOLUTION_2160p30}, // 3840x2160p @ 29.97/30Hz   (CTA-861 VIC 95,  16:9)
+    {96,  dsTV_RESOLUTION_2160p50}, // 3840x2160p @ 50Hz         (CTA-861 VIC 96,  16:9)
+    {97,  dsTV_RESOLUTION_2160p60}, // 3840x2160p @ 59.94/60Hz   (CTA-861 VIC 97,  16:9)
+    {103, dsTV_RESOLUTION_2160p24}, // 3840x2160p @ 23.97/24Hz   (CTA-861 VIC 103, 64:27)
+    {104, dsTV_RESOLUTION_2160p25}, // 3840x2160p @ 25Hz         (CTA-861 VIC 104, 64:27)
+    {105, dsTV_RESOLUTION_2160p30}, // 3840x2160p @ 29.97/30Hz   (CTA-861 VIC 105, 64:27)
+    {106, dsTV_RESOLUTION_2160p50}, // 3840x2160p @ 50Hz         (CTA-861 VIC 106, 64:27)
+    {107, dsTV_RESOLUTION_2160p60}, // 3840x2160p @ 59.94/60Hz   (CTA-861 VIC 107, 64:27)
 
-    // 4K resolutions
-    {82, dsTV_RESOLUTION_2160p24},// 4096x2160p @ 24Hz
-    {83, dsTV_RESOLUTION_2160p25},// 4096x2160p @ 25Hz
-    {84, dsTV_RESOLUTION_2160p30},// 4096x2160p @ 30Hz
-    {85, dsTV_RESOLUTION_2160p50},// 4096x2160p @ 50Hz
-    {86, dsTV_RESOLUTION_2160p60},// 4096x2160p @ 60Hz
-    {93, dsTV_RESOLUTION_2160p24},// 4096x2160p @ 24Hz
-    {94, dsTV_RESOLUTION_2160p25},// 4096x2160p @ 25Hz
-    {95, dsTV_RESOLUTION_2160p30},// 4096x2160p @ 30Hz
-    {98, dsTV_RESOLUTION_2160p24},// 4096x2160p @ 24Hz
-    {99, dsTV_RESOLUTION_2160p25},// 4096x2160p @ 25Hz
-    {100, dsTV_RESOLUTION_2160p30},// 4096x2160p @ 30Hz
-    {101, dsTV_RESOLUTION_2160p50},// 4096x2160p @ 50Hz
-    {102, dsTV_RESOLUTION_2160p60},// 4096x2160p @ 60Hz
+    // 4096x2160p (DCI 4K) — VIC 98-102: 256:135
+    {98,  dsTV_RESOLUTION_2160p24}, // 4096x2160p @ 23.97/24Hz   (CTA-861 VIC 98,  256:135)
+    {99,  dsTV_RESOLUTION_2160p25}, // 4096x2160p @ 25Hz         (CTA-861 VIC 99,  256:135)
+    {100, dsTV_RESOLUTION_2160p30}, // 4096x2160p @ 29.97/30Hz   (CTA-861 VIC 100, 256:135)
+    {101, dsTV_RESOLUTION_2160p50}, // 4096x2160p @ 50Hz         (CTA-861 VIC 101, 256:135)
+    {102, dsTV_RESOLUTION_2160p60}, // 4096x2160p @ 59.94/60Hz   (CTA-861 VIC 102, 256:135)
 };
 
 #define VIC_MAP_TABLE_SIZE (sizeof(vicMapTable) / sizeof(VicMapEntry))

@@ -15,6 +15,8 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
 */
 
 #ifndef _DS_VIDEORESOLUTIONSETTINGS_H_
@@ -38,6 +40,7 @@ extern dsVideoPortResolution_t kResolutionsSettings[];
 extern int                     kResolutionsSettings_size;
 extern size_t                  kNumResolutionsSettings;
 extern int                     kDefaultResIndex;
+int                            defaultResolutionIndex(const char *defaultResName);
 #else /* !DS_HAL_EXPORT_CONFIG_SYMBOLS */
 /* Static fallback table for middleware compile-time dsUTL_DIM(kResolutions). */
 static dsVideoPortResolution_t kResolutions[] DS_SETTINGS_FALLBACK_UNUSED = {
