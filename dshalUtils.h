@@ -15,6 +15,8 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 #ifndef __DSHALUTILS_H
@@ -68,7 +70,10 @@ const int *getVicFromResolution(dsTVResolution_t resolution);
 const char *getXDGRuntimeDir();
 int dsOpenDrmCardFd(void);
 bool dsGetHdmiConnectorState(bool *connected, bool *enabled);
+int dsInternalGetHdmiEdidBytes(unsigned char *edid, int *length);
 bool dsGetPreferredHdmiMode(char *mode, size_t len);
+int dsApplyHdmiMaxBpcRequest(void);
+int dsApplyHdmiMaxBpcRequestValue(int requestedMaxBpc);
 void dsRegisterConnectorChangeHook(void (*hook)(void));
 
 #endif

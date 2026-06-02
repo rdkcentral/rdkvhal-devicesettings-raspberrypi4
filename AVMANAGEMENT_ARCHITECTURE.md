@@ -74,6 +74,14 @@ Behavior:
 - Watcher snapshots callback pointer/state under mutex.
 - Watcher releases mutex before invoking callback to avoid re-entry deadlocks.
 - Audio hotplug notification is also issued from watcher on the same state transition.
+- On each state transition, the watcher applies a settle delay and re-reads connector state before dispatching, suppressing transient connect/disconnect flapping during cable insertion. The delays are configurable at runtime:
+
+  | Environment variable | Direction | Default |
+  |---|---|---|
+  | `DSHAL_HDMI_CONNECT_DEBOUNCE_MS` | connect | 25 ms |
+  | `DSHAL_HDMI_DISCONNECT_DEBOUNCE_MS` | disconnect | 75 ms |
+
+  Valid range is 0–2000 ms. Set to `0` to disable debounce for that direction.
 
 Video format callback path (`dsVideoFormatUpdateRegisterCB`):
 

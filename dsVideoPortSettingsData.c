@@ -15,6 +15,8 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
 */
 
 /**
@@ -48,7 +50,7 @@ dsVideoPortPortConfig_t kVideoPortPorts[] = {
     {
         /*.typeId = */              {dsVIDEOPORT_TYPE_HDMI, 0},
         /*.connectedAOP = */        {dsAUDIOPORT_TYPE_HDMI, 0},
-        /*.defaultResolution = */   "720p"
+        /*.defaultResolution = */   "720p60"
     },
 };
 

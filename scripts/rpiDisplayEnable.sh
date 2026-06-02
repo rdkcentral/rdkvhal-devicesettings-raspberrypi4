@@ -18,18 +18,20 @@
 # limitations under the License.
 ##########################################################################
 
-if [[ "$1" == 2 ]]; then # This call is from rpidisplay.service
-     QueryPowerState | grep 'STANDBY' &> /dev/null
-     if [ $? == 0 ]; then
+if [ "$1" = "2" ]; then # This call is from rpidisplay.service
+     QueryPowerState | grep 'STANDBY' >/dev/null 2>&1
+     if [ $? = 0 ]; then
          export XDG_RUNTIME_DIR=/tmp
-         for i in {1..20}    # At boot-up wait until Westeros module is up
+         i=1
+         while [ "$i" -le 20 ]    # At boot-up wait until Westeros module is up
              do
-                 /usr/bin/westeros-gl-console get display enable | grep 'display enable 1' &> /dev/null
-                 if [ $? == 0 ]; then
+                 /usr/bin/westeros-gl-console get display enable | grep 'display enable 1' >/dev/null 2>&1
+                 if [ $? = 0 ]; then
                      /usr/bin/westeros-gl-console set display enable 0
                      break
                  fi
                  sleep 1
+                 i=$((i + 1))
          done
      fi
 

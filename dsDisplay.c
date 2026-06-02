@@ -15,6 +15,8 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <string.h>
@@ -81,19 +83,6 @@ static void notify_audio_hotplug(bool connected)
 /* Forward declaration used by watcher helpers defined before full struct body. */
 typedef struct _VDISPHandle_t VDISPHandle_t;
 
-static void resolve_drm_card_name(char *cardName, size_t len)
-{
-    const char *cardPath = getenv("WESTEROS_DRM_CARD");
-    if (cardPath == NULL || cardPath[0] == '\0') {
-        cardPath = DRI_CARD;
-    }
-
-    const char *slash = strrchr(cardPath, '/');
-    const char *base = (slash != NULL) ? (slash + 1) : cardPath;
-
-    snprintf(cardName, len, "%s", base);
-}
-
 static bool drm_get_hdmi_connector_state(bool *connected, bool *enabled)
 {
     return dsGetHdmiConnectorState(connected, enabled);
@@ -107,6 +96,47 @@ static bool gLastHdmiConnected = false;
 static struct udev *gUdevCtx = NULL;
 static struct udev_monitor *gUdevMonitor = NULL;
 static int gUdevFd = -1;
+
+#define HDMI_CONNECT_SETTLE_MS_DEFAULT      (25)
+#define HDMI_DISCONNECT_SETTLE_MS_DEFAULT   (75)
+#define HDMI_SETTLE_MS_MAX                  (2000)
+#define HDMI_CONNECT_DEBOUNCE_ENV           "DSHAL_HDMI_CONNECT_DEBOUNCE_MS"
+#define HDMI_DISCONNECT_DEBOUNCE_ENV        "DSHAL_HDMI_DISCONNECT_DEBOUNCE_MS"
+
+static int get_env_ms_or_default(const char *name, int fallback)
+{
+    const char *value = getenv(name);
+    if (value == NULL || value[0] == '\0') {
+        return fallback;
+    }
+
+    char *end = NULL;
+    long parsed = strtol(value, &end, 10);
+    if (end == value || (end != NULL && *end != '\0')) {
+        hal_warn("Invalid %s='%s', using default %d ms\n", name, value, fallback);
+        return fallback;
+    }
+
+    if (parsed < 0) {
+        parsed = 0;
+    } else if (parsed > HDMI_SETTLE_MS_MAX) {
+        parsed = HDMI_SETTLE_MS_MAX;
+    }
+
+    return (int)parsed;
+}
+
+static struct timespec get_hdmi_settle_delay(bool connected)
+{
+    int connectDelayMs = get_env_ms_or_default(HDMI_CONNECT_DEBOUNCE_ENV, HDMI_CONNECT_SETTLE_MS_DEFAULT);
+    int disconnectDelayMs = get_env_ms_or_default(HDMI_DISCONNECT_DEBOUNCE_ENV, HDMI_DISCONNECT_SETTLE_MS_DEFAULT);
+    int delayMs = connected ? connectDelayMs : disconnectDelayMs;
+
+    struct timespec ts;
+    ts.tv_sec = delayMs / 1000;
+    ts.tv_nsec = (long)(delayMs % 1000) * 1000000L;
+    return ts;
+}
 
 static void* hdmi_watcher_thread(void *arg)
 {
@@ -155,6 +185,31 @@ static void* hdmi_watcher_thread(void *arg)
 
         /* Refresh connector state for both udev events and timeout wakeups. */
         if (drm_get_hdmi_connector_state(&currentConnected, &currentEnabled)) {
+            bool verifiedConnected = currentConnected;
+            bool verifiedEnabled = currentEnabled;
+
+            /* Confirm connection transitions once more before notifying clients.
+             * This filters transient drm samples seen during hotplug settle. */
+            if (currentConnected != lastConnected) {
+                const struct timespec verifyDelay = get_hdmi_settle_delay(currentConnected);
+                if (verifyDelay.tv_sec != 0 || verifyDelay.tv_nsec != 0) {
+                    nanosleep(&verifyDelay, NULL);
+                }
+
+                if (drm_get_hdmi_connector_state(&verifiedConnected, &verifiedEnabled)) {
+                    if (verifiedConnected != currentConnected) {
+                        hal_dbg("Ignoring transient HDMI state sample: connected=%d -> verified=%d\n",
+                                currentConnected, verifiedConnected);
+                        continue;
+                    }
+                    currentEnabled = verifiedEnabled;
+                } else {
+                    /* Skip reporting state transitions when verification fails. */
+                    hal_dbg("Skipping HDMI transition event: verification read failed\n");
+                    continue;
+                }
+            }
+
             bool stateChanged = false;
             bool connectionChanged = false;
             bool notifyConnected = false;
@@ -389,6 +444,39 @@ typedef struct {
     unsigned int *numSupportedResn;
 } HdmiResolutionParseContext_t;
 
+typedef struct {
+    dsDisplayEDID_t *edid;
+} HdmiVsdbParseContext_t;
+
+static bool parseHdmiVsdbFromCtaDataBlock(int tag,
+        const unsigned char *data,
+        int dataLen,
+        void *context)
+{
+    HdmiVsdbParseContext_t *ctx = (HdmiVsdbParseContext_t *)context;
+
+    if (ctx == NULL || ctx->edid == NULL || data == NULL) {
+        return false;
+    }
+
+    if (tag != DSHAL_EDID_CTA_VENDOR_SPECIFIC_TAG || dataLen < 5) {
+        return false;
+    }
+
+    /* HDMI VSDB OUI = 0x000C03, encoded in CTA payload as 03 0C 00 */
+    if (data[0] == 0x03 && data[1] == 0x0C && data[2] == 0x00) {
+        ctx->edid->hdmiDeviceType = true;
+        ctx->edid->physicalAddressA = (data[3] >> 4) & 0x0F;
+        ctx->edid->physicalAddressB = data[3] & 0x0F;
+        ctx->edid->physicalAddressC = (data[4] >> 4) & 0x0F;
+        ctx->edid->physicalAddressD = data[4] & 0x0F;
+        ctx->edid->isRepeater = (ctx->edid->physicalAddressB != 0);
+        return true;
+    }
+
+    return false;
+}
+
 static bool parseHdmiResolutionsFromCtaDataBlock(int tag,
         const unsigned char *data,
         int dataLen,
@@ -430,6 +518,7 @@ static bool parseHdmiResolutionsFromCtaDataBlock(int tag,
                         ctx->hdmiSupportedResolution[*(ctx->numSupportedResn)].name, vic);
                 (*(ctx->numSupportedResn))++;
             }
+            break; /* first resolutionMap match per VIC is canonical; skip aliases */
         }
     }
 
@@ -893,6 +982,7 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
     VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
     bool drmConnected = false, drmEnabled = false;
     dsError_t ret = dsERR_NONE;
+    size_t maxSupportedRes = 0;
 
     if (false == _bDisplayInited) {
         return dsERR_NOT_INITIALIZED;
@@ -902,6 +992,9 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
         hal_err("Invalid params, handle %p, edid %p\n", vDispHandle, edid);
         return dsERR_INVALID_PARAM;
     }
+
+    /* Ensure deterministic output for callers/tests that compare the full struct. */
+    memset(edid, 0, sizeof(*edid));
 
     /* Check DRM connectivity before attempting EDID read */
     if (!drm_get_hdmi_connector_state(&drmConnected, &drmEnabled) || !drmConnected) {
@@ -931,14 +1024,44 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
         edid->serialNumber = parsed_edid.serial_number;
         edid->manufactureWeek = parsed_edid.week_of_manufacture;
         edid->manufactureYear = parsed_edid.year_of_manufacture;
-        edid->hdmiDeviceType = true;
+        edid->hdmiDeviceType = false;
         edid->isRepeater = false;
         edid->physicalAddressA = 0;
         edid->physicalAddressB = 0;
         edid->physicalAddressC = 0;
         edid->physicalAddressD = 0;
+        /* Extract monitor name from EDID base block descriptor tag 0xFC.
+         * Detailed timing descriptors: 4 × 18 bytes. Non-timing descriptor
+         * header: [0]=0x00 [1]=0x00 [2]=0x00 [3]=tag [4]=0x00 [5..17]=data */
         strncpy(edid->monitorName, "Unknown", sizeof(edid->monitorName));
         edid->monitorName[dsEEDID_MAX_MON_NAME_LENGTH - 1] = '\0';
+        hal_dbg("Searching for monitor name in EDID descriptors\n");
+        for (int _d = 0; _d < 4; _d++) {
+            const unsigned char *_desc = parsed_edid.detailed_timing_descriptors + _d * 18;
+            hal_dbg("Descriptor %d: [0]=%02x [1]=%02x [2]=%02x [3]=%02x\n",
+                _d, _desc[0], _desc[1], _desc[2], _desc[3]);
+            if (_desc[0] == 0x00 && _desc[1] == 0x00 && _desc[2] == 0x00 && _desc[3] == 0xFC) {
+                char _name[14] = {0};
+                memcpy(_name, _desc + 5, 13);
+                for (int _c = 12; _c >= 0 && (_name[_c] == '\n' || _name[_c] == ' '); _c--) {
+                    _name[_c] = '\0';
+                }
+                if (_name[0] != '\0') {
+                    strncpy(edid->monitorName, _name, sizeof(edid->monitorName));
+                    edid->monitorName[dsEEDID_MAX_MON_NAME_LENGTH - 1] = '\0';
+                    hal_info("Extracted monitor name from EDID descriptor: %s\n", edid->monitorName);
+                }
+                break;
+            }
+        }
+
+        if (length > DSHAL_EDID_BLOCK_SIZE) {
+            HdmiVsdbParseContext_t hdmiCtx = {
+                .edid = edid,
+            };
+            (void)dshalEdidForEachCtaDataBlock(raw, length, parseHdmiVsdbFromCtaDataBlock, &hdmiCtx);
+        }
+
         if (dsQueryHdmiResolution(raw, length) != dsERR_NONE) {
             hal_err("Failed to query HDMI resolution\n");
             ret = dsERR_GENERAL;
@@ -950,11 +1073,17 @@ dsError_t dsGetEDID(intptr_t handle, dsDisplayEDID_t *edid)
             ret = dsERR_GENERAL;
             goto cleanup;
         }
-        for (unsigned int i = 0; i < numSupportedResn; i++) {
+        maxSupportedRes = sizeof(edid->suppResolutionList) / sizeof(edid->suppResolutionList[0]);
+        if (numSupportedResn > maxSupportedRes) {
+            hal_warn("Truncating supported resolution list from %u to %zu entries\n",
+                    numSupportedResn, maxSupportedRes);
+        }
+
+        for (unsigned int i = 0; i < numSupportedResn && i < maxSupportedRes; i++) {
             memcpy(&edid->suppResolutionList[i], &HdmiSupportedResolution[i], sizeof(dsVideoPortResolution_t));
             hal_dbg("Copied resolution %s\n", edid->suppResolutionList[i].name);
         }
-        edid->numOfSupportedResolution = numSupportedResn;
+        edid->numOfSupportedResolution = (numSupportedResn < maxSupportedRes) ? numSupportedResn : maxSupportedRes;
     } else {
         hal_err("Handle type %d is not supported(not dsVIDEOPORT_TYPE_HDMI)\n", vDispHandle->m_vType);
         ret = dsERR_OPERATION_NOT_SUPPORTED;
@@ -1104,11 +1233,14 @@ static dsVideoPortResolution_t* dsgetResolutionInfo(const char *res_name)
 {
     hal_info("Invoked\n");
     size_t iCount = kNumResolutionsSettings;
-    for (size_t i=0; i < iCount; i++) {
-        if (!strncmp(res_name, kResolutionsSettings[i].name, strlen(res_name))) {
+
+    /* Exact-match only: implicit aliases and partial tokens are not accepted. */
+    for (size_t i = 0; i < iCount; i++) {
+        if (!strcmp(res_name, kResolutionsSettings[i].name)) {
             return &kResolutionsSettings[i];
         }
     }
+
     return NULL;
 }
 
@@ -1140,11 +1272,6 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
 {
     hal_info("Invoked\n");
     VDISPHandle_t *vDispHandle = (VDISPHandle_t *)handle;
-    bool drmConnected = false, drmEnabled = false;
-    char edid_path[PATH_MAX] = {0};
-    char status_path[PATH_MAX] = {0};
-    char connector_name[64] = {0};
-    char cardName[PATH_MAX] = {0};
 
     if (false == _bDisplayInited) {
         return dsERR_NOT_INITIALIZED;
@@ -1157,83 +1284,9 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
         return dsERR_INVALID_PARAM;
     }
 
-    /* Check DRM connectivity before attempting EDID read */
-    if (!drm_get_hdmi_connector_state(&drmConnected, &drmEnabled) || !drmConnected) {
-        hal_warn("HDMI not connected (DRM), cannot read EDID bytes\n");
-        return dsERR_NONE;
-    }
-
-    /* Scan /sys/class/drm for active HDMI connector and read EDID binary */
-    resolve_drm_card_name(cardName, sizeof(cardName));
-    DIR *drm_class = opendir("/sys/class/drm");
-    if (!drm_class) {
-        hal_err("Failed to open /sys/class/drm\n");
-        return dsERR_GENERAL;
-    }
-
-    struct dirent *entry;
-    *length = 0;
-    while ((entry = readdir(drm_class)) != NULL) {
-        if (strncmp(entry->d_name, cardName, strlen(cardName)) != 0) {
-            continue; /* Skip entries not matching our card */
-        }
-        if (strstr(entry->d_name, "HDMI-A-1") == NULL) {
-            continue; /* Focus on HDMI0 connector only */
-        }
-
-        int status_len = snprintf(status_path, sizeof(status_path), "/sys/class/drm/%s/status", entry->d_name);
-        if (status_len < 0 || (size_t)status_len >= sizeof(status_path)) {
-            hal_warn("Status path truncated for connector '%s'\n", entry->d_name);
-            continue;
-        }
-
-        FILE *status_file = fopen(status_path, "r");
-        if (status_file == NULL) {
-            hal_warn("Failed to open connector status at %s\n", status_path);
-            continue;
-        }
-
-        char status[16] = {0};
-        if (fgets(status, sizeof(status), status_file) == NULL) {
-            fclose(status_file);
-            hal_warn("Failed to read connector status from %s\n", status_path);
-            continue;
-        }
-        fclose(status_file);
-
-        if (strncmp(status, "connected", strlen("connected")) != 0) {
-            hal_dbg("Skipping disconnected connector %s (status=%s)\n", entry->d_name, status);
-            continue;
-        }
-
-        int path_len = snprintf(edid_path, sizeof(edid_path), "/sys/class/drm/%s/edid", entry->d_name);
-        if (path_len < 0 || (size_t)path_len >= sizeof(edid_path)) {
-            hal_warn("EDID path truncated for connector '%s'\n", entry->d_name);
-            continue;
-        }
-        FILE *edid_file = fopen(edid_path, "rb");
-        if (!edid_file) {
-            hal_dbg("EDID file not found at %s\n", edid_path);
-            continue;
-        }
-
-        *length = (int)fread(edid, 1, MAX_EDID_BYTES_LEN, edid_file);
-        fclose(edid_file);
-
-        if (*length <= 0) {
-            hal_err("Failed to read EDID from %s\n", edid_path);
-            closedir(drm_class);
-            return dsERR_GENERAL;
-        }
-
-        strncpy(connector_name, entry->d_name, sizeof(connector_name) - 1);
-        hal_dbg("Read %d bytes of EDID from %s(%s)\n", *length, edid_path, connector_name);
-        break;
-    }
-    closedir(drm_class);
-
-    if (*length == 0) {
-        hal_err("EDID not found for connected HDMI0 connector\n");
+    if (dsInternalGetHdmiEdidBytes(edid, length) != 0 || *length <= 0) {
+        hal_err("Failed to get HDMI EDID bytes\n");
+        *length = 0;
         return dsERR_GENERAL;
     }
 
@@ -1244,7 +1297,7 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
             fprintf(file, "%02x", edid[i]);
         }
         fclose(file);
-        hal_info("EDID bytes written to /tmp/.hal-edid-bytes.dat (%d bytes from %s)\n", *length, connector_name);
+        hal_info("EDID bytes written to /tmp/.hal-edid-bytes.dat (%d bytes)\n", *length);
     } else {
         hal_err("Failed to open /tmp/.hal-edid-bytes.dat\n");
     }

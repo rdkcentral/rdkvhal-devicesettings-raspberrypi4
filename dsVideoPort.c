@@ -15,6 +15,8 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <string.h>
@@ -51,7 +53,7 @@ void dsRegisterConnectorChangeHook(void (*hook)(void));
 
 static bool _bIsVideoPortInitialized = false;
 static bool isValidVopHandle(intptr_t handle);
-static const char *dsVideoGetResolution(void);
+static bool dsInternalVideoGetResolution(char *resolution, size_t resolutionSize);
 
 static pthread_mutex_t _videoFormatCbMutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t _videoFormatWatcherCond = PTHREAD_COND_INITIALIZER;
@@ -96,6 +98,55 @@ static VOPHandle_t _vopHandles[dsVIDEOPORT_TYPE_MAX][2] = {};
 
 static dsVideoPortResolution_t _resolution;
 static bool _bIgnoreEDID = false;
+static dsDisplayColorDepth_t _preferredColorDepth = dsDISPLAY_COLORDEPTH_AUTO;
+
+static unsigned int getEffectiveOutputColorDepth(void)
+{
+    switch (_preferredColorDepth) {
+        case dsDISPLAY_COLORDEPTH_8BIT:
+        case dsDISPLAY_COLORDEPTH_10BIT:
+        case dsDISPLAY_COLORDEPTH_12BIT:
+            return (unsigned int)_preferredColorDepth;
+        case dsDISPLAY_COLORDEPTH_AUTO:
+        case dsDISPLAY_COLORDEPTH_UNKNOWN:
+        default:
+            /* AUTO/UNKNOWN falls back to default max bpc request path (10-bit). */
+            return (unsigned int)dsDISPLAY_COLORDEPTH_10BIT;
+    }
+}
+
+/**
+ * @brief Apply preferred color depth by translating it to an explicit max bpc request.
+ * @param colorDepth The preferred color depth to apply.
+ * @return true if the request was successfully applied, false otherwise.
+ */
+static bool applyPreferredColorDepthRequest(dsDisplayColorDepth_t colorDepth)
+{
+    int requestedMaxBpc = 10;
+
+    switch (colorDepth) {
+        case dsDISPLAY_COLORDEPTH_8BIT:
+            requestedMaxBpc = 8;
+            break;
+        case dsDISPLAY_COLORDEPTH_10BIT:
+            requestedMaxBpc = 10;
+            break;
+        case dsDISPLAY_COLORDEPTH_12BIT:
+            requestedMaxBpc = 12;
+            break;
+        case dsDISPLAY_COLORDEPTH_AUTO:
+        case dsDISPLAY_COLORDEPTH_UNKNOWN:
+        default:
+            requestedMaxBpc = 10;
+            break;
+    }
+
+    if (dsApplyHdmiMaxBpcRequestValue(requestedMaxBpc) != 0) {
+        hal_warn("Unable to apply HDMI max bpc for preferred color depth 0x%x\n", colorDepth);
+        return false;
+    }
+    return true;
+}
 
 static bool drm_get_hdmi_connector_state(bool *connected, bool *enabled)
 {
@@ -216,9 +267,7 @@ static void* videoFormatWatcherThreadMain(void *arg)
         }
 
         char currentModeBuf[64] = {'\0'};
-        const char *currentMode = dsVideoGetResolution();
-        if (currentMode != NULL) {
-            strncpy(currentModeBuf, currentMode, sizeof(currentModeBuf) - 1);
+        if (dsInternalVideoGetResolution(currentModeBuf, sizeof(currentModeBuf))) {
             currentModeBuf[sizeof(currentModeBuf) - 1] = '\0';
         }
 
@@ -315,6 +364,7 @@ static bool normalizeModeToken(const char *token, char *normalizedToken, size_t 
     int height = -1;
     int rate = -1;
     char scanMode = '\0';
+    int consumed = 0;
     bool parsed = false;
 
     if (sscanf(parseToken, "%dx%dx%d", &width, &height, &rate) == 3) {
@@ -322,11 +372,6 @@ static bool normalizeModeToken(const char *token, char *normalizedToken, size_t 
         parsed = true;
     } else if (sscanf(parseToken, "%dx%d%cx%d", &width, &height, &scanMode, &rate) == 4 ||
                sscanf(parseToken, "%dx%d%c%d", &width, &height, &scanMode, &rate) == 4) {
-        parsed = true;
-    } else if (sscanf(parseToken, "%dx%d", &width, &height) == 2) {
-        char last = parseToken[parseLen - 1];
-        scanMode = (last == 'i') ? 'i' : 'p';
-        rate = 60;
         parsed = true;
     } else if (sscanf(parseToken, "%dp%dhz", &height, &rate) == 2) {
         scanMode = 'p';
@@ -336,12 +381,10 @@ static bool normalizeModeToken(const char *token, char *normalizedToken, size_t 
         parsed = true;
     } else if (sscanf(parseToken, "%d%c%d", &height, &scanMode, &rate) == 3 && (scanMode == 'p' || scanMode == 'i')) {
         parsed = true;
-    } else if (sscanf(parseToken, "%dp", &height) == 1) {
-        scanMode = 'p';
-        rate = 60;
-        parsed = true;
-    } else if (sscanf(parseToken, "%di", &height) == 1) {
-        scanMode = 'i';
+    } else if (sscanf(parseToken, "%d%c%n", &height, &scanMode, &consumed) == 2 &&
+               consumed == (int)parseLen && (scanMode == 'p' || scanMode == 'i')) {
+        /* Bare token from DRM (e.g. "720p", "1080i") — default rate to 60 Hz and
+         * normalize to the explicit-rate canonical form. */
         rate = 60;
         parsed = true;
     } else if (sscanf(parseToken, "smpte%dhz", &rate) == 1) {
@@ -368,8 +411,7 @@ static bool normalizeModeToken(const char *token, char *normalizedToken, size_t 
  *
  * The input may be a raw mode token from westeros-gl or an already normalized
  * RDK token. This function normalizes when possible, then matches against
- * resolutionMap entries, including aliases that omit an explicit refresh rate
- * by applying a default 60 Hz comparison.
+ * explicit-rate entries in resolutionMap.
  *
  * @param[in] token       Input token to resolve.
  * @param[out] out        Output buffer for resolved token.
@@ -403,25 +445,15 @@ static void resolveResolutionToken(const char *token, char *out, size_t outSize)
     bool hasNormalizedToken = normalizeModeToken(trimmedToken, normalizedToken, sizeof(normalizedToken));
 
     const char *candidate = hasNormalizedToken ? normalizedToken : trimmedToken;
+
+    /* Pass 1: prefer exact token matches so explicit-rate aliases (e.g. 480p60)
+     * are not collapsed into their implicit-rate aliases (e.g. 480p). */
     for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
         const char *mapRes = resolutionMap[i].rdkRes;
-        size_t mapLen = strlen(mapRes);
-        bool mapHasRate = (mapLen > 0 && isdigit((unsigned char)mapRes[mapLen - 1]));
-
-        if (mapHasRate) {
-            if (strcmp(mapRes, candidate) == 0) {
-                strncpy(out, mapRes, outSize - 1);
-                out[outSize - 1] = '\0';
-                return;
-            }
-        } else {
-            char mapResWithDefaultRate[64] = {'\0'};
-            (void)snprintf(mapResWithDefaultRate, sizeof(mapResWithDefaultRate), "%s60", mapRes);
-            if (strcmp(mapRes, candidate) == 0 || strcmp(mapResWithDefaultRate, candidate) == 0) {
-                strncpy(out, mapRes, outSize - 1);
-                out[outSize - 1] = '\0';
-                return;
-            }
+        if (strcmp(mapRes, candidate) == 0) {
+            strncpy(out, mapRes, outSize - 1);
+            out[outSize - 1] = '\0';
+            return;
         }
     }
 
@@ -442,11 +474,24 @@ static void resolveResolutionToken(const char *token, char *out, size_t outSize)
  */
 static bool resolutionNamesEquivalent(const char *requested, const char *active)
 {
+    char requestedNormalized[64] = {'\0'};
+    char activeNormalized[64] = {'\0'};
+
+    if (normalizeModeToken(requested, requestedNormalized, sizeof(requestedNormalized)) &&
+        normalizeModeToken(active, activeNormalized, sizeof(activeNormalized)) &&
+        strcmp(requestedNormalized, activeNormalized) == 0) {
+        hal_dbg("Resolution names are equivalent by direct normalization: requested '%s' normalized '%s', active '%s' normalized '%s'\n",
+                 requested, requestedNormalized, active, activeNormalized);
+        return true;
+    }
+
     char requestedCanonical[64] = {'\0'};
     char activeCanonical[64] = {'\0'};
 
     resolveResolutionToken(requested, requestedCanonical, sizeof(requestedCanonical));
     resolveResolutionToken(active, activeCanonical, sizeof(activeCanonical));
+    hal_dbg("Requested resolution '%s' resolves to canonical '%s', active resolution '%s' resolves to canonical '%s'\n",
+             requested, requestedCanonical, active, activeCanonical);
 
     return (requestedCanonical[0] != '\0' && activeCanonical[0] != '\0' &&
             strcmp(requestedCanonical, activeCanonical) == 0);
@@ -468,7 +513,6 @@ static void populateResolutionNameFromFields(dsVideoPortResolution_t *resolution
         return;
     }
 
-    /* kResolutionsSettings stores scan mode as boolean interlaced/progressive. */
     bool requestedInterlaced = (resolution->interlaced != 0) ? _INTERLACED : _PROGRESSIVE;
 
     for (size_t i = 0; i < kNumResolutionsSettings; i++) {
@@ -480,10 +524,13 @@ static void populateResolutionNameFromFields(dsVideoPortResolution_t *resolution
             candidate->interlaced == requestedInterlaced) {
             strncpy(resolution->name, candidate->name, sizeof(resolution->name) - 1);
             resolution->name[sizeof(resolution->name) - 1] = '\0';
+            hal_dbg("Populated resolution name '%s' from kResolutionsSettings with pixelResolution=%d aspectRatio=%d stereoScopicMode=%d frameRate=%d interlaced=%d\n",
+                    resolution->name, resolution->pixelResolution, resolution->aspectRatio,
+                    resolution->stereoScopicMode, resolution->frameRate, resolution->interlaced);
             return;
         }
     }
-    /* No match found - resolution remains unsupported (name stays empty). */
+    /* No exact match found; resolution name remains unset. */
 }
 
 static dsError_t getHdmiEdidForConnectedDisplay(dsVideoPortType_t video_port_type,
@@ -491,7 +538,8 @@ static dsError_t getHdmiEdidForConnectedDisplay(dsVideoPortType_t video_port_typ
         unsigned char **edid_buf,
         int *edid_len)
 {
-    intptr_t dispHandle = 0;
+    (void)video_port_type;
+    (void)video_port_index;
 
     if (edid_buf == NULL || edid_len == NULL) {
         return dsERR_INVALID_PARAM;
@@ -502,8 +550,7 @@ static dsError_t getHdmiEdidForConnectedDisplay(dsVideoPortType_t video_port_typ
         return dsERR_GENERAL;
     }
 
-    if (dsGetDisplay(video_port_type, video_port_index, &dispHandle) != dsERR_NONE ||
-            dsGetEDIDBytes(dispHandle, *edid_buf, edid_len) != dsERR_NONE ||
+    if (dsInternalGetHdmiEdidBytes(*edid_buf, edid_len) != 0 ||
             *edid_len < DSHAL_EDID_BLOCK_SIZE) {
         free(*edid_buf);
         *edid_buf = NULL;
@@ -1162,6 +1209,7 @@ dsError_t dsIsHDCPEnabled(intptr_t handle, bool *pContentProtected)
 dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 {
     hal_info("invoked.\n");
+    VOPHandle_t *vopHandle = (VOPHandle_t *)handle;
     if (false == _bIsVideoPortInitialized) {
         return dsERR_NOT_INITIALIZED;
     }
@@ -1170,15 +1218,36 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
         hal_err("handle(%p) is invalid or resolution(%p) is NULL.\n", handle, resolution);
         return dsERR_INVALID_PARAM;
     }
-    /* Query the active mode from westeros-gl-console/DRM. */
-    const char *resolution_name = dsVideoGetResolution();
-    if (resolution_name) {
-        strncpy(resolution->name, resolution_name, sizeof(resolution->name) - 1);
-        resolution->name[sizeof(resolution->name) - 1] = '\0';
-        return dsERR_NONE;
+
+    memset(resolution, 0, sizeof(*resolution));
+
+    if (vopHandle->m_vType != dsVIDEOPORT_TYPE_HDMI) {
+        hal_err("Unsupported video port type: %d\n", vopHandle->m_vType);
+        return dsERR_OPERATION_NOT_SUPPORTED;
     }
-    resolution->name[0] = '\0';
-    hal_err("Failed to resolve current display mode to RDK resolution token\n");
+
+    /* Query the active mode from westeros-gl-console/DRM. */
+    char resolution_name[32] = {'\0'};
+    bool found = false;
+    if (dsInternalVideoGetResolution(resolution_name, sizeof(resolution_name))) {
+        /* Fill resolution structure with matching from kResolutionsSettings */
+        for (size_t i = 0; i < kNumResolutionsSettings; i++) {
+            if (strcmp(resolution_name, kResolutionsSettings[i].name) == 0) {
+                *resolution = kResolutionsSettings[i];
+                found = true;
+                break;
+            }
+        }
+    }
+    if (found) {
+        hal_info("Matched resolution '%s' to settings entry: pixelResolution=%d, aspectRatio=%d, stereoScopicMode=%d, frameRate=%d, interlaced=%d\n",
+                resolution_name, resolution->pixelResolution, resolution->aspectRatio,
+                resolution->stereoScopicMode, resolution->frameRate, resolution->interlaced);
+        return dsERR_NONE;
+    } else {
+        hal_err("Active resolution '%s' did not match any from kResolutionsSettings\n", resolution_name);
+    }
+
     return dsERR_GENERAL;
 }
 
@@ -1188,14 +1257,21 @@ dsError_t dsGetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
  * This function queries the current video resolution from the underlying
  * platform and normalizes it to a standard format.
  *
- * @return const char* - Normalized resolution string or NULL if failed.
+ * @param[out] resolution - Buffer to hold the normalized resolution string. Caller must ensure this buffer is large enough to hold the result (recommend at least 32 bytes).
+ * @param[in] resolutionSize - Size of the resolution buffer in bytes.
+ * @return bool - true if successful, false otherwise.
  */
-static const char* dsVideoGetResolution(void)
+static bool dsInternalVideoGetResolution(char *resolution, size_t resolutionSize)
 {
     hal_info("invoked.\n");
+    if (resolution == NULL || resolutionSize == 0) {
+        return false;
+    }
+
+    resolution[0] = '\0';
+
     char resName[32] = {'\0'};
     char normalizedRes[32] = {'\0'};
-    const char *resolution_name = NULL;
     char respBuf[256] = {'\0'};
     if (westerosGLConsoleRWWrapper("get mode", respBuf, sizeof(respBuf))) {
         strncpy(resName, respBuf, sizeof(resName) - 1);
@@ -1209,7 +1285,7 @@ static const char* dsVideoGetResolution(void)
         }
     } else {
         hal_err("Failed to get current mode, got response '%s'\n", respBuf);
-        return NULL;
+        return false;
     }
 
     size_t resLen = strlen(resName);
@@ -1226,34 +1302,10 @@ static const char* dsVideoGetResolution(void)
 
     hal_info("resName '%s', normalized '%s'\n", resName, normalizedRes);
 
-    for (size_t i = 0; i < noOfItemsInResolutionMap; i++) {
-        const char *mapRes = resolutionMap[i].rdkRes;
-
-        size_t len = strlen(mapRes);
-        int hasRate = (len > 0 && isdigit((unsigned char)mapRes[len-1]));
-
-        if (hasRate) {
-            if (strcmp(mapRes, normalizedRes) == 0) {
-                resolution_name = mapRes;
-                break;
-            }
-        } else {
-            char temp[32];
-            snprintf(temp,sizeof(temp), "%s60", mapRes);
-
-            if (strcmp(temp, normalizedRes) == 0 || strcmp(mapRes, normalizedRes) == 0) {
-                resolution_name = mapRes;
-                break;
-            }
-        }
-    }
-    if (resolution_name != NULL) {
-        hal_info("resolution_name %s\n", resolution_name);
-    } else {
-        hal_err("Failed to find matching resolution for mode '%s' (normalized '%s')\n", resName, normalizedRes);
-    }
-
-    return resolution_name;
+    const char *result = (normalizedRes[0] != '\0') ? normalizedRes : resName;
+    strncpy(resolution, result, resolutionSize - 1);
+    resolution[resolutionSize - 1] = '\0';
+    return (resolution[0] != '\0');
 }
 
 /**
@@ -1312,40 +1364,30 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
                         resolution->frameRate, resolution->interlaced);
             return dsERR_INVALID_PARAM;
         }
-    } else {
-        hal_dbg("Using requested resolution name is '%s'\n", resolution->name);
     }
 
     if (vopHandle->m_vType == dsVIDEOPORT_TYPE_HDMI) {
         hal_dbg("Setting HDMI resolution '%s'\n", resolution->name);
         char cmdBuf[256] = {'\0'};
         char respBuf[256] = {'\0'};
-        int width = -1, height = -1;
-        int rate = 60;
-        char interlaced = 'n';
-        if (sscanf (resolution->name, "%dx%dp%d", &width, &height, &rate) == 3) {
-            interlaced = 'p';
+        int width = -1, height = -1, rate = 60;
+        char interlaced = 'p';
+        char requestedNormalized[64] = {'\0'};
+
+        /* Extract explicit width from the name before normalization strips it
+         * (e.g. "4096x2160p60" → width=4096; plain "2160p60" leaves width=-1). */
+        {
+            int w, h, r; char s;
+            if (sscanf(resolution->name, "%dx%d%c%d", &w, &h, &s, &r) == 4 ||
+                sscanf(resolution->name, "%dx%dx%d", &w, &h, &r) == 3) {
+                width = w;
+            }
         }
-        else if (sscanf(resolution->name, "%dx%di%d", &width, &height, &rate ) == 3) {
-            interlaced = 'i';
-        }
-        else if (sscanf(resolution->name, "%dx%dx%d", &width, &height, &rate ) == 3) {
-            interlaced = 'p';
-        }
-        else if (sscanf(resolution->name, "%dx%d", &width, &height ) == 2) {
-            interlaced = 'p';
-        }
-        else if (sscanf(resolution->name, "%dp%d", &height, &rate ) == 2) {
-            interlaced = 'p';
-            width= -1;
-        }
-        else if (sscanf(resolution->name, "%di%d", &height, &rate ) == 2) {
-            interlaced = 'i';
-            width= -1;
-        }
-        else if (sscanf(resolution->name, "%d%c", &height, &interlaced ) == 2) {
-            width= -1;
-            rate = 60;
+
+        if (!normalizeModeToken(resolution->name, requestedNormalized, sizeof(requestedNormalized)) ||
+            sscanf(requestedNormalized, "%d%c%d", &height, &interlaced, &rate) != 3) {
+            hal_err("Unsupported resolution format '%s'\n", resolution->name);
+            return dsERR_INVALID_PARAM;
         }
 
         interlaced = (char)tolower((unsigned char)interlaced);
@@ -1410,25 +1452,41 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
             return dsERR_GENERAL;
         }
         /* Verify the mode actually took effect; mode switch can be asynchronous. */
-        const char *activeRes = NULL;
+        char activeResToken[64] = {'\0'};
         bool modeMatched = false;
+        char activeNormalized[64] = {'\0'};
         const int verifyAttempts = 20;
         const struct timespec verifySleep = { .tv_sec = 0, .tv_nsec = 50000000L }; /* 50 ms */
 
         for (int attempt = 0; attempt < verifyAttempts; attempt++) {
-            activeRes = dsVideoGetResolution();
-            if (activeRes != NULL && resolutionNamesEquivalent(resolution->name, activeRes)) {
+            activeResToken[0] = '\0';
+            if (dsInternalVideoGetResolution(activeResToken, sizeof(activeResToken))) {
+                activeResToken[sizeof(activeResToken) - 1] = '\0';
+            }
+
+            if (activeResToken[0] != '\0' &&
+                normalizeModeToken(activeResToken, activeNormalized, sizeof(activeNormalized)) &&
+                strcmp(requestedNormalized, activeNormalized) == 0) {
                 modeMatched = true;
+                hal_dbg("Resolution match on attempt %d: active '%s' normalized '%s'\n", attempt, activeResToken, activeNormalized);
                 break;
             }
+
+            if (activeResToken[0] != '\0' && resolutionNamesEquivalent(resolution->name, activeResToken)) {
+                modeMatched = true;
+                hal_dbg("Resolution name match on attempt %d: active '%s' matches requested '%s'\n", attempt, activeResToken, resolution->name);
+                break;
+            }
+
             if (attempt < (verifyAttempts - 1)) {
+                memset(activeNormalized, 0, sizeof(activeNormalized));
                 thrd_sleep(&verifySleep, NULL);
             }
         }
 
         if (!modeMatched) {
             hal_err("Resolution mismatch after set: requested '%s', active '%s'\n",
-                    resolution->name, activeRes ? activeRes : "<unknown>");
+                    resolution->name, activeResToken[0] != '\0' ? activeResToken : "<unknown>");
             return dsERR_GENERAL;
         }
 
@@ -1438,12 +1496,34 @@ dsError_t dsSetResolution(intptr_t handle, dsVideoPortResolution_t *resolution)
 
         dsRegisterFrameratePostChangeCB_t frameratePostCB = dsVideoDeviceGetFrameratePostChangeCB();
         if (frameratePostCB) {
+            // extract framerate from activeRes and pass to callback.
+            int activeWidth = -1, activeHeight = -1, activeRate = 0;
+            char activeInterlace = 'p';
+            char callbackNormalized[64] = {'\0'};
+            const char *callbackToken = NULL;
+
+            if (activeNormalized[0] != '\0') {
+                callbackToken = activeNormalized;
+            } else if (activeResToken[0] != '\0' && normalizeModeToken(activeResToken, callbackNormalized, sizeof(callbackNormalized))) {
+                callbackToken = callbackNormalized;
+            }
+
+            if (callbackToken != NULL && sscanf(callbackToken, "%d%c%d", &activeHeight, &activeInterlace, &activeRate) == 3) {
+                hal_dbg("Parsed active normalized resolution as %d%c%d\n", activeHeight, activeInterlace, activeRate);
+                rate = activeRate;
+            } else if (activeResToken[0] != '\0' && sscanf(activeResToken, "%dx%d%c%d", &activeWidth, &activeHeight, &activeInterlace, &activeRate) == 4) {
+                hal_dbg("Parsed active resolution as %dx%d%c%d\n", activeWidth, activeHeight, activeInterlace, activeRate);
+                rate = activeRate;
+            } else {
+                hal_err("Failed to parse active resolution '%s' for framerate callback\n", activeResToken[0] != '\0' ? activeResToken : "<unknown>");
+            }
             frameratePostCB((unsigned int)rate);
         }
     } else {
         hal_err("Unsupported video port type: %d\n", vopHandle->m_vType);
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
+
     return dsERR_NONE;
 }
 
@@ -2181,9 +2261,8 @@ dsError_t dsGetColorDepth(intptr_t handle, unsigned int *color_depth)
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
-    /* HDMI will be attached when this gets invoked - default to 8-bit color depth */
-    *color_depth = dsDISPLAY_COLORDEPTH_8BIT;
-    hal_dbg("Color depth defaulted to 8-bit (RPi4 hardware limitation)\n");
+    *color_depth = getEffectiveOutputColorDepth();
+    hal_dbg("Color depth derived from preferred policy: 0x%x\n", *color_depth);
     return dsERR_NONE;
 }
 
@@ -2334,11 +2413,11 @@ dsError_t dsGetCurrentOutputSettings(intptr_t handle, dsHDRStandard_t *video_eot
         return dsERR_NONE;
     }
 
-    /* RPi4 defaults in DRM-only mode */
+    /* Keep current output settings aligned with selected/preferred color depth policy. */
     *video_eotf = dsHDRSTANDARD_SDR;
     *matrix_coefficients = dsDISPLAY_MATRIXCOEFFICIENT_BT_709;
     *color_space = dsDISPLAY_COLORSPACE_RGB;
-    *color_depth = dsDISPLAY_COLORDEPTH_8BIT;
+    *color_depth = getEffectiveOutputColorDepth();
     *quantization_range = dsDISPLAY_QUANTIZATIONRANGE_FULL;
 
     hal_dbg("Current output settings: EOTF=%u, MatrixCoeff=%u, ColorSpace=%u, ColorDepth=0x%x, QuantRange=%u\n",
@@ -2675,11 +2754,13 @@ dsError_t dsColorDepthCapabilities(intptr_t handle, unsigned int *colorDepthCapa
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
-    /* RPi4 HDMI output is limited to 8-bit color depth across all modes and resolutions.
-     * VideoCore VI does not support 10-bit or 12-bit deep color output. */
-    *colorDepthCapability = dsDISPLAY_COLORDEPTH_8BIT;
+    /* modetest confirmed that it supports 8, 10, 12-bit and auto color depth */
+    *colorDepthCapability = dsDISPLAY_COLORDEPTH_8BIT |
+            dsDISPLAY_COLORDEPTH_10BIT |
+            dsDISPLAY_COLORDEPTH_12BIT |
+            dsDISPLAY_COLORDEPTH_AUTO;
 
-    hal_dbg("Color depth capabilities: 0x%x\n", *colorDepthCapability);
+    hal_info("Color depth capabilities: 0x%x\n", *colorDepthCapability);
     return dsERR_NONE;
 }
 
@@ -2722,8 +2803,7 @@ dsError_t dsGetPreferredColorDepth(intptr_t handle, dsDisplayColorDepth_t *color
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
-    /* RPi4 only supports 8-bit color depth; 8BIT is both the capability and the preferred depth. */
-    *colorDepth = dsDISPLAY_COLORDEPTH_8BIT;
+    *colorDepth = _preferredColorDepth;
 
     hal_dbg("Preferred color depth: 0x%x\n", *colorDepth);
     return dsERR_NONE;
@@ -2772,8 +2852,10 @@ dsError_t dsSetPreferredColorDepth(intptr_t handle, dsDisplayColorDepth_t colorD
         return dsERR_OPERATION_NOT_SUPPORTED;
     }
 
-    /* RPi4 color depth is hardware-fixed at 8-bit by VideoCore VI firmware.
-     * There is no TVService API to change the output color depth on this platform. */
-    hal_warn("Preferred color depth set requested, but color depth is fixed at 8-bit on RPi4.\n");
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    if (!applyPreferredColorDepthRequest(colorDepth)) {
+        hal_warn("max_bpc not supported by platform.\n");
+        return dsERR_OPERATION_NOT_SUPPORTED;
+    }
+    _preferredColorDepth = colorDepth;
+    return dsERR_NONE;
 }
