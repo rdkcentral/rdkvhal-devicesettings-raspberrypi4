@@ -42,6 +42,7 @@ static bool host_initialized = false;
 #define SYS_DT_COMPATIBLE "/sys/firmware/devicetree/base/compatible"
 #define PROC_DT_COMPATIBLE "/proc/device-tree/compatible"
 #define SOC_COMPATIBLE_PREFIX "brcm,bcm"
+#define SOC_ID_BUFFER_SIZE 8
 
 static size_t dsBoundedStrLen(const char *s, size_t max_len)
 {
@@ -234,7 +235,8 @@ dsError_t dsGetSocIDFromSDK(char *socID)
                 const char *comma = memchr(token_ptr, ',', token_len);
                 const char *chip_name = (comma != NULL) ? (comma + 1) : token_ptr;
                 size_t chip_len = token_len - (size_t)(chip_name - token_ptr);
-                size_t out_len = (chip_len < (BUFFER_SIZE - 1)) ? chip_len : (BUFFER_SIZE - 1);
+                size_t out_len = (chip_len < (SOC_ID_BUFFER_SIZE - 1)) ?
+                                 chip_len : (SOC_ID_BUFFER_SIZE - 1);
 
                 for (size_t i = 0; i < out_len; ++i) {
                     socID[i] = (char)toupper((unsigned char)chip_name[i]);
