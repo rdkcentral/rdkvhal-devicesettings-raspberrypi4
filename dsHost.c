@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>
+#include <ctype.h>
 
 #include "dsTypes.h"
 #include "dsError.h"
@@ -38,7 +39,15 @@ static bool host_initialized = false;
 
 #define SYS_CPU_TEMP "/sys/class/thermal/thermal_zone0/temp"
 #define PROC_CPUINFO "/proc/cpuinfo"
-#define SYS_SERIAL_NUMBER "/sys/firmware/devicetree/base/serial-number"
+#define SYS_DT_COMPATIBLE "/sys/firmware/devicetree/base/compatible"
+#define PROC_DT_COMPATIBLE "/proc/device-tree/compatible"
+#define SOC_COMPATIBLE_PREFIX "brcm,bcm"
+
+static size_t dsBoundedStrLen(const char *s, size_t max_len)
+{
+    const char *end = memchr(s, '\0', max_len);
+    return (end != NULL) ? (size_t)(end - s) : max_len;
+}
 
 /**
  * @brief Initializes the Host HAL sub-system
@@ -183,26 +192,65 @@ dsError_t dsGetSocIDFromSDK(char *socID)
         return dsERR_INVALID_PARAM;
     }
 
-    FILE *fp = fopen(SYS_SERIAL_NUMBER, "r");
-    if (fp == NULL) {
-        hal_err("Error opening cpuinfo file '%s'\n", SYS_SERIAL_NUMBER);
-        return dsERR_GENERAL;
-    }
-
+    const char *compatible_paths[] = {
+        SYS_DT_COMPATIBLE,
+        PROC_DT_COMPATIBLE
+    };
+    const size_t compatible_paths_count =
+        sizeof(compatible_paths) / sizeof(compatible_paths[0]);
+    const size_t prefix_len = strlen(SOC_COMPATIBLE_PREFIX);
     char cbuf[BUFFER_SIZE] = {0};
-    int len = fread(cbuf, 1, BUFFER_SIZE - 1, fp);
-    fclose(fp);
 
-    if (len == 0) {
-        hal_err("Error reading socID from '%s'\n", SYS_SERIAL_NUMBER);
-        return dsERR_GENERAL;
+    for (size_t path_idx = 0; path_idx < compatible_paths_count; ++path_idx) {
+        FILE *fp = fopen(compatible_paths[path_idx], "r");
+        if (fp == NULL) {
+            hal_warn("Unable to open compatible source '%s'\n",
+                     compatible_paths[path_idx]);
+            continue;
+        }
+
+        memset(cbuf, 0, sizeof(cbuf));
+        size_t len = fread(cbuf, 1, BUFFER_SIZE - 1, fp);
+        fclose(fp);
+
+        if (len == 0) {
+            hal_warn("No data read from compatible source '%s'\n",
+                     compatible_paths[path_idx]);
+            continue;
+        }
+
+        size_t pos = 0;
+        while (pos < len) {
+            size_t token_len = dsBoundedStrLen(&cbuf[pos], len - pos);
+
+            if (token_len == 0) {
+                ++pos;
+                continue;
+            }
+
+            if (token_len >= prefix_len &&
+                strncmp(&cbuf[pos], SOC_COMPATIBLE_PREFIX, prefix_len) == 0) {
+                const char *token_ptr = &cbuf[pos];
+                const char *comma = memchr(token_ptr, ',', token_len);
+                const char *chip_name = (comma != NULL) ? (comma + 1) : token_ptr;
+                size_t chip_len = token_len - (size_t)(chip_name - token_ptr);
+                size_t out_len = (chip_len < (BUFFER_SIZE - 1)) ? chip_len : (BUFFER_SIZE - 1);
+
+                for (size_t i = 0; i < out_len; ++i) {
+                    socID[i] = (char)toupper((unsigned char)chip_name[i]);
+                }
+                socID[out_len] = '\0';
+
+                hal_dbg("SOC ID is %s\n", socID);
+                return dsERR_NONE;
+            }
+
+            pos += token_len + 1;
+        }
     }
 
-    strncpy(socID, cbuf, len);
-    socID[len+1] = '\0';
-
-    hal_dbg("SOC ID is %s\n", socID);
-    return dsERR_NONE;
+    hal_err("Unable to determine SoC ID from compatible entries\n");
+    return dsERR_GENERAL;
 }
 
 /**
