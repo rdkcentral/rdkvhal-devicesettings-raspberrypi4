@@ -36,21 +36,14 @@ static uint32_t version_num = 0x10000;
 static bool host_initialized = false;
 
 #define BUFFER_SIZE 512
+#define SOCID_BUFFER_SIZE 20
 
 static bool soc_id_cached = false;
-static char cached_soc_id[BUFFER_SIZE] = {0};
+static char cached_soc_id[SOCID_BUFFER_SIZE] = {0};
 
 #define SYS_CPU_TEMP "/sys/class/thermal/thermal_zone0/temp"
 #define PROC_CPUINFO "/proc/cpuinfo"
-#define SYS_DT_COMPATIBLE "/sys/firmware/devicetree/base/compatible"
-#define PROC_DT_COMPATIBLE "/proc/device-tree/compatible"
-#define SOC_COMPATIBLE_PREFIX "brcm,bcm"
-
-static size_t dsBoundedStrLen(const char *s, size_t max_len)
-{
-    const char *end = memchr(s, '\0', max_len);
-    return (end != NULL) ? (size_t)(end - s) : max_len;
-}
+#define SYS_SERIAL_NUMBER "/sys/firmware/devicetree/base/serial-number"
 
 /**
  * @brief Initializes the Host HAL sub-system
@@ -165,18 +158,14 @@ dsError_t dsGetCPUTemperature(float *cpuTemperature)
 /**
  * @brief Returns the SOC ID
  *
- * @param[out] socID    - SoC model identifier derived from the device tree
- * compatible string (e.g. "BCM2711")
+ * @param[out] socID    - 20 byte Chip ID programmed including a null terminator to the CHIP One Time Programmable area.
  *
  * @return dsError_t                        - Status
  * @retval dsERR_NONE                       - Success
  * @retval dsERR_NOT_INITIALIZED            - Module is not initialised
- * @retval dsERR_INVALID_PARAM              - Parameter passed to this function
- * is invalid
- * @retval dsERR_OPERATION_NOT_SUPPORTED    - The attempted operation is not
- * supported
- * @retval dsERR_GENERAL                    - Underlying undefined platform
- * error
+ * @retval dsERR_INVALID_PARAM              - Parameter passed to this function is invalid
+ * @retval dsERR_OPERATION_NOT_SUPPORTED    - The attempted operation is not supported
+ * @retval dsERR_GENERAL                    - Underlying undefined platform error
  *
  * @pre dsHostInit() must be called before this function
  *
@@ -196,72 +185,40 @@ dsError_t dsGetSocIDFromSDK(char *socID)
     }
 
     if (soc_id_cached) {
-        strncpy(socID, cached_soc_id, BUFFER_SIZE - 1);
-        socID[BUFFER_SIZE - 1] = '\0';
+        strncpy(socID, cached_soc_id, SOCID_BUFFER_SIZE - 1);
+        socID[SOCID_BUFFER_SIZE - 1] = '\0';
         hal_dbg("SOC ID is %s (cached)\n", socID);
         return dsERR_NONE;
     }
 
-    const char *compatible_paths[] = {
-        SYS_DT_COMPATIBLE,
-        PROC_DT_COMPATIBLE
-    };
-    const size_t compatible_paths_count =
-        sizeof(compatible_paths) / sizeof(compatible_paths[0]);
-    const size_t prefix_len = strlen(SOC_COMPATIBLE_PREFIX);
-    char cbuf[BUFFER_SIZE] = {0};
-
-    for (size_t path_idx = 0; path_idx < compatible_paths_count; ++path_idx) {
-        FILE *fp = fopen(compatible_paths[path_idx], "rb");
-        if (fp == NULL) {
-            hal_warn("Unable to open compatible source '%s'\n",
-                     compatible_paths[path_idx]);
-            continue;
-        }
-
-        memset(cbuf, 0, sizeof(cbuf));
-        size_t len = fread(cbuf, 1, BUFFER_SIZE - 1, fp);
-        fclose(fp);
-
-        if (len == 0) {
-            hal_warn("No data read from compatible source '%s'\n",
-                     compatible_paths[path_idx]);
-            continue;
-        }
-
-        size_t pos = 0;
-        while (pos < len) {
-            size_t token_len = dsBoundedStrLen(&cbuf[pos], len - pos);
-
-            if (token_len == 0) {
-                ++pos;
-                continue;
-            }
-
-            if (token_len >= prefix_len &&
-                strncmp(&cbuf[pos], SOC_COMPATIBLE_PREFIX, prefix_len) == 0) {
-                const char *token_ptr = &cbuf[pos];
-                const char *comma = memchr(token_ptr, ',', token_len);
-                const char *chip_name = (comma != NULL) ? (comma + 1) : token_ptr;
-                size_t chip_len = token_len - (size_t)(chip_name - token_ptr);
-                for (size_t i = 0; i < chip_len; ++i) {
-                    socID[i] = (char)toupper((unsigned char)chip_name[i]);
-                }
-                socID[chip_len] = '\0';
-                strncpy(cached_soc_id, socID, BUFFER_SIZE - 1);
-                cached_soc_id[BUFFER_SIZE - 1] = '\0';
-                soc_id_cached = true;
-
-                hal_dbg("SOC ID is %s\n", socID);
-                return dsERR_NONE;
-            }
-
-            pos += token_len + 1;
-        }
+    FILE *fp = fopen(SYS_SERIAL_NUMBER, "r");
+    if (fp == NULL) {
+        hal_err("Error opening cpuinfo file '%s'\n", SYS_SERIAL_NUMBER);
+        return dsERR_GENERAL;
     }
 
-    hal_err("Unable to determine SoC ID from compatible entries\n");
-    return dsERR_GENERAL;
+    char cbuf[SOCID_BUFFER_SIZE] = {0};
+    size_t len = fread(cbuf, 1, SOCID_BUFFER_SIZE - 1, fp);
+    fclose(fp);
+
+    if (len == 0) {
+        hal_err("Error reading socID from '%s'\n", SYS_SERIAL_NUMBER);
+        return dsERR_GENERAL;
+    }
+
+    cbuf[len] = '\0';
+    while (len > 0 && isspace((unsigned char)cbuf[len - 1])) {
+        cbuf[--len] = '\0';
+    }
+
+    strncpy(socID, cbuf, SOCID_BUFFER_SIZE - 1);
+    socID[SOCID_BUFFER_SIZE - 1] = '\0';
+    strncpy(cached_soc_id, socID, SOCID_BUFFER_SIZE - 1);
+    cached_soc_id[SOCID_BUFFER_SIZE - 1] = '\0';
+    soc_id_cached = true;
+
+    hal_dbg("SOC ID is %s\n", socID);
+    return dsERR_NONE;
 }
 
 /**
