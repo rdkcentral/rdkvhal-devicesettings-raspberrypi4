@@ -191,34 +191,82 @@ dsError_t dsGetSocIDFromSDK(char *socID)
         return dsERR_NONE;
     }
 
-    FILE *fp = fopen(SYS_SERIAL_NUMBER, "r");
+    FILE *fp = fopen(SYS_SERIAL_NUMBER, "rb");
+    if (fp != NULL) {
+        char cbuf[SOCID_BUFFER_SIZE] = {0};
+        size_t len = fread(cbuf, 1, SOCID_BUFFER_SIZE - 1, fp);
+        fclose(fp);
+
+        if (len > 0) {
+            cbuf[len] = '\0';
+            while (len > 0 && isspace((unsigned char)cbuf[len - 1])) {
+                cbuf[--len] = '\0';
+            }
+
+            if (len > 0) {
+                strncpy(socID, cbuf, SOCID_BUFFER_SIZE - 1);
+                socID[SOCID_BUFFER_SIZE - 1] = '\0';
+                strncpy(cached_soc_id, socID, SOCID_BUFFER_SIZE - 1);
+                cached_soc_id[SOCID_BUFFER_SIZE - 1] = '\0';
+                soc_id_cached = true;
+
+                hal_dbg("SOC ID is %s\n", socID);
+                return dsERR_NONE;
+            }
+        }
+
+        hal_warn("Serial number from '%s' is empty, trying '%s'\n",
+                 SYS_SERIAL_NUMBER, PROC_CPUINFO);
+    } else {
+        hal_warn("Unable to open '%s', trying '%s'\n",
+                 SYS_SERIAL_NUMBER, PROC_CPUINFO);
+    }
+
+    fp = fopen(PROC_CPUINFO, "r");
     if (fp == NULL) {
-        hal_err("Error opening cpuinfo file '%s'\n", SYS_SERIAL_NUMBER);
+        hal_err("Error opening cpuinfo file '%s'\n", PROC_CPUINFO);
         return dsERR_GENERAL;
     }
 
-    char cbuf[SOCID_BUFFER_SIZE] = {0};
-    size_t len = fread(cbuf, 1, SOCID_BUFFER_SIZE - 1, fp);
+    char line[BUFFER_SIZE] = {0};
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        if (strncmp(line, "Serial", 6) != 0) {
+            continue;
+        }
+
+        char *value = strchr(line, ':');
+        if (value == NULL) {
+            continue;
+        }
+
+        ++value;
+        while (*value != '\0' && isspace((unsigned char)*value)) {
+            ++value;
+        }
+
+        strncpy(socID, value, SOCID_BUFFER_SIZE - 1);
+        socID[SOCID_BUFFER_SIZE - 1] = '\0';
+
+        size_t len = strlen(socID);
+        while (len > 0 && isspace((unsigned char)socID[len - 1])) {
+            socID[--len] = '\0';
+        }
+
+        if (len > 0) {
+            strncpy(cached_soc_id, socID, SOCID_BUFFER_SIZE - 1);
+            cached_soc_id[SOCID_BUFFER_SIZE - 1] = '\0';
+            soc_id_cached = true;
+            fclose(fp);
+
+            hal_dbg("SOC ID is %s\n", socID);
+            return dsERR_NONE;
+        }
+    }
+
     fclose(fp);
-
-    if (len == 0) {
-        hal_err("Error reading socID from '%s'\n", SYS_SERIAL_NUMBER);
-        return dsERR_GENERAL;
-    }
-
-    cbuf[len] = '\0';
-    while (len > 0 && isspace((unsigned char)cbuf[len - 1])) {
-        cbuf[--len] = '\0';
-    }
-
-    strncpy(socID, cbuf, SOCID_BUFFER_SIZE - 1);
-    socID[SOCID_BUFFER_SIZE - 1] = '\0';
-    strncpy(cached_soc_id, socID, SOCID_BUFFER_SIZE - 1);
-    cached_soc_id[SOCID_BUFFER_SIZE - 1] = '\0';
-    soc_id_cached = true;
-
-    hal_dbg("SOC ID is %s\n", socID);
-    return dsERR_NONE;
+    hal_err("Unable to determine SoC ID from '%s' or '%s'\n",
+            SYS_SERIAL_NUMBER, PROC_CPUINFO);
+    return dsERR_GENERAL;
 }
 
 /**
