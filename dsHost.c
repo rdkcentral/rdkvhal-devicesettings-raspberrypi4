@@ -37,12 +37,14 @@ static bool host_initialized = false;
 
 #define BUFFER_SIZE 512
 
+static bool soc_id_cached = false;
+static char cached_soc_id[BUFFER_SIZE] = {0};
+
 #define SYS_CPU_TEMP "/sys/class/thermal/thermal_zone0/temp"
 #define PROC_CPUINFO "/proc/cpuinfo"
 #define SYS_DT_COMPATIBLE "/sys/firmware/devicetree/base/compatible"
 #define PROC_DT_COMPATIBLE "/proc/device-tree/compatible"
 #define SOC_COMPATIBLE_PREFIX "brcm,bcm"
-#define SOC_ID_BUFFER_SIZE 8
 
 static size_t dsBoundedStrLen(const char *s, size_t max_len)
 {
@@ -163,8 +165,8 @@ dsError_t dsGetCPUTemperature(float *cpuTemperature)
 /**
  * @brief Returns the SOC ID
  *
- * @param[out] socID    - 8 byte Chip ID programmed to the CHIP One Time
- * Programmable area
+ * @param[out] socID    - SoC model identifier derived from the device tree
+ * compatible string (e.g. "BCM2711")
  *
  * @return dsError_t                        - Status
  * @retval dsERR_NONE                       - Success
@@ -193,6 +195,13 @@ dsError_t dsGetSocIDFromSDK(char *socID)
         return dsERR_INVALID_PARAM;
     }
 
+    if (soc_id_cached) {
+        strncpy(socID, cached_soc_id, BUFFER_SIZE - 1);
+        socID[BUFFER_SIZE - 1] = '\0';
+        hal_dbg("SOC ID is %s (cached)\n", socID);
+        return dsERR_NONE;
+    }
+
     const char *compatible_paths[] = {
         SYS_DT_COMPATIBLE,
         PROC_DT_COMPATIBLE
@@ -203,7 +212,7 @@ dsError_t dsGetSocIDFromSDK(char *socID)
     char cbuf[BUFFER_SIZE] = {0};
 
     for (size_t path_idx = 0; path_idx < compatible_paths_count; ++path_idx) {
-        FILE *fp = fopen(compatible_paths[path_idx], "r");
+        FILE *fp = fopen(compatible_paths[path_idx], "rb");
         if (fp == NULL) {
             hal_warn("Unable to open compatible source '%s'\n",
                      compatible_paths[path_idx]);
@@ -235,13 +244,13 @@ dsError_t dsGetSocIDFromSDK(char *socID)
                 const char *comma = memchr(token_ptr, ',', token_len);
                 const char *chip_name = (comma != NULL) ? (comma + 1) : token_ptr;
                 size_t chip_len = token_len - (size_t)(chip_name - token_ptr);
-                size_t out_len = (chip_len < (SOC_ID_BUFFER_SIZE - 1)) ?
-                                 chip_len : (SOC_ID_BUFFER_SIZE - 1);
-
-                for (size_t i = 0; i < out_len; ++i) {
+                for (size_t i = 0; i < chip_len; ++i) {
                     socID[i] = (char)toupper((unsigned char)chip_name[i]);
                 }
-                socID[out_len] = '\0';
+                socID[chip_len] = '\0';
+                strncpy(cached_soc_id, socID, BUFFER_SIZE - 1);
+                cached_soc_id[BUFFER_SIZE - 1] = '\0';
+                soc_id_cached = true;
 
                 hal_dbg("SOC ID is %s\n", socID);
                 return dsERR_NONE;
