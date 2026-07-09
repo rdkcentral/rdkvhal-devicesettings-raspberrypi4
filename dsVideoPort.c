@@ -1908,19 +1908,18 @@ dsError_t  dsIsDisplaySurround(intptr_t handle, bool *surround)
     }
 
     bool isConnected = false;
+    *surround = false;
     dsError_t connRet = dsIsDisplayConnected(handle, &isConnected);
     if (connRet != dsERR_NONE || !isConnected) {
         hal_err("Display not connected; cannot determine surround support\n");
-        return dsERR_GENERAL;
+        return dsERR_NONE;
     }
-
-    *surround = false;
     unsigned char *edid_buf = NULL;
     int edid_len = 0;
 
     if (getHdmiEdidForConnectedDisplay(dsVIDEOPORT_TYPE_HDMI, 0, &edid_buf, &edid_len) != dsERR_NONE) {
         hal_warn("EDID unavailable; cannot determine surround support\n");
-        return dsERR_GENERAL;
+        return dsERR_NONE;
     }
 
     SurroundParseContext_t ctx = { .surround = surround };
@@ -1971,7 +1970,7 @@ dsError_t dsGetSurroundMode(intptr_t handle, int *surround)
     dsError_t connRet = dsIsDisplayConnected(handle, &isConnected);
     if (connRet != dsERR_NONE || !isConnected) {
         hal_err("Display not connected; cannot determine surround mode\n");
-        return dsERR_GENERAL;
+        return dsERR_NONE;
     }
 
     intptr_t audioHandle = (intptr_t)NULL;
