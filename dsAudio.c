@@ -48,6 +48,7 @@ typedef struct _AOPHandle_t {
     int m_index;
     int m_nativeHandle;
     bool m_IsEnabled;
+    bool m_IsMuted;
 } AOPHandle_t;
 
 static AOPHandle_t _AOPHandles[dsAUDIOPORT_TYPE_MAX][2] = {};
@@ -445,11 +446,13 @@ dsError_t dsAudioPortInit()
     _AOPHandles[dsAUDIOPORT_TYPE_HDMI][0].m_nativeHandle = dsAUDIOPORT_TYPE_HDMI;
     _AOPHandles[dsAUDIOPORT_TYPE_HDMI][0].m_index = 0;
     _AOPHandles[dsAUDIOPORT_TYPE_HDMI][0].m_IsEnabled = true;
+    _AOPHandles[dsAUDIOPORT_TYPE_HDMI][0].m_IsMuted = false;
 
     _AOPHandles[dsAUDIOPORT_TYPE_SPDIF][0].m_vType = dsAUDIOPORT_TYPE_SPDIF;
     _AOPHandles[dsAUDIOPORT_TYPE_SPDIF][0].m_nativeHandle = dsAUDIOPORT_TYPE_SPDIF;
     _AOPHandles[dsAUDIOPORT_TYPE_SPDIF][0].m_index = 0;
     _AOPHandles[dsAUDIOPORT_TYPE_SPDIF][0].m_IsEnabled = true;
+    _AOPHandles[dsAUDIOPORT_TYPE_SPDIF][0].m_IsMuted = false;
 
     hal_info("Audio HDMI Handle: %p\n", (intptr_t)&_AOPHandles[dsAUDIOPORT_TYPE_HDMI][0]);
     hal_info("Audio HDMI m_vType: %d\n", _AOPHandles[dsAUDIOPORT_TYPE_HDMI][0].m_vType);
@@ -797,14 +800,18 @@ dsError_t dsIsAudioMute(intptr_t handle, bool *muted)
     snd_mixer_t *mixer = NULL;
     snd_mixer_elem_t *mixer_elem = NULL;
     if (dsInitAudioMixerElem(s_card, &mixer, &mixer_elem, &usingSoftvol) != 0) {
-        hal_warn("ALSA mixer not available on HDMI card; mute query unsupported.\n");
+        hal_warn("ALSA mixer not available on HDMI card; using software mute state.\n");
         dsCloseMixerHandle(&mixer);
-        return dsERR_OPERATION_NOT_SUPPORTED;
+        AOPHandle_t *audioPort = (AOPHandle_t *)handle;
+        *muted = audioPort->m_IsMuted;
+        return dsERR_NONE;
     }
     if (mixer_elem == NULL) {
-        hal_warn("No simple mixer control on HDMI card; mute query unsupported.\n");
+        hal_warn("No simple mixer control on HDMI card; using software mute state.\n");
         dsCloseMixerHandle(&mixer);
-        return dsERR_OPERATION_NOT_SUPPORTED;
+        AOPHandle_t *audioPort = (AOPHandle_t *)handle;
+        *muted = audioPort->m_IsMuted;
+        return dsERR_NONE;
     }
     if (snd_mixer_selem_has_playback_switch(mixer_elem)) {
         int mute_status;
@@ -817,9 +824,11 @@ dsError_t dsIsAudioMute(intptr_t handle, bool *muted)
         (void)max;
         *muted = (vol <= min);
     } else {
-        hal_warn("No playback switch on HDMI card; mute query unsupported.\n");
+        hal_warn("No playback switch on HDMI card; using software mute state.\n");
         dsCloseMixerHandle(&mixer);
-        return dsERR_OPERATION_NOT_SUPPORTED;
+        AOPHandle_t *audioPort = (AOPHandle_t *)handle;
+        *muted = audioPort->m_IsMuted;
+        return dsERR_NONE;
     }
     dsCloseMixerHandle(&mixer);
     return dsERR_NONE;
@@ -862,18 +871,26 @@ dsError_t dsSetAudioMute(intptr_t handle, bool mute)
     bool usingSoftvol = false;
     snd_mixer_t *mixer = NULL;
     snd_mixer_elem_t *mixer_elem = NULL;
+    AOPHandle_t *audioPort = (AOPHandle_t *)handle;
     if (dsInitAudioMixerElem(s_card, &mixer, &mixer_elem, &usingSoftvol) != 0) {
-        hal_warn("ALSA mixer not available on HDMI card; mute control unsupported.\n");
+        hal_warn("ALSA mixer not available on HDMI card; using software mute state.\n");
         dsCloseMixerHandle(&mixer);
-        return dsERR_OPERATION_NOT_SUPPORTED;
+        audioPort->m_IsMuted = mute;
+        return dsERR_NONE;
     }
     if (mixer_elem == NULL) {
-        hal_warn("No simple mixer control on HDMI card; mute control unsupported.\n");
+        hal_warn("No simple mixer control on HDMI card; using software mute state.\n");
         dsCloseMixerHandle(&mixer);
-        return dsERR_OPERATION_NOT_SUPPORTED;
+        audioPort->m_IsMuted = mute;
+        return dsERR_NONE;
     }
     if (snd_mixer_selem_has_playback_switch(mixer_elem)) {
-        snd_mixer_selem_set_playback_switch_all(mixer_elem, !mute);
+        if (snd_mixer_selem_set_playback_switch_all(mixer_elem, !mute) != 0) {
+            hal_err("Failed to set playback switch for mute control.\n");
+            dsCloseMixerHandle(&mixer);
+            return dsERR_GENERAL;
+        }
+        audioPort->m_IsMuted = mute;
         if (mute) {
             hal_dbg("Audio Mute success\n");
         } else {
@@ -892,21 +909,31 @@ dsError_t dsSetAudioMute(intptr_t handle, bool mute)
             if (cur > min) {
                 _softvolSavedVolume = cur;
             }
-            snd_mixer_selem_set_playback_volume_all(mixer_elem, min);
+            if (snd_mixer_selem_set_playback_volume_all(mixer_elem, min) != 0) {
+                hal_err("Failed to set playback volume for mute.\n");
+                dsCloseMixerHandle(&mixer);
+                return dsERR_GENERAL;
+            }
         } else {
             long target = _softvolSavedVolume;
             if (target <= min || target > max) {
                 target = min + ((max - min) * 75 / 100);
             }
-            snd_mixer_selem_set_playback_volume_all(mixer_elem, target);
+            if (snd_mixer_selem_set_playback_volume_all(mixer_elem, target) != 0) {
+                hal_err("Failed to set playback volume for unmute.\n");
+                dsCloseMixerHandle(&mixer);
+                return dsERR_GENERAL;
+            }
         }
+        audioPort->m_IsMuted = mute;
         dsCloseMixerHandle(&mixer);
         return dsERR_NONE;
     }
 
-    hal_warn("No playback switch on HDMI card; mute control unsupported.\n");
+    hal_warn("No playback switch on HDMI card; using software mute state.\n");
+    audioPort->m_IsMuted = mute;
     dsCloseMixerHandle(&mixer);
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    return dsERR_NONE;
 }
 
 /**
