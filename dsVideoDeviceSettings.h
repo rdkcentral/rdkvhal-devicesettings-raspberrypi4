@@ -38,17 +38,13 @@ extern dsVideoConfig_t  kVideoDeviceConfigs[];
 extern int              kVideoDeviceConfigs_size;
 extern int              kNumVideoDevices;
 #else /* !DS_HAL_EXPORT_CONFIG_SYMBOLS */
-/* Static fallback tables for middleware compile-time dsUTL_DIM(kConfigs). */
-static dsVideoZoom_t kFallbackSupportedDFCs[] DS_SETTINGS_FALLBACK_UNUSED = {
-	dsVIDEO_ZOOM_NONE, dsVIDEO_ZOOM_FULL, dsVIDEO_ZOOM_PLATFORM
-};
 
 #define kNumVideoDevices 1
 
 static dsVideoConfig_t kConfigs[] DS_SETTINGS_FALLBACK_UNUSED = {
 	{
-		dsUTL_DIM(kFallbackSupportedDFCs),
-		kFallbackSupportedDFCs,
+		0,
+		NULL,
 		dsVIDEO_ZOOM_NONE,
 	},
 };
