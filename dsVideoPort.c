@@ -111,7 +111,7 @@ static unsigned int getEffectiveOutputColorDepth(void)
         case dsDISPLAY_COLORDEPTH_UNKNOWN:
         default:
             /* AUTO/UNKNOWN falls back to default max bpc request path (10-bit). */
-            return (unsigned int)dsDISPLAY_COLORDEPTH_10BIT;
+            return (unsigned int)dsDISPLAY_COLORDEPTH_AUTO;
     }
 }
 

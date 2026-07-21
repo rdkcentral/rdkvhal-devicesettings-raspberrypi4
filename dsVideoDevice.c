@@ -523,17 +523,9 @@ dsError_t dsSetDisplayframerate(intptr_t handle, char *framerate)
 dsError_t dsRegisterFrameratePreChangeCB(dsRegisterFrameratePreChangeCB_t CBFunc)
 {
     hal_info("invoked.\n");
-    if (false == _bVideoDeviceInited) {
-        return dsERR_NOT_INITIALIZED;
-    }
-    if (CBFunc == NULL) {
-        hal_err("Invalid parameter, CBFunc: %p\n", CBFunc);
-        return dsERR_INVALID_PARAM;
-    }
-    pthread_mutex_lock(&_framerateCbMutex);
-    _frameratePreCB = CBFunc;
-    pthread_mutex_unlock(&_framerateCbMutex);
-    return dsERR_NONE;
+    (void)CBFunc;
+    // RPi4 is a source device — framerate change events not applicable. Always return NOT_SUPPORTED.
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
 /**
@@ -562,15 +554,7 @@ dsError_t dsRegisterFrameratePreChangeCB(dsRegisterFrameratePreChangeCB_t CBFunc
 dsError_t dsRegisterFrameratePostChangeCB(dsRegisterFrameratePostChangeCB_t CBFunc)
 {
     hal_info("invoked.\n");
-    if (false == _bVideoDeviceInited) {
-        return dsERR_NOT_INITIALIZED;
-    }
-    if (CBFunc == NULL) {
-        hal_err("Invalid parameter, CBFunc: %p\n", CBFunc);
-        return dsERR_INVALID_PARAM;
-    }
-    pthread_mutex_lock(&_framerateCbMutex);
-    _frameratePostCB = CBFunc;
-    pthread_mutex_unlock(&_framerateCbMutex);
-    return dsERR_NONE;
+    (void)CBFunc;
+    // RPi4 is a source device — framerate change events not applicable. Always return NOT_SUPPORTED.
+    return dsERR_OPERATION_NOT_SUPPORTED;
 }

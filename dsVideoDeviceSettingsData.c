@@ -30,18 +30,13 @@
 #include "dsTypes.h"
 #include "dsVideoDeviceSettings.h"
 
-/* Supporting arrays - file-local; not exported and not looked up by dlsym */
-static dsVideoZoom_t kSupportedDFCs[] = {
-    dsVIDEO_ZOOM_NONE, dsVIDEO_ZOOM_FULL, dsVIDEO_ZOOM_PLATFORM
-};
-
 /* Exported configuration tables - looked up via dlsym() by the middleware */
 int kNumVideoDevices = 1;
 
 dsVideoConfig_t kVideoDeviceConfigs[] = {
     {
-        /*.numSupportedDFCs = */ dsUTL_DIM(kSupportedDFCs),
-        /*.supportedDFCs = */    kSupportedDFCs,
+        /*.numSupportedDFCs = */ 0,
+        /*.supportedDFCs = */    NULL,
         /*.defaultDFC = */       dsVIDEO_ZOOM_NONE,
     },
 };
