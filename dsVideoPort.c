@@ -933,6 +933,25 @@ dsError_t dsEnableVideoPort(intptr_t handle, bool enabled)
             hal_err("Failed to run '%s', got response '%s'\n", cmd, resp);
             return dsERR_GENERAL;
         }
+        bool currentState = false;
+        bool stateMatched = false;
+        bool drmConnected = false;
+        for (int retry = 0; retry < 5; retry++) {
+            if (drm_get_hdmi_connector_state(&drmConnected, &currentState)) {
+                if (currentState == enabled) {
+                    stateMatched = true;
+                    break;
+                }
+            }
+            usleep(3000);
+        }
+       
+            if (!stateMatched) {
+                hal_err("DRM state did not reach expected state. Expected=%d Current=%d\n",
+                    enabled,
+                    currentState);
+            }
+
     } else {
         hal_err("Unsupported video port type: %d\n", vopHandle->m_vType);
         return dsERR_OPERATION_NOT_SUPPORTED;
