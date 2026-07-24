@@ -44,6 +44,7 @@
 #include "dshalLogger.h"
 #include "dsVideoPortSettings.h"
 #include "dsVideoDevice.h"
+#define _DEFAULT_SOURCE
 
 /* Forward declarations */
 dsError_t dsGetAudioEncoding(intptr_t handle, dsAudioEncoding_t *encoding);
