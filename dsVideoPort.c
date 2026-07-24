@@ -19,6 +19,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#define _DEFAULT_SOURCE
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -44,7 +45,6 @@
 #include "dshalLogger.h"
 #include "dsVideoPortSettings.h"
 #include "dsVideoDevice.h"
-#define _DEFAULT_SOURCE
 
 /* Forward declarations */
 dsError_t dsGetAudioEncoding(intptr_t handle, dsAudioEncoding_t *encoding);
