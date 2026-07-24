@@ -19,6 +19,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#define _DEFAULT_SOURCE
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
