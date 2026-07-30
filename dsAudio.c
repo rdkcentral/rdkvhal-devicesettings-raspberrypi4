@@ -469,6 +469,48 @@ dsError_t dsAudioPortInit()
     hal_info("Audio SPDIF m_index: %d\n", _AOPHandles[dsAUDIOPORT_TYPE_SPDIF][0].m_index);
     hal_info("Audio SPDIF m_IsEnabled: %d\n", _AOPHandles[dsAUDIOPORT_TYPE_SPDIF][0].m_IsEnabled);
 
+    /*
+     * Force ALSA softvol plugin initialization at boot.
+     *
+     * Root cause: The ALSA_SOFTVOL_ELEMENT_NAME ("SoftMaster") control is a virtual mixer
+     * element registered by the ALSA softvol plugin only when the ALSA_CARD_DEFAULT ("default")
+     * PCM device is first opened by any process. On a fresh boot, before any audio playback,
+     * no process has opened the device so the control does not exist and dsGetAudioLevel /
+     * dsSetAudioLevel fail with dsERR_OPERATION_NOT_SUPPORTED.
+     *
+     * Fix: Try to open and immediately close a dummy PCM handle on each candidate card at init.
+     * This triggers the softvol plugin to register ALSA_SOFTVOL_ELEMENT_NAME so volume APIs
+     * work from boot without waiting for the first playback stream.
+     */
+    {
+        const char *softvol_candidates[] = {
+            ALSA_CARD_DEFAULT,
+            ALSA_CARD_NAME,
+            ALSA_CARD_INDEX_PRIMARY,
+            ALSA_CARD_NAME_FALLBACK,
+            ALSA_CARD_INDEX_FALLBACK
+        };
+        bool softvol_initialized = false;
+        for (size_t i = 0; i < sizeof(softvol_candidates) / sizeof(softvol_candidates[0]); i++) {
+            snd_pcm_t *dummy_pcm = NULL;
+            int pcm_ret = snd_pcm_open(&dummy_pcm, softvol_candidates[i],
+                                        SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK);
+            if (pcm_ret == 0) {
+                hal_info("Softvol init: opened PCM on '%s' to register '%s' control\n",
+                         softvol_candidates[i], ALSA_SOFTVOL_ELEMENT_NAME);
+                snd_pcm_close(dummy_pcm);
+                softvol_initialized = true;
+                break;
+            }
+            hal_info("Softvol init: '%s' PCM open failed (%s), trying next\n",
+                     softvol_candidates[i], snd_strerror(pcm_ret));
+        }
+        if (!softvol_initialized) {
+            hal_warn("Softvol init: no PCM card opened; '%s' may be absent until first playback\n",
+                     ALSA_SOFTVOL_ELEMENT_NAME);
+        }
+    }
+
     /* HDMI audio status is now managed via DRM/inotify watcher in display module */
     dsGetdBRange();
     _bIsAudioInitialized = true;
