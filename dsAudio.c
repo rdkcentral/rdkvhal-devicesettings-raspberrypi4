@@ -43,6 +43,7 @@
 #define ALSA_IEC958_CTL_NAME "IEC958 Playback Default"
 
 #define MAX_LINEAR_DB_SCALE 24
+#define LANG_CODE_BUF_SIZE 4
 
 typedef struct _AOPHandle_t {
     dsAudioPortType_t m_vType;
@@ -60,8 +61,8 @@ static bool _isms11Enabled = false;
 static dsAudioStereoMode_t _stereoModeHDMI = dsAUDIO_STEREO_STEREO;
 static bool _bIsAudioInitialized = false;
 static long _softvolSavedVolume = -1;
-static char _primaryLanguage[4] = "";
-static char _secondaryLanguage[4] = "";
+static char _primaryLanguage[LANG_CODE_BUF_SIZE] = "";
+static char _secondaryLanguage[LANG_CODE_BUF_SIZE] = "";
 
 dsAudioOutPortConnectCB_t _halhdmiaudioCB = NULL;
 dsAudioFormatUpdateCB_t _halaudioformatCB = NULL;
@@ -3641,7 +3642,10 @@ dsError_t dsGetFaderControl(intptr_t handle, int* mixerbalance)
 }
 
 /**
- * @brief Validates that a language string is a proper 3-letter code.
+ * @brief Validates that a language string is a proper 3-letter ISO 639-3 code.
+ *
+ * Middleware validates and sends the language string against ISO 639-3; this is a format guard
+ * ensuring exactly 3 lowercase alphabetic characters.
  *
  * @param[in] pLang  - Language string to validate
  *
@@ -3652,12 +3656,15 @@ static bool dsAudioIsValidAc4Lang(const char *pLang)
     if (pLang == NULL) {
         return false;
     }
-    for (int i = 0; i < 3; i++) {
+    if (strlen(pLang) != LANG_CODE_BUF_SIZE - 1) {
+        return false;
+    }
+    for (int i = 0; i < LANG_CODE_BUF_SIZE - 1; i++) {
         if (pLang[i] < 'a' || pLang[i] > 'z') {
             return false;
         }
     }
-    return (pLang[3] == '\0');
+    return true;
 }
 
 /**
@@ -3695,8 +3702,7 @@ dsError_t dsSetPrimaryLanguage(intptr_t handle, const char* pLang)
         hal_err("Invalid AC4 language code: not a valid 3-letter ISO 639-3 string.\n");
         return dsERR_INVALID_PARAM;
     }
-    memcpy(_primaryLanguage, pLang, 3U);
-    _primaryLanguage[3] = '\0';
+    memcpy(_primaryLanguage, pLang, LANG_CODE_BUF_SIZE);
     return dsERR_NONE;
 }
 
@@ -3731,8 +3737,7 @@ dsError_t dsGetPrimaryLanguage(intptr_t handle, char* pLang)
         hal_err("Invalid parameters; handle(%p) or pLang(%p).\n", handle, pLang);
         return dsERR_INVALID_PARAM;
     }
-    strncpy(pLang, _primaryLanguage, 4);
-    pLang[3] = '\0';
+    memcpy(pLang, _primaryLanguage, LANG_CODE_BUF_SIZE);
     return dsERR_NONE;
 }
 
@@ -3774,8 +3779,7 @@ dsError_t dsSetSecondaryLanguage(intptr_t handle, const char* sLang)
         hal_err("Invalid AC4 language code: not a valid 3-letter ISO 639-3 string.\n");
         return dsERR_INVALID_PARAM;
     }
-    memcpy(_secondaryLanguage, sLang, 3U);
-    _secondaryLanguage[3] = '\0';
+    memcpy(_secondaryLanguage, sLang, LANG_CODE_BUF_SIZE);
     return dsERR_NONE;
 }
 
@@ -3810,8 +3814,7 @@ dsError_t dsGetSecondaryLanguage(intptr_t handle, char* sLang)
         hal_err("Invalid parameters; handle(%p) or sLang(%p).\n", handle, sLang);
         return dsERR_INVALID_PARAM;
     }
-    strncpy(sLang, _secondaryLanguage, 4);
-    sLang[3] = '\0';
+    memcpy(sLang, _secondaryLanguage, LANG_CODE_BUF_SIZE);
     return dsERR_NONE;
 }
 
