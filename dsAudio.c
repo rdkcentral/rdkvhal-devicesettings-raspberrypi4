@@ -20,6 +20,7 @@
  */
 
 #include <sys/types.h>
+#include <string.h>
 #include "dsAudio.h"
 #include <stdint.h>
 #include <math.h>
@@ -59,6 +60,8 @@ static bool _isms11Enabled = false;
 static dsAudioStereoMode_t _stereoModeHDMI = dsAUDIO_STEREO_STEREO;
 static bool _bIsAudioInitialized = false;
 static long _softvolSavedVolume = -1;
+static char _primaryLanguage[4] = "";
+static char _secondaryLanguage[4] = "";
 
 dsAudioOutPortConnectCB_t _halhdmiaudioCB = NULL;
 dsAudioFormatUpdateCB_t _halaudioformatCB = NULL;
@@ -3596,6 +3599,26 @@ dsError_t dsGetFaderControl(intptr_t handle, int* mixerbalance)
 }
 
 /**
+ * @brief Validates that a language string is a proper 3-letter code.
+ *
+ * @param[in] pLang  - Language string to validate
+ *
+ * @return true if pLang is exactly 3 lowercase alphabetic characters, false otherwise.
+ */
+static bool dsAudioIsValidAc4Lang(const char *pLang)
+{
+    if (pLang == NULL) {
+        return false;
+    }
+    for (int i = 0; i < 3; i++) {
+        if (pLang[i] < 'a' || pLang[i] > 'z') {
+            return false;
+        }
+    }
+    return (pLang[3] == '\0');
+}
+
+/**
  * @brief Sets AC4 Primary language
  *
  * This function will set AC4 Primary language of the playback content and it is port independent.
@@ -3626,8 +3649,13 @@ dsError_t dsSetPrimaryLanguage(intptr_t handle, const char* pLang)
         hal_err("Invalid parameters; handle(%p) or pLang(%p).\n", handle, pLang);
         return dsERR_INVALID_PARAM;
     }
-    /* RPi does not support AC4 language selection controls, hence this operation is not supported. */
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    if (!dsAudioIsValidAc4Lang(pLang)) {
+        hal_err("Invalid AC4 language code: not a valid 3-letter ISO 639-3 string.\n");
+        return dsERR_INVALID_PARAM;
+    }
+    memcpy(_primaryLanguage, pLang, 3U);
+    _primaryLanguage[3] = '\0';
+    return dsERR_NONE;
 }
 
 /**
@@ -3661,8 +3689,9 @@ dsError_t dsGetPrimaryLanguage(intptr_t handle, char* pLang)
         hal_err("Invalid parameters; handle(%p) or pLang(%p).\n", handle, pLang);
         return dsERR_INVALID_PARAM;
     }
-    /* RPi does not support AC4 language selection controls, hence this operation is not supported. */
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    strncpy(pLang, _primaryLanguage, 4);
+    pLang[3] = '\0';
+    return dsERR_NONE;
 }
 
 /**
@@ -3696,10 +3725,16 @@ dsError_t dsSetSecondaryLanguage(intptr_t handle, const char* sLang)
         return dsERR_NOT_INITIALIZED;
     }
     if (!dsAudioIsValidHandle(handle) ||  sLang == NULL) {
+        hal_err("Invalid parameters; handle(%p) or sLang(%p).\n", handle, sLang);
         return dsERR_INVALID_PARAM;
     }
-    /* RPi does not support AC4 language selection controls, hence this operation is not supported. */
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    if (!dsAudioIsValidAc4Lang(sLang)) {
+        hal_err("Invalid AC4 language code: not a valid 3-letter ISO 639-3 string.\n");
+        return dsERR_INVALID_PARAM;
+    }
+    memcpy(_secondaryLanguage, sLang, 3U);
+    _secondaryLanguage[3] = '\0';
+    return dsERR_NONE;
 }
 
 /**
@@ -3733,8 +3768,9 @@ dsError_t dsGetSecondaryLanguage(intptr_t handle, char* sLang)
         hal_err("Invalid parameters; handle(%p) or sLang(%p).\n", handle, sLang);
         return dsERR_INVALID_PARAM;
     }
-    /* RPi does not support AC4 language selection controls, hence this operation is not supported. */
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    strncpy(sLang, _secondaryLanguage, 4);
+    sLang[3] = '\0';
+    return dsERR_NONE;
 }
 
 dsError_t dsGetHDMIARCPortId(int *portId)
