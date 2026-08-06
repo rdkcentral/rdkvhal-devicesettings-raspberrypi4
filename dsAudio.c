@@ -2857,7 +2857,7 @@ dsError_t dsSetAudioDelay(intptr_t handle, const uint32_t audioDelayMs)
         return dsERR_NOT_INITIALIZED;
     }
     if (!dsAudioIsValidHandle(handle) || audioDelayMs > 200) {
-        hal_err("Invalid parameters; handle(%p) or audioDelayMs(%d).\n", handle, audioDelayMs);
+        hal_err("Invalid parameters; handle(%p) or audioDelayMs(%u).\n", handle, (unsigned)audioDelayMs);
         return dsERR_INVALID_PARAM;
     }
     AOPHandle_t *aopHandle = (AOPHandle_t *)handle;
@@ -3467,6 +3467,7 @@ dsError_t dsSetAssociatedAudioMixing(intptr_t handle, bool mixing)
         hal_err("Invalid parameters; handle(%p).\n", handle);
         return dsERR_INVALID_PARAM;
     }
+    /* NOTE: This implementation only tracks the requested state; no MS12 mixing is performed on RPi. */
     _bAssociatedAudioMixing = mixing;
     return dsERR_NONE;
 }
