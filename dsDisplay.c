@@ -1284,6 +1284,13 @@ dsError_t dsGetEDIDBytes(intptr_t handle, unsigned char *edid, int *length)
         return dsERR_INVALID_PARAM;
     }
 
+    bool drmConnected = false, drmEnabled = false;
+    if (!drm_get_hdmi_connector_state(&drmConnected, &drmEnabled) || !drmConnected) {
+        hal_warn("HDMI not connected (DRM), returning empty EDID bytes\n");
+        *length = 0;
+        return dsERR_NONE;
+    }
+
     if (dsInternalGetHdmiEdidBytes(edid, length) != 0 || *length <= 0) {
         hal_err("Failed to get HDMI EDID bytes\n");
         *length = 0;
