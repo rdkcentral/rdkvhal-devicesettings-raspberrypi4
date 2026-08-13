@@ -1634,7 +1634,7 @@ dsError_t dsSetFPState(dsFPDIndicator_t eIndicator, dsFPDState_t state)
 
 	if (!isIndicatorSupported(eIndicator)) {
 		hal_err("SetFPState rejected: unsupported indicator eIndicator=%d.\n", eIndicator);
-		return dsERR_OPERATION_NOT_SUPPORTED;
+		return dsERR_INVALID_PARAM;
 	}
 
 	FPD_MUTEX_LOCK();
