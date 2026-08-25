@@ -125,6 +125,7 @@ static _Thread_local bool gIsLEDWorkerThread = false;
 #define DSFPD_BACKUP_TEXT_BUFFER_SIZE 4096
 #define DSFPD_SMALL_TEXT_BUFFER_SIZE 64
 #define DSFPD_NUMERIC_TEXT_BUFFER_SIZE 32
+#define DSFPD_MILLISECONDS_PER_MINUTE (60U * 1000U)
 
 #define SYSFS_LED_BRIGHTNESS_FILE "brightness"
 #define SYSFS_LED_MAX_BRIGHTNESS_FILE "max_brightness"
@@ -1442,9 +1443,13 @@ dsError_t dsSetFPBlink(dsFPDIndicator_t eIndicator, unsigned int uBlinkDuration,
 				eIndicator, uBlinkDuration, uBlinkIterations);
 		return dsERR_INVALID_PARAM;
 	}
-	if (uBlinkIterations > (UINT_MAX / 2U)) {
-		/* Keep phase multiplication (iterations * 2) in-range in worker thread. */
-		hal_err("Invalid parameter, uBlinkIterations=%u exceeds safe range.\n", uBlinkIterations);
+
+	uint64_t totalBlinkMs = (uint64_t)uBlinkDuration * (uint64_t)uBlinkIterations;
+
+	if( totalBlinkMs > (uint64_t)DSFPD_MILLISECONDS_PER_MINUTE) {
+		/* Reject configs where total blink time exceeds the 1-minute window. */
+		hal_err("Invalid parameter: uBlinkDuration=%u * uBlinkIterations=%u total blink time exceeds the 1-minute.\n",
+				uBlinkDuration, uBlinkIterations );
 		return dsERR_INVALID_PARAM;
 	}
 
