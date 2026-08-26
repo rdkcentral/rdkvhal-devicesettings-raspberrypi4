@@ -63,6 +63,8 @@ static bool _bIsAudioInitialized = false;
 static long _softvolSavedVolume = -1;
 static char _primaryLanguage[LANG_CODE_BUF_SIZE] = "";
 static char _secondaryLanguage[LANG_CODE_BUF_SIZE] = "";
+static uint32_t _audioDelayMs[dsAUDIOPORT_TYPE_MAX] = {0};
+static bool _bAssociatedAudioMixing = false;
 
 dsAudioOutPortConnectCB_t _halhdmiaudioCB = NULL;
 dsAudioFormatUpdateCB_t _halaudioformatCB = NULL;
@@ -1241,42 +1243,7 @@ dsError_t dsGetAudioDB(intptr_t handle, float *db)
 dsError_t dsGetAudioLevel(intptr_t handle, float *level)
 {
     hal_info("invoked.\n");
-    if (false == _bIsAudioInitialized)
-    {
-        return dsERR_NOT_INITIALIZED;
-    }
-    if (!dsAudioIsValidHandle(handle) || NULL == level) {
-        hal_err("Invalid parameters; handle(%p) or level(%p).\n", handle, level);
-        return dsERR_INVALID_PARAM;
-    }
-
-    long vol_value, min, max;
-    const char *s_card = dsGetPreferredAlsaCard();
-    bool usingSoftvol = false;
-
-    snd_mixer_t *mixer = NULL;
-    snd_mixer_elem_t *mixer_elem = NULL;
-    if (dsInitAudioMixerElem(s_card, &mixer, &mixer_elem, &usingSoftvol) != 0) {
-        hal_warn("ALSA mixer not available on HDMI card; level query unsupported.\n");
-        dsCloseMixerHandle(&mixer);
-        return dsERR_OPERATION_NOT_SUPPORTED;
-    }
-    if (mixer_elem == NULL) {
-        hal_warn("No simple mixer control on HDMI card; level query unsupported.\n");
-        dsCloseMixerHandle(&mixer);
-        return dsERR_OPERATION_NOT_SUPPORTED;
-    }
-    if (!snd_mixer_selem_get_playback_volume(mixer_elem, SND_MIXER_SCHN_FRONT_LEFT, &vol_value)) {
-        snd_mixer_selem_get_playback_volume_range(mixer_elem, &min, &max);
-        if (!usingSoftvol && min != vol_value){
-            min=min/2;
-        }
-        *level = round((float)((vol_value - min)*100.0/(max - min)));
-        dsCloseMixerHandle(&mixer);
-        return dsERR_NONE;
-    }
-    hal_warn("No playback volume control on HDMI card; level query unsupported.\n");
-    dsCloseMixerHandle(&mixer);
+    /* RPi4 is a source device; audio level is only applicable to sink SPEAKER/HEADPHONE ports. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -1766,48 +1733,8 @@ dsError_t dsSetAudioDB(intptr_t handle, float db)
 dsError_t dsSetAudioLevel(intptr_t handle, float level)
 {
     hal_info("invoked.\n");
-    if (!_bIsAudioInitialized) {
-        return dsERR_NOT_INITIALIZED;
-    }
-
-    if (!dsAudioIsValidHandle(handle) || level < 0.0 || level > 100.0) {
-        hal_err("Invalid parameters; handle(%p) or level(%f).\n", handle, level);
-        return dsERR_INVALID_PARAM;
-    }
-
-#ifndef DSHAL_ENABLE_ALSA_EXPERIMENTAL
-    /* RPi is a source device, so this operation is not supported. */
-    hal_dbg("Audio level control is not supported on source devices.\n");
+    /* RPi4 is a source device; audio level is only applicable to sink SPEAKER/HEADPHONE ports. */
     return dsERR_OPERATION_NOT_SUPPORTED;
-#else /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
-    const char *s_card = dsGetPreferredAlsaCard();
-    bool usingSoftvol = false;
-    snd_mixer_t *mixer = NULL;
-    snd_mixer_elem_t *mixer_elem = NULL;
-
-    if (dsInitAudioMixerElem(s_card, &mixer, &mixer_elem, &usingSoftvol) != 0 || mixer_elem == NULL) {
-        hal_warn("No simple mixer control on HDMI card; level control unsupported.\n");
-        dsCloseMixerHandle(&mixer);
-        return dsERR_OPERATION_NOT_SUPPORTED;
-    }
-
-    long min, max;
-    snd_mixer_selem_get_playback_volume_range(mixer_elem, &min, &max);
-    if (!usingSoftvol && level != 0) {
-        min /= 2;
-    }
-
-    long vol_value = (long)(((level / 100.0) * (max - min)) + min);
-    hal_info("Setting volume to %ld\n", vol_value);
-    if (snd_mixer_selem_set_playback_volume_all(mixer_elem, vol_value) != 0) {
-        hal_err("snd_mixer_selem_set_playback_volume_all failed.\n");
-        dsCloseMixerHandle(&mixer);
-        return dsERR_GENERAL;
-    }
-
-    dsCloseMixerHandle(&mixer);
-    return dsERR_NONE;
-#endif /* DSHAL_ENABLE_ALSA_EXPERIMENTAL */
 }
 
 dsError_t dsEnableLoopThru(intptr_t handle, bool loopThru)
@@ -2892,7 +2819,11 @@ dsError_t dsGetAudioDelay(intptr_t handle, uint32_t *audioDelayMs)
         hal_err("Invalid parameters; audioDelayMs(%p) or handle(%p).\n", audioDelayMs, handle);
         return dsERR_INVALID_PARAM;
     }
-    /* RPi vc4-hdmi driver does not expose a configurable audio delay via ALSA or sysfs. */
+    AOPHandle_t *aopHandle = (AOPHandle_t *)handle;
+    if (aopHandle->m_vType == dsAUDIOPORT_TYPE_HDMI) {
+        *audioDelayMs = _audioDelayMs[aopHandle->m_vType];
+        return dsERR_NONE;
+    }
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
 
@@ -2926,8 +2857,13 @@ dsError_t dsSetAudioDelay(intptr_t handle, const uint32_t audioDelayMs)
         return dsERR_NOT_INITIALIZED;
     }
     if (!dsAudioIsValidHandle(handle) || audioDelayMs > 200) {
-        hal_err("Invalid parameters; handle(%p) or audioDelayMs(%d).\n", handle, audioDelayMs);
+        hal_err("Invalid parameters; handle(%p) or audioDelayMs(%u).\n", handle, (unsigned)audioDelayMs);
         return dsERR_INVALID_PARAM;
+    }
+    AOPHandle_t *aopHandle = (AOPHandle_t *)handle;
+    if (aopHandle->m_vType == dsAUDIOPORT_TYPE_HDMI) {
+        _audioDelayMs[aopHandle->m_vType] = audioDelayMs;
+        return dsERR_NONE;
     }
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
@@ -3531,8 +3467,9 @@ dsError_t dsSetAssociatedAudioMixing(intptr_t handle, bool mixing)
         hal_err("Invalid parameters; handle(%p).\n", handle);
         return dsERR_INVALID_PARAM;
     }
-    /* RPi does not support MS12 associated audio mixing, hence this operation is not supported. */
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    /* NOTE: This implementation only tracks the requested state; no MS12 mixing is performed on RPi. */
+    _bAssociatedAudioMixing = mixing;
+    return dsERR_NONE;
 }
 
 /**
@@ -3567,8 +3504,8 @@ dsError_t dsGetAssociatedAudioMixing(intptr_t handle, bool *mixing)
         hal_err("Invalid parameters; handle(%p) or mixing(%p).\n", handle, mixing);
         return dsERR_INVALID_PARAM;
     }
-    /* RPi does not support MS12 associated audio mixing, hence this operation is not supported. */
-    return dsERR_OPERATION_NOT_SUPPORTED;
+    *mixing = _bAssociatedAudioMixing;
+    return dsERR_NONE;
 }
 
 /**
@@ -3857,15 +3794,6 @@ dsError_t dsGetHDMIARCPortId(int *portId)
 dsError_t dsSetAudioMixerLevels(intptr_t handle, dsAudioInput_t aInput, int volume)
 {
     hal_info("invoked.\n");
-    if (false == _bIsAudioInitialized) {
-        return dsERR_NOT_INITIALIZED;
-    }
-    if (!dsAudioIsValidHandle(handle) || volume < 0 || volume > 100
-            || aInput < dsAUDIO_INPUT_PRIMARY  || aInput >= dsAUDIO_INPUT_MAX)
-    {
-        hal_err("Invalid parameters; handle(%p) or volume(%d) or aInput(%d).\n", handle, volume, aInput);
-        return dsERR_INVALID_PARAM;
-    }
     /* RPi does not support audio mixer level controls, hence this operation is not supported. */
     return dsERR_OPERATION_NOT_SUPPORTED;
 }
