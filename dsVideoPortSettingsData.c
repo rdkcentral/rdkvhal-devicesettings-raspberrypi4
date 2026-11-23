@@ -56,3 +56,10 @@ dsVideoPortPortConfig_t kVideoPortPorts[] = {
 
 int kVideoPortConfigs_size = sizeof(kVideoPortConfigs) / sizeof(kVideoPortConfigs[0]);
 int kVideoPortPorts_size   = sizeof(kVideoPortPorts)   / sizeof(kVideoPortPorts[0]);
+
+/* Initialize the numSupportedResolutions during library loading at runtime */
+__attribute__((constructor))
+static void init_video_port_supported_resolutions(void)
+{
+    kVideoPortConfigs[0].numSupportedResolutions = (size_t)kResolutionsSettings_size;
+}
